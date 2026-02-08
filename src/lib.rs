@@ -12,6 +12,7 @@ pub mod resolver;
 pub mod routes;
 pub mod streaming;
 pub mod thinking_parser;
+pub mod tls;
 pub mod tokenizer;
 pub mod utils;
 

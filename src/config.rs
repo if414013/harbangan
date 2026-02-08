@@ -9,7 +9,7 @@ use std::path::PathBuf;
 #[command(author, version, about, long_about = None)]
 pub struct CliArgs {
     /// Server host address
-    #[arg(short = 'H', long, env = "SERVER_HOST", default_value = "0.0.0.0")]
+    #[arg(short = 'H', long, env = "SERVER_HOST", default_value = "127.0.0.1")]
     pub host: String,
 
     /// Server port
@@ -59,6 +59,18 @@ pub struct CliArgs {
     /// Enable monitoring dashboard TUI
     #[arg(long, default_value = "false")]
     pub dashboard: bool,
+
+    /// Enable HTTPS/TLS (auto-generates a self-signed certificate if --tls-cert/--tls-key are not provided)
+    #[arg(long, env = "TLS_ENABLED", default_value = "false")]
+    pub tls: bool,
+
+    /// Path to TLS certificate file (PEM format)
+    #[arg(long, env = "TLS_CERT")]
+    pub tls_cert: Option<String>,
+
+    /// Path to TLS private key file (PEM format)
+    #[arg(long, env = "TLS_KEY")]
+    pub tls_key: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -99,6 +111,11 @@ pub struct Config {
 
     // Dashboard
     pub dashboard: bool,
+
+    // TLS
+    pub tls_enabled: bool,
+    pub tls_cert_path: Option<PathBuf>,
+    pub tls_key_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -198,6 +215,11 @@ impl Config {
             ),
 
             dashboard: args.dashboard,
+
+            // TLS
+            tls_enabled: args.tls,
+            tls_cert_path: args.tls_cert.map(|s| expand_tilde(&s)),
+            tls_key_path: args.tls_key.map(|s| expand_tilde(&s)),
         };
 
         Ok(config)
@@ -219,7 +241,47 @@ impl Config {
             );
         }
 
+        // Validate TLS configuration
+        if let Some(ref cert) = self.tls_cert_path {
+            if self.tls_key_path.is_none() {
+                anyhow::bail!(
+                    "--tls-cert was provided without --tls-key. Both are required when using custom certificates."
+                );
+            }
+            if !cert.exists() {
+                anyhow::bail!("TLS certificate file not found: {}", cert.display());
+            }
+        }
+        if let Some(ref key) = self.tls_key_path {
+            if self.tls_cert_path.is_none() {
+                anyhow::bail!(
+                    "--tls-key was provided without --tls-cert. Both are required when using custom certificates."
+                );
+            }
+            if !key.exists() {
+                anyhow::bail!("TLS key file not found: {}", key.display());
+            }
+        }
+
+        // Require TLS for non-localhost bindings
+        let is_loopback = self.server_host == "127.0.0.1"
+            || self.server_host == "localhost"
+            || self.server_host == "::1";
+
+        if !is_loopback && !self.is_tls_active() {
+            anyhow::bail!(
+                "TLS is required when binding to non-localhost addresses (current: {}). \
+                 Either enable TLS with --tls flag, or bind to localhost with --host 127.0.0.1",
+                self.server_host
+            );
+        }
+
         Ok(())
+    }
+
+    /// Returns true if TLS should be used (explicitly enabled or cert/key provided).
+    pub fn is_tls_active(&self) -> bool {
+        self.tls_enabled || (self.tls_cert_path.is_some() && self.tls_key_path.is_some())
     }
 }
 
@@ -372,6 +434,87 @@ mod tests {
             FakeReasoningHandling::StripTags
         );
         assert_ne!(FakeReasoningHandling::Remove, FakeReasoningHandling::Pass);
+    }
+
+    // Helper function to create a test config with a temporary database file
+    fn create_test_config(server_host: &str, tls_enabled: bool) -> Config {
+        // Create a temporary database file
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("test_kiro_{}.db", std::process::id()));
+        std::fs::File::create(&temp_file).unwrap();
+
+        Config {
+            server_host: server_host.to_string(),
+            server_port: 8000,
+            proxy_api_key: "test-key".to_string(),
+            kiro_region: "us-east-1".to_string(),
+            kiro_cli_db_file: temp_file,
+            streaming_timeout: 300,
+            token_refresh_threshold: 300,
+            first_token_timeout: 15,
+            http_max_connections: 20,
+            http_connect_timeout: 30,
+            http_request_timeout: 300,
+            http_max_retries: 3,
+            debug_mode: DebugMode::Off,
+            log_level: "info".to_string(),
+            tool_description_max_length: 1000,
+            fake_reasoning_enabled: false,
+            fake_reasoning_max_tokens: 0,
+            fake_reasoning_handling: FakeReasoningHandling::AsReasoningContent,
+            dashboard: false,
+            tls_enabled,
+            tls_cert_path: None,
+            tls_key_path: None,
+        }
+    }
+
+    #[test]
+    fn test_validate_localhost_without_tls_passes() {
+        let config = create_test_config("127.0.0.1", false);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_localhost_string_without_tls_passes() {
+        let config = create_test_config("localhost", false);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_ipv6_localhost_without_tls_passes() {
+        let config = create_test_config("::1", false);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_0_0_0_0_without_tls_fails() {
+        let config = create_test_config("0.0.0.0", false);
+        let result = config.validate();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("TLS is required"));
+    }
+
+    #[test]
+    fn test_validate_0_0_0_0_with_tls_passes() {
+        let config = create_test_config("0.0.0.0", true);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_specific_ip_without_tls_fails() {
+        let config = create_test_config("192.168.1.100", false);
+        let result = config.validate();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("TLS is required"));
+    }
+
+    #[test]
+    fn test_validate_specific_ip_with_tls_passes() {
+        let config = create_test_config("192.168.1.100", true);
+        assert!(config.validate().is_ok());
     }
 }
 
@@ -557,7 +700,7 @@ KIRO_CLI_DB_FILE={}
 KIRO_REGION={}
 
 # Server settings
-SERVER_HOST=0.0.0.0
+SERVER_HOST=127.0.0.1
 SERVER_PORT={}
 
 # Logging (trace, debug, info, warn, error)

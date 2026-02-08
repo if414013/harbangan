@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::collections::VecDeque;
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -17,11 +17,19 @@ mod resolver;
 mod routes;
 mod streaming;
 mod thinking_parser;
+mod tls;
 mod tokenizer;
 mod utils;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Install the rustls crypto provider before any TLS operations.
+    // Both `ring` and `aws-lc-rs` can end up compiled via transitive deps;
+    // an explicit install prevents the runtime auto-detection panic.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls CryptoProvider");
+
     // Check if interactive setup is needed (no .env and missing required values)
     if config::needs_interactive_setup() {
         let interactive_config = config::run_interactive_setup()?;
@@ -69,6 +77,13 @@ async fn main() -> Result<()> {
         config.server_port
     );
     tracing::debug!("Debug mode: {:?}", config.debug_mode);
+
+    // Log auto-enable of TLS (must happen after tracing is initialized)
+    if config.is_tls_active() && !config.tls_enabled {
+        tracing::info!(
+            "TLS certificate and key provided — automatically enabling HTTPS."
+        );
+    }
 
     // Initialize authentication manager
     tracing::info!("Initializing authentication...");
@@ -164,20 +179,64 @@ async fn main() -> Result<()> {
     let app = build_app(app_state);
 
     let addr = format!("{}:{}", config.server_host, config.server_port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let sock_addr: std::net::SocketAddr = addr
+        .parse()
+        .context("Failed to parse server address")?;
+    let protocol = if config.is_tls_active() { "https" } else { "http" };
+
+    // Build optional TLS configuration
+    let rustls_config = if config.is_tls_active() {
+        let tls_cfg = tls::TlsConfig {
+            cert_path: config.tls_cert_path.clone(),
+            key_path: config.tls_key_path.clone(),
+        };
+        let rc = tls_cfg.build_rustls_config().await?;
+        tracing::info!("🔒 TLS enabled");
+        Some(rc)
+    } else {
+        None
+    };
+
+    // Unified graceful shutdown via axum_server::Handle for both HTTP and HTTPS
+    let handle = axum_server::Handle::new();
+    let shutdown_handle = handle.clone();
+    tokio::spawn(async move {
+        shutdown_signal().await;
+        shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
+    });
+
+    // Build server future — the only difference is bind vs bind_rustls.
+    // Boxing lets us treat both paths uniformly and eliminates the 4-way branch.
+    let server_future: std::pin::Pin<
+        Box<dyn std::future::Future<Output = std::io::Result<()>> + Send>,
+    > = if let Some(rustls_config) = rustls_config {
+        Box::pin(
+            axum_server::bind_rustls(sock_addr, rustls_config)
+                .handle(handle.clone())
+                .serve(app.into_make_service()),
+        )
+    } else {
+        Box::pin(
+            axum_server::bind(sock_addr)
+                .handle(handle.clone())
+                .serve(app.into_make_service()),
+        )
+    };
 
     if config.dashboard {
         let dashboard_metrics = Arc::clone(&metrics);
         let dashboard_log_buffer = Arc::clone(&log_buffer);
+        let dashboard_shutdown = handle.clone();
 
         let dashboard_handle = tokio::spawn(async move {
             if let Err(e) = run_dashboard(dashboard_metrics, dashboard_log_buffer).await {
                 eprintln!("Dashboard error: {}", e);
             }
+            dashboard_shutdown.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
         });
 
         tokio::select! {
-            result = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()) => {
+            result = server_future => {
                 if let Err(e) = result {
                     tracing::error!("Server error: {}", e);
                 }
@@ -188,11 +247,9 @@ async fn main() -> Result<()> {
         }
     } else {
         print_startup_banner(&config);
-        tracing::info!("🚀 Server listening on http://{}", addr);
+        tracing::info!("🚀 Server listening on {}://{}", protocol, addr);
 
-        axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal())
-            .await?;
+        server_future.await.context("Server error")?;
     }
 
     tracing::info!("👋 Server shutdown complete");
@@ -316,10 +373,14 @@ fn print_startup_banner(config: &config::Config) {
 
     println!("{}", banner);
     println!("  Version:     {}", env!("CARGO_PKG_VERSION"));
+    let protocol = if config.is_tls_active() { "https" } else { "http" };
     println!(
-        "  Server:      http://{}:{}",
-        config.server_host, config.server_port
+        "  Server:      {}://{}:{}",
+        protocol, config.server_host, config.server_port
     );
+    if config.is_tls_active() {
+        println!("  TLS:         enabled 🔒");
+    }
     println!("  Region:      {}", config.kiro_region);
     println!("  Debug Mode:  {:?}", config.debug_mode);
     println!("  Log Level:   {}", config.log_level);

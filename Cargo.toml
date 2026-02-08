@@ -1,6 +1,6 @@
 [package]
 name = "kiro-gateway"
-version = "1.0.6"
+version = "1.0.8"
 edition = "2021"
 authors = ["Jwadow"]
 license = "AGPL-3.0"
@@ -16,9 +16,15 @@ bench = ["hdrhistogram", "async-stream", "rand"]
 [dependencies]
 # Web framework
 axum = { version = "0.7", features = ["macros"] }
+axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 tower = { version = "0.4", features = ["util"] }
 tower-http = { version = "0.5", features = ["cors", "trace", "compression-gzip"] }
 http-body-util = "0.1"
+
+# TLS / self-signed certificate generation
+rcgen = "0.13"
+rustls = { version = "0.23", features = ["ring"], default-features = false }
+time = "0.3"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }

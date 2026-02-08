@@ -55,6 +55,7 @@ This project is a Rust rewrite of the original [kiro-gateway](https://github.com
 | 📡 **Streaming**                | Full SSE streaming support                                                                 |
 | 🔄 **Retry Logic**              | Automatic retries on errors                                                                |
 | 🔐 **Smart token management**   | Automatic refresh before expiration                                                        |
+| 🔒 **HTTPS / TLS**              | Built-in TLS support with auto-generated self-signed certificates or custom cert/key files |
 | 📊 **Live Dashboard**           | Real-time TUI with metrics, logs, and token usage (toggle with `--dashboard` or press `d`) |
 
 ---
@@ -94,7 +95,17 @@ cargo build --release
 ./target/release/kiro-gateway
 ```
 
-The server will be available at `http://localhost:8000`
+The server will be available at `http://localhost:8000`.
+
+🔒 **Default Binding:** The gateway defaults to `127.0.0.1` (localhost only) for security. To allow network access, use `--host 0.0.0.0 --tls`. See the [Security](#-security) section for details.
+
+To enable HTTPS with an auto-generated self-signed certificate:
+
+```bash
+kiro-gateway --tls
+```
+
+The server will be available at `https://localhost:8000`.
 
 ---
 
@@ -120,7 +131,51 @@ PROXY_API_KEY="my-super-secret-password-123"
 
 # Optional
 KIRO_REGION="us-east-1"
+
+# Server binding (optional, defaults to 127.0.0.1:8000 for local-only access)
+# For network access: SERVER_HOST=0.0.0.0 (requires --tls flag)
+# SERVER_HOST=127.0.0.1
+# SERVER_PORT=8000
+
+# TLS / HTTPS (optional)
+# TLS_ENABLED=true
+# TLS_CERT=/path/to/cert.pem
+# TLS_KEY=/path/to/key.pem
 ```
+
+### HTTPS / TLS
+
+The gateway supports HTTPS out of the box with three usage modes:
+
+**1. Auto-generated self-signed certificate** — just add `--tls`:
+
+```bash
+kiro-gateway --tls
+```
+
+A self-signed certificate is generated automatically and saved to `~/.kiro-gateway/tls/` for reuse across restarts. Certificates are valid for 365 days and are automatically regenerated before expiry.
+
+> ⚠️ Self-signed certificates are not trusted by browsers and clients by default. Use `--tls-cert` and `--tls-key` for production deployments.
+
+**2. Custom certificate** — provide your own PEM files:
+
+```bash
+kiro-gateway --tls --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem
+```
+
+**3. Auto-enable via cert/key** — TLS activates automatically when both paths are provided:
+
+```bash
+kiro-gateway --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem
+```
+
+All options also work via environment variables: `TLS_ENABLED`, `TLS_CERT`, `TLS_KEY`.
+
+| CLI Flag       | Environment Variable | Description                                      |
+| -------------- | -------------------- | ------------------------------------------------ |
+| `--tls`        | `TLS_ENABLED`        | Enable HTTPS (auto-generates cert if none given) |
+| `--tls-cert`   | `TLS_CERT`           | Path to TLS certificate file (PEM format)        |
+| `--tls-key`    | `TLS_KEY`            | Path to TLS private key file (PEM format)        |
 
 ### Kiro CLI Database Locations
 
@@ -134,6 +189,74 @@ The gateway auto-detects the kiro-cli database from these common locations:
 | **Legacy**      | `~/.kiro/data.db`                                     |
 
 The gateway reads credentials from the kiro-cli SQLite database and automatically refreshes tokens before expiration.
+
+---
+
+## 🔒 Security
+
+### Server Binding
+
+**Local-only use (127.0.0.1 - Recommended for personal use)**
+
+When you bind to `127.0.0.1` (localhost), the gateway is only accessible from your local machine. This is the safest option for personal development and testing.
+
+```bash
+kiro-gateway --host 127.0.0.1
+```
+
+✅ **Secure by Default:** The gateway defaults to `127.0.0.1` (localhost only). This is the recommended setting for personal use.
+
+**Network-accessible use (0.0.0.0 - Use with caution)**
+
+Binding to `0.0.0.0` exposes the gateway to all network interfaces, making it accessible from other devices on your local network or potentially the internet if your firewall allows it.
+
+```bash
+kiro-gateway --host 0.0.0.0
+```
+
+⚠️ **Security implications:**
+- Anyone on your network can access the gateway if they know your IP address and port
+- Traffic is unencrypted by default (HTTP), exposing your API key and data in plain text
+- The `PROXY_API_KEY` is your only protection against unauthorized access
+- If port-forwarded or exposed to the internet, anyone can attempt to access your gateway
+
+**If you must use 0.0.0.0, always enable TLS:**
+
+```bash
+kiro-gateway --host 0.0.0.0 --tls
+```
+
+This encrypts all traffic between clients and the gateway, protecting your credentials and data from network sniffing.
+
+🛡️ **Enforcement:** The gateway enforces TLS for non-localhost bindings. If you attempt to start with `0.0.0.0` or another non-localhost address without TLS, the gateway will refuse to start with an error:
+
+> Error: TLS is required when binding to non-localhost addresses (current: 0.0.0.0). Either enable TLS with --tls flag, or bind to localhost with --host 127.0.0.1
+
+This validation prevents accidental exposure of unencrypted traffic to your network.
+
+### Trusting Self-Signed Certificates (macOS)
+
+When using `--tls` without custom certificates, the gateway generates a self-signed certificate saved to `~/.kiro-gateway/tls/`. Clients will not trust this certificate by default, resulting in connection errors.
+
+**GUI Method (Keychain Access):**
+
+1. Open **Keychain Access** application
+2. Select the **System** keychain in the left sidebar
+3. Drag the certificate file from `~/.kiro-gateway/tls/` into the Keychain Access window
+4. Double-click the imported certificate entry
+5. Expand the **Trust** section
+6. Set **When using this certificate** to **Always Trust**
+7. Close the dialog and enter your admin password when prompted
+
+**CLI Method (Terminal):**
+
+```bash
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/.kiro-gateway/tls/cert.pem
+```
+
+Replace `cert.pem` with the actual certificate filename in your `~/.kiro-gateway/tls/` directory.
+
+> 💡 **Tip:** After trusting the certificate, restart your client application to ensure it picks up the new trust settings. For curl, you can also use the `-k` flag to skip certificate verification during testing.
 
 ---
 
@@ -180,6 +303,8 @@ curl http://localhost:8000/v1/messages \
   }'
 ```
 
+> 💡 **Using HTTPS?** Replace `http://` with `https://` in the URLs above. If using a self-signed certificate, add `-k` to curl to skip certificate verification.
+
 </details>
 
 ---
@@ -203,7 +328,7 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
       "npm": "@ai-sdk/openai-compatible",
       "name": "Kiro Proxy",
       "options": {
-        "baseURL": "http://127.0.0.1:9000/v1",
+        "baseURL": "http://127.0.0.1:8000/v1",
         "apiKey": "your-proxy-api-key"
       },
       "auto": {
@@ -289,7 +414,7 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
 }
 ```
 
-> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY` environment variable. The default port is `8000`, but can be changed via the interactive setup prompt or `SERVER_PORT` in your `.env` file.
+> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY` environment variable. The default port is `8000`, but can be changed via the interactive setup prompt or `SERVER_PORT` in your `.env` file. If using HTTPS, change `http://` to `https://` in the `baseURL`.
 
 </details>
 
@@ -309,6 +434,8 @@ To use this gateway with [Claude Code CLI](https://docs.anthropic.com/en/docs/cl
 ```bash
 ANTHROPIC_BASE_URL=http://127.0.0.1:8000 ANTHROPIC_AUTH_TOKEN=your-proxy-api-key CLAUDE_CODE_ENABLE_TELEMETRY=0 DISABLE_PROMPT_CACHING=1 DISABLE_NON_ESSENTIAL_MODEL_CALLS=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 claude
 ```
+
+> 💡 **Using HTTPS?** Replace `http://` with `https://` in `ANTHROPIC_BASE_URL`. If using a self-signed certificate, also set `NODE_TLS_REJECT_UNAUTHORIZED=0` to allow untrusted certificates.
 
 **Or add to your shell profile** (`~/.bashrc`, `~/.zshrc`, etc.):
 
@@ -330,7 +457,37 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 | `DISABLE_NON_ESSENTIAL_MODEL_CALLS`        | Reduce unnecessary API calls                      |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | Disable non-essential network traffic             |
 
-> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY`. The default port is `8000`, but can be changed via the interactive setup prompt or `SERVER_PORT` in your `.env` file.
+> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY`. The default port is `8000`, but can be changed via the interactive setup prompt or `SERVER_PORT` in your `.env` file. If using HTTPS, change `http://` to `https://` in `ANTHROPIC_BASE_URL`.
+
+</details>
+
+---
+
+## 🖥️ Zed Editor Setup
+
+<details>
+<summary>View Zed Editor configuration</summary>
+
+To use this gateway with the [Zed Editor](https://zed.dev/)'s ACP Claude Agent, add the following configuration to your Zed settings file at `~/.config/zed/settings.json`:
+
+```json
+{
+  "agent_servers": {
+    "claude": {
+      "env": {
+        "ANTHROPIC_BASE_URL": "http://127.0.0.1:8000",
+        "ANTHROPIC_AUTH_TOKEN": "your-proxy-api-key",
+        "CLAUDE_CODE_ENABLE_TELEMETRY": "0",
+        "DISABLE_PROMPT_CACHING": "1",
+        "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1",
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+      }
+    }
+  }
+}
+```
+
+> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY`. The default port is `8000`, but can be changed via the interactive setup prompt or `SERVER_PORT` in your `.env` file. If using HTTPS, change `http://` to `https://` in `ANTHROPIC_BASE_URL`. After updating the settings, restart Zed for the changes to take effect.
 
 </details>
 
