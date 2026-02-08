@@ -263,10 +263,8 @@ impl Config {
             }
         }
 
-        // Require TLS for non-localhost bindings
-        let is_loopback = self.server_host == "127.0.0.1"
-            || self.server_host == "localhost"
-            || self.server_host == "::1";
+        // Require TLS for non-loopback IP bindings
+        let is_loopback = self.server_host == "127.0.0.1" || self.server_host == "::1";
 
         if !is_loopback && !self.is_tls_active() {
             anyhow::bail!(
@@ -436,19 +434,26 @@ mod tests {
         assert_ne!(FakeReasoningHandling::Remove, FakeReasoningHandling::Pass);
     }
 
-    // Helper function to create a test config with a temporary database file
-    fn create_test_config(server_host: &str, tls_enabled: bool) -> Config {
-        // Create a temporary database file
+    // Helper function to create a test config with a temporary database file.
+    // Uses a unique filename per call to avoid cross-test interference.
+    fn create_test_config(server_host: &str, tls_enabled: bool) -> (Config, PathBuf) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+
         let temp_dir = std::env::temp_dir();
-        let temp_file = temp_dir.join(format!("test_kiro_{}.db", std::process::id()));
+        let temp_file = temp_dir.join(format!(
+            "test_kiro_{}_{}.db",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
         std::fs::File::create(&temp_file).unwrap();
 
-        Config {
+        let config = Config {
             server_host: server_host.to_string(),
             server_port: 8000,
             proxy_api_key: "test-key".to_string(),
             kiro_region: "us-east-1".to_string(),
-            kiro_cli_db_file: temp_file,
+            kiro_cli_db_file: temp_file.clone(),
             streaming_timeout: 300,
             token_refresh_threshold: 300,
             first_token_timeout: 15,
@@ -466,55 +471,68 @@ mod tests {
             tls_enabled,
             tls_cert_path: None,
             tls_key_path: None,
-        }
+        };
+
+        (config, temp_file)
     }
 
     #[test]
     fn test_validate_localhost_without_tls_passes() {
-        let config = create_test_config("127.0.0.1", false);
+        let (config, _tmp) = create_test_config("127.0.0.1", false);
         assert!(config.validate().is_ok());
+        let _ = std::fs::remove_file(_tmp);
     }
 
     #[test]
-    fn test_validate_localhost_string_without_tls_passes() {
-        let config = create_test_config("localhost", false);
-        assert!(config.validate().is_ok());
+    fn test_validate_localhost_string_without_tls_fails() {
+        // "localhost" is not treated as a loopback IP literal, so TLS is required
+        let (config, _tmp) = create_test_config("localhost", false);
+        let result = config.validate();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("TLS is required"));
+        let _ = std::fs::remove_file(_tmp);
     }
 
     #[test]
     fn test_validate_ipv6_localhost_without_tls_passes() {
-        let config = create_test_config("::1", false);
+        let (config, _tmp) = create_test_config("::1", false);
         assert!(config.validate().is_ok());
+        let _ = std::fs::remove_file(_tmp);
     }
 
     #[test]
     fn test_validate_0_0_0_0_without_tls_fails() {
-        let config = create_test_config("0.0.0.0", false);
+        let (config, _tmp) = create_test_config("0.0.0.0", false);
         let result = config.validate();
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("TLS is required"));
+        let _ = std::fs::remove_file(_tmp);
     }
 
     #[test]
     fn test_validate_0_0_0_0_with_tls_passes() {
-        let config = create_test_config("0.0.0.0", true);
+        let (config, _tmp) = create_test_config("0.0.0.0", true);
         assert!(config.validate().is_ok());
+        let _ = std::fs::remove_file(_tmp);
     }
 
     #[test]
     fn test_validate_specific_ip_without_tls_fails() {
-        let config = create_test_config("192.168.1.100", false);
+        let (config, _tmp) = create_test_config("192.168.1.100", false);
         let result = config.validate();
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("TLS is required"));
+        let _ = std::fs::remove_file(_tmp);
     }
 
     #[test]
     fn test_validate_specific_ip_with_tls_passes() {
-        let config = create_test_config("192.168.1.100", true);
+        let (config, _tmp) = create_test_config("192.168.1.100", true);
         assert!(config.validate().is_ok());
+        let _ = std::fs::remove_file(_tmp);
     }
 }
 

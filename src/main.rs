@@ -177,7 +177,12 @@ async fn main() -> Result<()> {
     let app = build_app(app_state);
 
     let addr = format!("{}:{}", config.server_host, config.server_port);
-    let sock_addr: std::net::SocketAddr = addr.parse().context("Failed to parse server address")?;
+    let mut resolved_addrs = tokio::net::lookup_host(&addr)
+        .await
+        .with_context(|| format!("Failed to resolve server address '{}'", addr))?;
+    let sock_addr: std::net::SocketAddr = resolved_addrs
+        .next()
+        .context("No resolved socket addresses for configured server host")?;
     let protocol = if config.is_tls_active() {
         "https"
     } else {

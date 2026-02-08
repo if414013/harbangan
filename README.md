@@ -107,6 +107,8 @@ kiro-gateway --tls
 
 The server will be available at `https://localhost:8000`.
 
+> **Note:** The auto-generated self-signed certificate only covers `localhost`, `127.0.0.1`, and `::1`. If you bind to a network address with `--host 0.0.0.0` and clients connect via a LAN IP or hostname, they will see certificate name mismatch errors. For network access, provide your own certificate with `--tls-cert` and `--tls-key` that includes the appropriate SANs.
+
 ---
 
 ## ⚙️ Configuration
@@ -435,7 +437,7 @@ To use this gateway with [Claude Code CLI](https://docs.anthropic.com/en/docs/cl
 ANTHROPIC_BASE_URL=http://127.0.0.1:8000 ANTHROPIC_AUTH_TOKEN=your-proxy-api-key CLAUDE_CODE_ENABLE_TELEMETRY=0 DISABLE_PROMPT_CACHING=1 DISABLE_NON_ESSENTIAL_MODEL_CALLS=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 claude
 ```
 
-> 💡 **Using HTTPS?** Replace `http://` with `https://` in `ANTHROPIC_BASE_URL`. If using a self-signed certificate, also set `NODE_TLS_REJECT_UNAUTHORIZED=0` to allow untrusted certificates.
+> 💡 **Using HTTPS?** Replace `http://` with `https://` in `ANTHROPIC_BASE_URL`. If using a self-signed certificate, prefer trusting the cert in your OS keychain or pointing `NODE_EXTRA_CA_CERTS` to your cert file. As a last-resort local-only workaround you may temporarily set `NODE_TLS_REJECT_UNAUTHORIZED=0` for the `claude` command, but **never** use this in production or add it to your shell profile.
 
 **Or add to your shell profile** (`~/.bashrc`, `~/.zshrc`, etc.):
 
