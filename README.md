@@ -440,29 +440,39 @@ To use this gateway with [Claude Code CLI](https://docs.anthropic.com/en/docs/cl
 ANTHROPIC_BASE_URL=http://127.0.0.1:8000 ANTHROPIC_AUTH_TOKEN=your-proxy-api-key CLAUDE_CODE_ENABLE_TELEMETRY=0 DISABLE_PROMPT_CACHING=1 DISABLE_NON_ESSENTIAL_MODEL_CALLS=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 claude
 ```
 
-> 💡 **Using HTTPS?** Replace `http://` with `https://` in `ANTHROPIC_BASE_URL`. If using a self-signed certificate, prefer trusting the cert in your OS keychain or pointing `NODE_EXTRA_CA_CERTS` to your cert file. As a last-resort local-only workaround you may temporarily set `NODE_TLS_REJECT_UNAUTHORIZED=0` for the `claude` command, but **never** use this in production or add it to your shell profile.
+> 💡 **Using HTTPS with self-signed certificate?** Replace `http://` with `https://` in `ANTHROPIC_BASE_URL` and set `NODE_EXTRA_CA_CERTS` to point to your certificate file:
+> ```bash
+> export NODE_EXTRA_CA_CERTS="$HOME/.kiro-gateway/tls/cert.pem"
+> ANTHROPIC_BASE_URL=https://127.0.0.1:8000 ANTHROPIC_AUTH_TOKEN=your-proxy-api-key CLAUDE_CODE_ENABLE_TELEMETRY=0 DISABLE_PROMPT_CACHING=1 DISABLE_NON_ESSENTIAL_MODEL_CALLS=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 claude
+> ```
+> As a last-resort local-only workaround you may temporarily set `NODE_TLS_REJECT_UNAUTHORIZED=0` for the `claude` command, but **never** use this in production or add it to your shell profile.
 
 **Or add to your shell profile** (`~/.bashrc`, `~/.zshrc`, etc.):
 
 ```bash
+# Claude Code CLI configuration for Kiro Gateway
 export ANTHROPIC_BASE_URL=http://127.0.0.1:8000 # use https if TLS is enabled
 export ANTHROPIC_AUTH_TOKEN=your-proxy-api-key
 export CLAUDE_CODE_ENABLE_TELEMETRY=0
 export DISABLE_PROMPT_CACHING=1
 export DISABLE_NON_ESSENTIAL_MODEL_CALLS=1
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+
+# [Optional] Required when using HTTPS with self-signed certificate
+export NODE_EXTRA_CA_CERTS="$HOME/.kiro-gateway/tls/cert.pem"
 ```
 
 | Variable                                   | Description                                       |
 | ------------------------------------------ | ------------------------------------------------- |
 | `ANTHROPIC_BASE_URL`                       | Points Claude Code to your gateway                |
 | `ANTHROPIC_AUTH_TOKEN`                     | Your `PROXY_API_KEY` value                        |
+| `NODE_EXTRA_CA_CERTS`                      | Path to certificate file (required for self-signed HTTPS) |
 | `CLAUDE_CODE_ENABLE_TELEMETRY`             | Disable telemetry                                 |
 | `DISABLE_PROMPT_CACHING`                   | Disable prompt caching (not supported by gateway) |
 | `DISABLE_NON_ESSENTIAL_MODEL_CALLS`        | Reduce unnecessary API calls                      |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | Disable non-essential network traffic             |
 
-> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY`. The default port is `8000`, but can be changed via the interactive setup prompt or `SERVER_PORT` in your `.env` file. If using HTTPS, change `http://` to `https://` in `ANTHROPIC_BASE_URL`.
+> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY`. The default port is `8000`, but can be changed via the interactive setup prompt or `SERVER_PORT` in your `.env` file. If using HTTPS, change `http://` to `https://` in `ANTHROPIC_BASE_URL` and set `NODE_EXTRA_CA_CERTS` to point to your certificate file.
 
 </details>
 
@@ -486,6 +496,8 @@ To use this gateway with the [Zed Editor](https://zed.dev/)'s ACP Claude Agent, 
         "DISABLE_PROMPT_CACHING": "1",
         "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+        // [Optional] Required when using HTTPS with self-signed certificate
+        // "NODE_EXTRA_CA_CERTS": "/path/to/cert.pem"
       }
     }
   }
