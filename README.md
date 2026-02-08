@@ -435,17 +435,15 @@ To use this gateway with [Claude Code CLI](https://docs.anthropic.com/en/docs/cl
 
 **One-liner:**
 
+**Using HTTP**
 ```bash
-# use https for ANTHROPIC_BASE_URL if TLS is enabled
 ANTHROPIC_BASE_URL=http://127.0.0.1:8000 ANTHROPIC_AUTH_TOKEN=your-proxy-api-key CLAUDE_CODE_ENABLE_TELEMETRY=0 DISABLE_PROMPT_CACHING=1 DISABLE_NON_ESSENTIAL_MODEL_CALLS=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 claude
 ```
 
-> 💡 **Using HTTPS with self-signed certificate?** Replace `http://` with `https://` in `ANTHROPIC_BASE_URL` and set `NODE_EXTRA_CA_CERTS` to point to your certificate file:
-> ```bash
-> export NODE_EXTRA_CA_CERTS="$HOME/.kiro-gateway/tls/cert.pem"
-> ANTHROPIC_BASE_URL=https://127.0.0.1:8000 ANTHROPIC_AUTH_TOKEN=your-proxy-api-key CLAUDE_CODE_ENABLE_TELEMETRY=0 DISABLE_PROMPT_CACHING=1 DISABLE_NON_ESSENTIAL_MODEL_CALLS=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 claude
-> ```
-> As a last-resort local-only workaround you may temporarily set `NODE_TLS_REJECT_UNAUTHORIZED=0` for the `claude` command, but **never** use this in production or add it to your shell profile.
+💡 **Using HTTPS with self-signed certificate?** Replace `http://` with `https://` in `ANTHROPIC_BASE_URL` and set `NODE_EXTRA_CA_CERTS` to point to your certificate file:
+```bash
+NODE_EXTRA_CA_CERTS=/path/to/cert.pem ANTHROPIC_BASE_URL=https://127.0.0.1:8000 ANTHROPIC_AUTH_TOKEN=your-proxy-api-key CLAUDE_CODE_ENABLE_TELEMETRY=0 DISABLE_PROMPT_CACHING=1 DISABLE_NON_ESSENTIAL_MODEL_CALLS=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 claude
+```
 
 **Or add to your shell profile** (`~/.bashrc`, `~/.zshrc`, etc.):
 
@@ -459,7 +457,7 @@ export DISABLE_NON_ESSENTIAL_MODEL_CALLS=1
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
 # [Optional] Required when using HTTPS with self-signed certificate
-export NODE_EXTRA_CA_CERTS="$HOME/.kiro-gateway/tls/cert.pem"
+export NODE_EXTRA_CA_CERTS="/path/to/cert.pem"
 ```
 
 | Variable                                   | Description                                       |
