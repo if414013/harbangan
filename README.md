@@ -31,15 +31,11 @@ This project is a Rust rewrite of the original [kiro-gateway](https://github.com
 
 | Model                    | Description                                               |
 | ------------------------ | --------------------------------------------------------- |
-| 🧠 **Claude Opus 4.6**   | Latest flagship. ~198K context, adaptive thinking         |
-| 🧠 **Claude Opus 4.5**   | Most powerful. Complex reasoning, deep analysis, research |
+| 🧠 **Claude Opus 4.6**   | Latest flagship. Adaptive thinking, complex reasoning     |
 | 🚀 **Claude Sonnet 4.6** | Latest balanced. Coding, writing, general-purpose         |
-| 🚀 **Claude Sonnet 4.5** | Balanced. Coding, writing, general-purpose                |
 | ⚡ **Claude Haiku 4.5**  | Lightning fast. Quick responses, simple tasks             |
-| 📦 **Claude Sonnet 4**   | Previous generation. Reliable for most use cases          |
-| 📦 **Claude 3.7 Sonnet** | Legacy model. Backward compatibility                      |
 
-> 💡 **Smart Model Resolution:** Use any model name format — `claude-sonnet-4-5`, `claude-sonnet-4.5`, or versioned names like `claude-sonnet-4-5-20250929`. The gateway normalizes them automatically.
+> 💡 **Smart Model Resolution:** Use any model name format — `claude-sonnet-4-6`, `claude-sonnet-4.6`, or versioned names like `claude-sonnet-4-20250514`. The gateway normalizes them automatically.
 
 ---
 
@@ -325,6 +321,20 @@ For more details on OpenCode configuration, see the [OpenCode Config Documentati
 
 https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
 
+### Tested Model Limits
+
+Limits below were empirically tested using `probe_limits` against a live Kiro gateway (see [docs/probe-limits.md](docs/probe-limits.md)):
+
+| Model               | Context (tokens) | Max output tokens | Notes                              |
+| ------------------- | :--------------: | :---------------: | ---------------------------------- |
+| `claude-opus-4.6`   | ~195K            | unknown           | Output probe errored (thinking mode interference) |
+| `claude-sonnet-4.6` | ~195K            | unknown           | Model stopped early — disable thinking to re-probe |
+| `claude-haiku-4.5`  | ~195K            | unknown           | Model stopped early — disable thinking to re-probe |
+
+> Output token cap is unknown because the gateway has thinking mode enabled by default. Restart with `FAKE_REASONING=false` and re-run `probe_limits` to get accurate output caps. Anthropic's documented standard limit is **8192 tokens** for all Claude 4.x models.
+
+### Configuration
+
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
@@ -336,100 +346,46 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
         "baseURL": "http://127.0.0.1:8000/v1",  // use https if TLS is enabled
         "apiKey": "your-proxy-api-key"
       },
-      "auto": {
-        "name": "Auto"
-      },
-      "claude-haiku-4.5": {
-        "name": "Claude Haiku 4.5",
-        "limit": {
-          "context": 198000,
-          "output": 8192
-        },
-        "modalities": {
-          "input": ["text", "image"],
-          "output": ["text"]
-        }
-      },
-      "claude-opus-4.5": {
-        "name": "Claude Opus 4.5",
-        "limit": {
-          "context": 198000,
-          "output": 8192
-        },
-        "modalities": {
-          "input": ["text", "image"],
-          "output": ["text"]
-        },
-        "variants": {
-          "low": {
-            "thinkingConfig": {
-              "thinkingBudget": 4096
-            }
+      "models": {
+        "claude-haiku-4.5": {
+          "name": "Claude Haiku 4.5",
+          "limit": {
+            "context": 195000,
+            "output": 8192
           },
-          "max": {
-            "thinkingConfig": {
-              "thinkingBudget": 32768
-            }
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
           }
-        }
-      },
-      "claude-opus-4.6": {
-        "name": "Claude Opus 4.6",
-        "limit": {
-          "context": 198000,
-          "output": 8192
         },
-        "modalities": {
-          "input": ["text", "image"],
-          "output": ["text"]
-        },
-        "variants": {
-          "low": {
-            "thinkingConfig": { "type": "adaptive", "effort": "low" }
+        "claude-sonnet-4.6": {
+          "name": "Claude Sonnet 4.6",
+          "limit": {
+            "context": 195000,
+            "output": 8192
           },
-          "max": {
-            "thinkingConfig": { "type": "adaptive", "effort": "max" }
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
           }
-        }
-      },
-      "claude-sonnet-4": {
-        "name": "Claude Sonnet 4",
-        "limit": {
-          "context": 198000,
-          "output": 8192
         },
-        "modalities": {
-          "input": ["text", "image"],
-          "output": ["text"]
-        }
-      },
-      "claude-sonnet-4.5": {
-        "name": "Claude Sonnet 4.5",
-        "limit": {
-          "context": 198000,
-          "output": 8192
-        },
-        "modalities": {
-          "input": ["text", "image"],
-          "output": ["text"]
-        }
-      },
-      "claude-sonnet-4.6": {
-        "name": "Claude Sonnet 4.6",
-        "limit": {
-          "context": 198000,
-          "output": 8192
-        },
-        "modalities": {
-          "input": ["text", "image"],
-          "output": ["text"]
-        },
-        "variants": {
-          "low": {
-            "thinkingConfig": { "type": "adaptive", "effort": "low" }
+        "claude-opus-4.6": {
+          "name": "Claude Opus 4.6",
+          "limit": {
+            "context": 195000,
+            "output": 8192
           },
-          "max": {
-            "thinkingConfig": { "type": "adaptive", "effort": "max" }
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          },
+          "variants": {
+            "low": {
+              "thinkingConfig": { "type": "adaptive", "effort": "low" }
+            },
+            "max": {
+              "thinkingConfig": { "type": "adaptive", "effort": "max" }
+            }
           }
         }
       }
