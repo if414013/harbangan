@@ -90,7 +90,10 @@ async fn main() -> Result<()> {
     }
 
     eprintln!();
-    println!("{:<32} | {:>18} | Max output tokens", "Model", "Context (tokens)");
+    println!(
+        "{:<32} | {:>18} | Max output tokens",
+        "Model", "Context (tokens)"
+    );
     println!("{}", "-".repeat(72));
 
     for (model, context_limit, output_limit) in &results {
@@ -146,10 +149,11 @@ async fn probe_context_window(
     let mut lo_chars: usize = 100_000;
     let mut hi_chars: usize = 5_000_000;
     // First check if even lo_chars works
-    let mut last_good_tokens: u64 = match send_probe(client, base_url, api_key, model, lo_chars).await {
-        Ok(usage) => usage.prompt_tokens,
-        Err(_) => return Err(anyhow::anyhow!("model unavailable")),
-    };
+    let mut last_good_tokens: u64 =
+        match send_probe(client, base_url, api_key, model, lo_chars).await {
+            Ok(usage) => usage.prompt_tokens,
+            Err(_) => return Err(anyhow::anyhow!("model unavailable")),
+        };
 
     // Check if hi_chars fails (if not, context window is very large)
     if send_probe(client, base_url, api_key, model, hi_chars)
