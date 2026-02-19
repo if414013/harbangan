@@ -31,14 +31,20 @@ These are read from `.env` automatically if present.
 Gateway: http://127.0.0.1:8000
 Probing model: claude-sonnet-4.6
 
-Model                          Context (tokens)       Output cap
-------------------------------------------------------------------
-claude-sonnet-4.6                        ~197928   model stops early
+[claude-sonnet-4.6]
+  context window:  [2550K chars]✗ [1325K chars]✗ ... done.
+  output tokens:   [feasibility check] (thinking mode consuming budget — restart with FAKE_REASONING=false)
+
+Model                            |   Context (tokens) | Max output tokens
+--------------------------------------------------------------------------
+claude-sonnet-4.6                |             ~195K  | unknown (thinking mode consuming budget — restart with FAKE_REASONING=false)
 ```
 
 **Context (tokens)** — the highest `prompt_tokens` value that succeeded, read directly from the gateway's usage metadata. Use this for `contextLength` in your OpenCode config.
 
-**Output cap** — if the model hit `finish_reason=length`, shows the actual `completion_tokens` at the cap. If the model always stops before hitting the limit (common with thinking mode enabled), shows `model stops early`.
+**Max output tokens** — if the model hit `finish_reason=length`, shows the actual `completion_tokens` at the cap. Otherwise shows `unknown` with a reason:
+- `thinking mode consuming budget` — thinking tokens are eating `max_tokens`, restart with `FAKE_REASONING=false`
+- `model stopped early` — thinking is off but the model still finished before hitting the cap; use Anthropic's documented limit as a baseline
 
 ## OpenCode Config
 
@@ -92,6 +98,5 @@ Set `output` in your OpenCode config to one of these values. Kiro will silently 
 
 ## Notes
 
-- **Thinking mode**: If the gateway has `FAKE_REASONING=true` (default), thinking tokens consume `max_tokens` budget, making output cap detection unreliable. Restart with `FAKE_REASONING=false` before probing output limits.
 - **Context probe accuracy**: The binary search uses character count as a proxy for tokens (~4 chars/token). The reported token count comes from the gateway's tiktoken estimate, not Kiro's tokenizer directly.
 - **`auto` model**: Skipped by default since it's a routing alias, not a real model with its own limits.

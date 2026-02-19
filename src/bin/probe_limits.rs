@@ -92,11 +92,8 @@ async fn main() -> Result<()> {
     }
 
     eprintln!();
-    println!(
-        "{:<30} {:>18} {:>28}",
-        "Model", "Context (tokens)", "Max output tokens"
-    );
-    println!("{}", "-".repeat(78));
+    println!("{:<32} | {:>18} | {}", "Model", "Context (tokens)", "Max output tokens");
+    println!("{}", "-".repeat(72));
 
     for (model, context_limit, output_limit) in &results {
         let ctx_str = match context_limit {
@@ -104,16 +101,17 @@ async fn main() -> Result<()> {
             Err(e) => format!("err: {e}"),
         };
         let out_str = match output_limit {
-            Ok(Some(n)) => format!("~{}K", n / 1000),
-            Ok(None) => "unknown (disable thinking, re-run)".to_string(),
+            Ok(Some(n)) => format!("~{}K tokens", n / 1000),
+            Ok(None) => "unknown (see tip below)".to_string(),
             Err(e) => format!("err: {e}"),
         };
 
-        println!("{model:<30} {ctx_str:>18} {out_str:>20}");
+        println!("{model:<32} | {ctx_str:>18} | {out_str}");
     }
 
-    println!("\nTip: use context values for `contextLength` in your OpenCode provider config.");
-    println!("     If output shows 'n/a', restart gateway with FAKE_REASONING=false and re-run.");
+    println!("\nTip: use Context (tokens) for `contextLength` in your OpenCode provider config.");
+    println!("     If Max output tokens shows 'unknown', the model stopped early before hitting");
+    println!("     its cap. Restart the gateway with FAKE_REASONING=false and re-run.");
     Ok(())
 }
 
