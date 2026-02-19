@@ -347,6 +347,13 @@ Limits below were empirically tested using `probe_limits` against a live Kiro ga
         "apiKey": "your-proxy-api-key"
       },
       "models": {
+        "auto": {
+          "name": "Auto",
+          "limit": {
+            "context": 195000,
+            "output": 8192
+          }
+        },
         "claude-haiku-4.5": {
           "name": "Claude Haiku 4.5",
           "limit": {
