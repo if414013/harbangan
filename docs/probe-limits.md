@@ -54,6 +54,42 @@ Map the results to your provider's `models` block:
 }
 ```
 
+## Why the Model Stops Early
+
+When the output cap shows `model stops early`, it means every request returned `finish_reason=stop` — the model decided it was done before hitting `max_tokens`. This is normal behavior; models don't generate indefinitely just because you set a high cap.
+
+There are two distinct causes:
+
+**1. Thinking mode is on (most common)**
+
+When `FAKE_REASONING=true` (the default), the model spends most of its `max_tokens` budget on internal reasoning before writing a single word of output. The text response is short, the model finishes naturally, and `finish_reason=stop` every time.
+
+Fix: restart the gateway with thinking disabled before probing output limits:
+
+```bash
+FAKE_REASONING=false cargo run --release
+```
+
+Then re-run the probe. You should start seeing `finish_reason=length` for small `max_tokens` values.
+
+**2. The prompt doesn't require long output**
+
+Even with thinking off, if the prompt has a natural stopping point (e.g. "say hi"), the model finishes early. The probe uses a code generation prompt to encourage longer output, but some models still summarize instead of generating exhaustively.
+
+If you need a definitive output cap, use a prompt that forces continuation — for example, prefill the assistant turn mid-sentence so the model has no natural place to stop.
+
+**What `model stops early` means for your config**
+
+It doesn't mean the model has no output limit — it means the probe couldn't find it empirically. In this case, use Anthropic's documented limit as a baseline:
+
+| Model family | Standard max output |
+|---|---|
+| Claude 3.x | 4096 tokens |
+| Claude 4.x (Haiku, Sonnet) | 8192 tokens |
+| Claude 4.x (Opus) | 8192 tokens |
+
+Set `output` in your OpenCode config to one of these values. Kiro will silently clamp requests that exceed the real limit — it won't return an error.
+
 ## Notes
 
 - **Thinking mode**: If the gateway has `FAKE_REASONING=true` (default), thinking tokens consume `max_tokens` budget, making output cap detection unreliable. Restart with `FAKE_REASONING=false` before probing output limits.
