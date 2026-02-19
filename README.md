@@ -31,8 +31,9 @@ This project is a Rust rewrite of the original [kiro-gateway](https://github.com
 
 | Model                    | Description                                               |
 | ------------------------ | --------------------------------------------------------- |
-| 🧠 **Claude Opus 4.6**   | Latest flagship. 1M context (beta), 128K output, adaptive thinking |
+| 🧠 **Claude Opus 4.6**   | Latest flagship. ~198K context, adaptive thinking         |
 | 🧠 **Claude Opus 4.5**   | Most powerful. Complex reasoning, deep analysis, research |
+| 🚀 **Claude Sonnet 4.6** | Latest balanced. Coding, writing, general-purpose         |
 | 🚀 **Claude Sonnet 4.5** | Balanced. Coding, writing, general-purpose                |
 | ⚡ **Claude Haiku 4.5**  | Lightning fast. Quick responses, simple tasks             |
 | 📦 **Claude Sonnet 4**   | Previous generation. Reliable for most use cases          |
@@ -341,8 +342,8 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
       "claude-haiku-4.5": {
         "name": "Claude Haiku 4.5",
         "limit": {
-          "context": 180000, // NOTE: 0.9x limit for earlier auto compaction
-          "output": 64000
+          "context": 198000,
+          "output": 8192
         },
         "modalities": {
           "input": ["text", "image"],
@@ -352,8 +353,8 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
       "claude-opus-4.5": {
         "name": "Claude Opus 4.5",
         "limit": {
-          "context": 180000, // NOTE: 0.9x limit for earlier auto compaction
-          "output": 64000
+          "context": 198000,
+          "output": 8192
         },
         "modalities": {
           "input": ["text", "image"],
@@ -375,8 +376,8 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
       "claude-opus-4.6": {
         "name": "Claude Opus 4.6",
         "limit": {
-          "context": 980000, // NOTE: 0.98x limit for earlier auto compaction
-          "output": 128000
+          "context": 198000,
+          "output": 8192
         },
         "modalities": {
           "input": ["text", "image"],
@@ -394,8 +395,8 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
       "claude-sonnet-4": {
         "name": "Claude Sonnet 4",
         "limit": {
-          "context": 180000, // NOTE: 0.9x limit for earlier auto compaction
-          "output": 64000
+          "context": 198000,
+          "output": 8192
         },
         "modalities": {
           "input": ["text", "image"],
@@ -405,12 +406,31 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
       "claude-sonnet-4.5": {
         "name": "Claude Sonnet 4.5",
         "limit": {
-          "context": 180000, // NOTE: 0.9x limit for earlier auto compaction
-          "output": 64000
+          "context": 198000,
+          "output": 8192
         },
         "modalities": {
           "input": ["text", "image"],
           "output": ["text"]
+        }
+      },
+      "claude-sonnet-4.6": {
+        "name": "Claude Sonnet 4.6",
+        "limit": {
+          "context": 198000,
+          "output": 8192
+        },
+        "modalities": {
+          "input": ["text", "image"],
+          "output": ["text"]
+        },
+        "variants": {
+          "low": {
+            "thinkingConfig": { "type": "adaptive", "effort": "low" }
+          },
+          "max": {
+            "thinkingConfig": { "type": "adaptive", "effort": "max" }
+          }
         }
       }
     }
@@ -516,6 +536,13 @@ cargo build
 
 # Release build (optimized)
 cargo build --release
+
+# Run the gateway
+cargo run --bin kiro-gateway --release
+
+# Probe model limits (requires gateway running)
+cargo run --bin probe_limits --release -- --model claude-sonnet-4.6
+cargo run --bin probe_limits --release -- --all-models
 
 # Run tests
 cargo test
