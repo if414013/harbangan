@@ -7,7 +7,9 @@ Guidelines for AI coding agents working in this Rust proxy gateway codebase.
 ```bash
 cargo build              # Debug build
 cargo build --release    # Release build (optimized)
-cargo run --release      # Build and run the server
+cargo run --bin kiro-gateway --release      # Build and run the server
+cargo run --bin probe_limits --release -- --model <model-id>  # Probe model limits
+cargo run --bin probe_limits --release -- --all-models        # Probe all models
 cargo clippy             # Lint - fix all warnings before committing
 cargo fmt                # Format code (run before committing)
 cargo fmt -- --check     # Check formatting without modifying
