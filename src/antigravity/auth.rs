@@ -81,7 +81,7 @@ pub fn get_authorization_url(custom_redirect_uri: Option<&str>) -> (String, Pkce
     let scopes = OAUTH_SCOPES.join(" ");
 
     let params = [
-        ("client_id", OAUTH_CLIENT_ID),
+        ("client_id", OAUTH_CLIENT_ID.as_str()),
         ("redirect_uri", &redirect_uri),
         ("response_type", "code"),
         ("scope", &scopes),
@@ -184,8 +184,8 @@ pub async fn exchange_code(
         .unwrap_or_else(|| format!("http://localhost:{}/oauth-callback", OAUTH_CALLBACK_PORT));
 
     let params = [
-        ("client_id", OAUTH_CLIENT_ID),
-        ("client_secret", OAUTH_CLIENT_SECRET),
+        ("client_id", OAUTH_CLIENT_ID.as_str()),
+        ("client_secret", OAUTH_CLIENT_SECRET.as_str()),
         ("code", code),
         ("code_verifier", verifier),
         ("grant_type", "authorization_code"),
@@ -240,8 +240,8 @@ pub async fn refresh_access_token(
     let parts = parse_refresh_parts(composite_refresh);
 
     let params = [
-        ("client_id", OAUTH_CLIENT_ID),
-        ("client_secret", OAUTH_CLIENT_SECRET),
+        ("client_id", OAUTH_CLIENT_ID.as_str()),
+        ("client_secret", OAUTH_CLIENT_SECRET.as_str()),
         ("refresh_token", parts.refresh_token.as_str()),
         ("grant_type", "refresh_token"),
     ];

@@ -31,15 +31,19 @@ pub const X_GOOG_API_CLIENT: &str = "gl-node/18.18.2 fire/0.8.6 grpc/1.10.x";
 pub const DEFAULT_PROJECT_ID: &str = "rising-fact-p41fc";
 
 // === OAuth Configuration ===
-// NOTE: The client ID and secret below are intentionally embedded in source.
-// This matches the Antigravity binary's installed-app OAuth flow, where Google
-// considers these credentials semi-public (they cannot be kept secret in
-// distributed native binaries). Security relies on PKCE + redirect URI, not
-// on secret confidentiality.
+// Google OAuth credentials for the installed-app flow.
+// Set via ANTIGRAVITY_OAUTH_CLIENT_ID and ANTIGRAVITY_OAUTH_CLIENT_SECRET env vars.
+// These are required when the antigravity backend is enabled.
 
-pub const OAUTH_CLIENT_ID: &str =
-    "REDACTED_OAUTH_CLIENT_ID";
-pub const OAUTH_CLIENT_SECRET: &str = "REDACTED_OAUTH_CLIENT_SECRET";
+pub static OAUTH_CLIENT_ID: LazyLock<String> = LazyLock::new(|| {
+    std::env::var("ANTIGRAVITY_OAUTH_CLIENT_ID")
+        .unwrap_or_default()
+});
+
+pub static OAUTH_CLIENT_SECRET: LazyLock<String> = LazyLock::new(|| {
+    std::env::var("ANTIGRAVITY_OAUTH_CLIENT_SECRET")
+        .unwrap_or_default()
+});
 pub const OAUTH_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 pub const OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 pub const OAUTH_USER_INFO_URL: &str = "https://www.googleapis.com/oauth2/v1/userinfo";
