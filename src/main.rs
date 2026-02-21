@@ -157,6 +157,12 @@ async fn main() -> Result<()> {
     add_hidden_models(&model_cache);
     tracing::info!("✅ Added hidden models to cache");
 
+    // Register antigravity models when enabled
+    if config.antigravity.enabled {
+        antigravity::models::register_antigravity_models(&model_cache);
+        tracing::info!("✅ Antigravity models registered in cache");
+    }
+
     let resolver =
         resolver::ModelResolver::new(model_cache.clone(), std::collections::HashMap::new());
     tracing::info!("✅ Model resolver initialized");

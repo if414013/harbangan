@@ -80,6 +80,9 @@ dialoguer = "0.11"
 # Antigravity (Cloud Code) support
 sha2 = "0.10"
 base64 = "0.22"
+urlencoding = "2"
+hex = "0.4"
+getrandom = "0.2"
 
 # Benchmark dependencies (optional)
 hdrhistogram = { version = "7", optional = true }
