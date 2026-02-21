@@ -71,6 +71,22 @@ pub struct CliArgs {
     /// Path to TLS private key file (PEM format)
     #[arg(long, env = "TLS_KEY")]
     pub tls_key: Option<String>,
+
+    /// Enable Antigravity (Cloud Code) backend
+    #[arg(long, env = "ANTIGRAVITY_ENABLED", default_value = "false")]
+    pub antigravity_enabled: bool,
+
+    /// Antigravity Google OAuth refresh token (composite: refreshToken|projectId|managedProjectId)
+    #[arg(long, env = "ANTIGRAVITY_REFRESH_TOKEN")]
+    pub antigravity_refresh_token: Option<String>,
+
+    /// Antigravity Cloud Code project ID (overrides value from refresh token)
+    #[arg(long, env = "ANTIGRAVITY_PROJECT_ID")]
+    pub antigravity_project_id: Option<String>,
+
+    /// Antigravity Cloud Code API endpoint (overrides default endpoint fallback)
+    #[arg(long, env = "ANTIGRAVITY_ENDPOINT")]
+    pub antigravity_endpoint: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -116,6 +132,24 @@ pub struct Config {
     pub tls_enabled: bool,
     pub tls_cert_path: Option<PathBuf>,
     pub tls_key_path: Option<PathBuf>,
+
+    // Antigravity (Cloud Code)
+    #[allow(dead_code)]
+    pub antigravity: AntigravityConfig,
+}
+
+/// Configuration for the Antigravity (Cloud Code) backend.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct AntigravityConfig {
+    /// Whether the antigravity backend is enabled (opt-in).
+    pub enabled: bool,
+    /// Google OAuth refresh token (composite format: refreshToken|projectId|managedProjectId).
+    pub refresh_token: Option<String>,
+    /// Cloud Code project ID (overrides value embedded in refresh token).
+    pub project_id: Option<String>,
+    /// Custom Cloud Code API endpoint (overrides default fallback chain).
+    pub endpoint: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -220,6 +254,14 @@ impl Config {
             tls_enabled: args.tls,
             tls_cert_path: args.tls_cert.map(|s| expand_tilde(&s)),
             tls_key_path: args.tls_key.map(|s| expand_tilde(&s)),
+
+            // Antigravity
+            antigravity: AntigravityConfig {
+                enabled: args.antigravity_enabled,
+                refresh_token: args.antigravity_refresh_token,
+                project_id: args.antigravity_project_id,
+                endpoint: args.antigravity_endpoint,
+            },
         };
 
         Ok(config)
@@ -479,6 +521,12 @@ mod tests {
             tls_enabled,
             tls_cert_path: None,
             tls_key_path: None,
+            antigravity: AntigravityConfig {
+                enabled: false,
+                refresh_token: None,
+                project_id: None,
+                endpoint: None,
+            },
         };
 
         (config, temp_file)

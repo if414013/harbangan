@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use std::io;
 use std::sync::{Arc, Mutex};
 
+mod antigravity;
 mod auth;
 mod cache;
 mod config;

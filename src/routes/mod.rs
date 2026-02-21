@@ -655,6 +655,12 @@ mod tests {
             tls_enabled: false,
             tls_cert_path: None,
             tls_key_path: None,
+            antigravity: crate::config::AntigravityConfig {
+                enabled: false,
+                refresh_token: None,
+                project_id: None,
+                endpoint: None,
+            },
         });
 
         let metrics = Arc::new(crate::metrics::MetricsCollector::new());
