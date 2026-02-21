@@ -122,4 +122,25 @@ mod tests {
         while b.try_consume() {}
         assert!(!b.try_consume());
     }
+
+    #[test]
+    fn test_has_tokens() {
+        let mut b = TokenBucket::new();
+        assert!(b.has_tokens());
+        while b.try_consume() {}
+        assert!(!b.has_tokens());
+    }
+
+    #[test]
+    fn test_refund() {
+        let mut b = TokenBucket::new();
+        // Drain all tokens
+        while b.try_consume() {}
+        assert!(!b.has_tokens());
+
+        // Refund one
+        b.refund();
+        assert!(b.has_tokens());
+        assert!(b.try_consume());
+    }
 }
