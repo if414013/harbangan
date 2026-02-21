@@ -84,6 +84,12 @@ fn create_test_app_state() -> AppState {
         tls_enabled: false,
         tls_cert_path: None,
         tls_key_path: None,
+        antigravity: kiro_gateway::config::AntigravityConfig {
+            enabled: false,
+            refresh_token: None,
+            project_id: None,
+            endpoint: None,
+        },
     });
 
     let metrics = Arc::new(MetricsCollector::new());
@@ -96,6 +102,10 @@ fn create_test_app_state() -> AppState {
         resolver,
         config,
         metrics,
+        backend_router: None,
+        antigravity_client: None,
+        account_manager: None,
+        session_manager: None,
     }
 }
 

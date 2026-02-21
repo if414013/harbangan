@@ -22,10 +22,12 @@ fn parse_sse_data_line(line: &str) -> Option<Value> {
     if json_text.is_empty() {
         return None;
     }
-    serde_json::from_str(json_text).map_err(|e| {
-        debug!(json_text = json_text, error = %e, "Failed to parse SSE data JSON");
-        e
-    }).ok()
+    serde_json::from_str(json_text)
+        .map_err(|e| {
+            debug!(json_text = json_text, error = %e, "Failed to parse SSE data JSON");
+            e
+        })
+        .ok()
 }
 
 /// Extracts the inner response, candidates, and parts from a parsed SSE JSON value.
