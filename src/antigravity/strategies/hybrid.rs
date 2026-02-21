@@ -74,7 +74,7 @@ fn compute_score(account: &AccountState, now: Instant) -> f64 {
     // LRU: raw seconds since last use
     let lru_seconds = account
         .last_used
-        .map(|t| now.duration_since(t).as_secs_f64())
+        .map(|t| now.checked_duration_since(t).unwrap_or_default().as_secs_f64())
         .unwrap_or(3600.0); // never used = treat as 1 hour idle
 
     (health * WEIGHT_HEALTH)

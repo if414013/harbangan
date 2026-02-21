@@ -125,19 +125,19 @@ pub fn convert_usage(usage_metadata: Option<&Value>) -> AnthropicUsage {
     let prompt_tokens = meta
         .get("promptTokenCount")
         .and_then(|v| v.as_i64())
-        .unwrap_or(0) as i32;
+        .unwrap_or(0);
     let cached_tokens = meta
         .get("cachedContentTokenCount")
         .and_then(|v| v.as_i64())
-        .unwrap_or(0) as i32;
+        .unwrap_or(0);
     let output_tokens = meta
         .get("candidatesTokenCount")
         .and_then(|v| v.as_i64())
-        .unwrap_or(0) as i32;
+        .unwrap_or(0);
 
     AnthropicUsage {
-        input_tokens: prompt_tokens - cached_tokens,
-        output_tokens,
+        input_tokens: (prompt_tokens - cached_tokens).max(0) as i32,
+        output_tokens: output_tokens as i32,
     }
 }
 

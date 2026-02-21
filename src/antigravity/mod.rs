@@ -14,6 +14,8 @@ pub mod converters;
 pub mod handlers;
 #[allow(dead_code)]
 pub mod http_client;
+#[cfg(test)]
+mod integration_tests;
 #[allow(dead_code)]
 pub mod models;
 #[allow(dead_code)]

@@ -3,6 +3,7 @@
 //! Based on the antigravity-claude-proxy reference implementation.
 
 use std::env::consts::{ARCH, OS};
+use std::sync::LazyLock;
 
 use regex::Regex;
 
@@ -30,6 +31,11 @@ pub const X_GOOG_API_CLIENT: &str = "gl-node/18.18.2 fire/0.8.6 grpc/1.10.x";
 pub const DEFAULT_PROJECT_ID: &str = "rising-fact-p41fc";
 
 // === OAuth Configuration ===
+// NOTE: The client ID and secret below are intentionally embedded in source.
+// This matches the Antigravity binary's installed-app OAuth flow, where Google
+// considers these credentials semi-public (they cannot be kept secret in
+// distributed native binaries). Security relies on PKCE + redirect URI, not
+// on secret confidentiality.
 
 pub const OAUTH_CLIENT_ID: &str =
     "REDACTED_OAUTH_CLIENT_ID";
@@ -169,8 +175,9 @@ pub fn is_thinking_model(model_name: &str) -> bool {
             return true;
         }
         // gemini-3 or higher (e.g., gemini-3, gemini-3.5, gemini-4)
-        let re = Regex::new(r"gemini-(\d+)").expect("valid regex");
-        if let Some(caps) = re.captures(&lower) {
+        static GEMINI_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"gemini-(\d+)").unwrap());
+        if let Some(caps) = GEMINI_RE.captures(&lower) {
             if let Ok(version) = caps[1].parse::<u32>() {
                 if version >= 3 {
                     return true;

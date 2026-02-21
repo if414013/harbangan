@@ -152,11 +152,24 @@ pub fn format_refresh_parts(parts: &RefreshParts) -> String {
 // === Token Exchange ===
 
 /// Tokens returned from an OAuth token exchange.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OAuthTokens {
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub expires_in: Option<u64>,
+}
+
+impl std::fmt::Debug for OAuthTokens {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OAuthTokens")
+            .field("access_token", &"[REDACTED]")
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("expires_in", &self.expires_in)
+            .finish()
+    }
 }
 
 /// Exchanges an authorization code + PKCE verifier for OAuth tokens.
@@ -187,10 +200,11 @@ pub async fn exchange_code(
         .map_err(|e| AuthError::Network(e.to_string()))?;
 
     if !response.status().is_success() {
+        let status = response.status();
         let body = response.text().await.unwrap_or_default();
         return Err(AuthError::ExchangeFailed(format!(
             "HTTP {}: {}",
-            body.len(),
+            status.as_u16(),
             body
         )));
     }

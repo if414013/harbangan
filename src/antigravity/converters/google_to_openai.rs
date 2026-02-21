@@ -114,22 +114,23 @@ pub fn convert_usage(usage_metadata: Option<&Value>) -> ChatCompletionUsage {
     let prompt_tokens = meta
         .get("promptTokenCount")
         .and_then(|v| v.as_i64())
-        .unwrap_or(0) as i32;
+        .unwrap_or(0);
     let cached_tokens = meta
         .get("cachedContentTokenCount")
         .and_then(|v| v.as_i64())
-        .unwrap_or(0) as i32;
+        .unwrap_or(0);
     let completion_tokens = meta
         .get("candidatesTokenCount")
         .and_then(|v| v.as_i64())
-        .unwrap_or(0) as i32;
+        .unwrap_or(0);
 
-    let input = prompt_tokens - cached_tokens;
+    let input = (prompt_tokens - cached_tokens).max(0) as i32;
+    let completion = completion_tokens as i32;
 
     ChatCompletionUsage {
         prompt_tokens: input,
-        completion_tokens,
-        total_tokens: input + completion_tokens,
+        completion_tokens: completion,
+        total_tokens: input + completion,
         credits_used: None,
     }
 }

@@ -283,10 +283,7 @@ fn read_cert_version(tls_dir: &Path) -> Option<u32> {
 }
 
 fn is_self_signed_cert_compatible(tls_dir: &Path) -> bool {
-    match read_cert_version(tls_dir) {
-        Some(version) if version >= SELF_SIGNED_CERT_VERSION => true,
-        _ => false,
-    }
+    matches!(read_cert_version(tls_dir), Some(version) if version >= SELF_SIGNED_CERT_VERSION)
 }
 
 /// Check whether a self-signed certificate is expired or close to expiry.

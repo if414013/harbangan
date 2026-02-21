@@ -3,6 +3,7 @@
 //! Wraps a Google Generative AI request in the Cloud Code envelope format
 //! and builds the required HTTP headers.
 
+use anyhow::Context;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -56,12 +57,13 @@ pub fn build_cloud_code_request(project_id: &str, model: &str, google_request: V
 ///
 /// Conditionally includes:
 /// - `anthropic-beta: interleaved-thinking-2025-05-14` (only for Claude thinking models)
-pub fn build_headers(token: &str, session_id: &str, model: &str) -> HeaderMap {
+pub fn build_headers(token: &str, session_id: &str, model: &str) -> anyhow::Result<HeaderMap> {
     let mut headers = HeaderMap::new();
 
     headers.insert(
         AUTHORIZATION,
-        HeaderValue::from_str(&format!("Bearer {}", token)).expect("valid auth header"),
+        HeaderValue::from_str(&format!("Bearer {}", token))
+            .context("Invalid token: contains non-visible ASCII characters")?,
     );
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     headers.insert("X-Client-Name", HeaderValue::from_static(X_CLIENT_NAME));
@@ -75,7 +77,8 @@ pub fn build_headers(token: &str, session_id: &str, model: &str) -> HeaderMap {
     );
     headers.insert(
         "X-Machine-Session-Id",
-        HeaderValue::from_str(session_id).expect("valid session id"),
+        HeaderValue::from_str(session_id)
+            .context("Invalid session ID: contains non-visible ASCII characters")?,
     );
 
     // Add anthropic-beta header for Claude thinking models
@@ -86,7 +89,7 @@ pub fn build_headers(token: &str, session_id: &str, model: &str) -> HeaderMap {
         );
     }
 
-    headers
+    Ok(headers)
 }
 
 // === Tests ===
@@ -130,7 +133,7 @@ mod tests {
 
     #[test]
     fn test_build_headers_basic() {
-        let headers = build_headers("my-token", "session-123", "gemini-3-flash");
+        let headers = build_headers("my-token", "session-123", "gemini-3-flash").unwrap();
 
         assert_eq!(
             headers.get(AUTHORIZATION).unwrap().to_str().unwrap(),
@@ -164,19 +167,19 @@ mod tests {
 
     #[test]
     fn test_build_headers_no_anthropic_beta_for_gemini() {
-        let headers = build_headers("tok", "sess", "gemini-3-flash");
+        let headers = build_headers("tok", "sess", "gemini-3-flash").unwrap();
         assert!(headers.get("anthropic-beta").is_none());
     }
 
     #[test]
     fn test_build_headers_no_anthropic_beta_for_non_thinking_claude() {
-        let headers = build_headers("tok", "sess", "claude-sonnet-4-5");
+        let headers = build_headers("tok", "sess", "claude-sonnet-4-5").unwrap();
         assert!(headers.get("anthropic-beta").is_none());
     }
 
     #[test]
     fn test_build_headers_anthropic_beta_for_claude_thinking() {
-        let headers = build_headers("tok", "sess", "claude-sonnet-4-5-thinking");
+        let headers = build_headers("tok", "sess", "claude-sonnet-4-5-thinking").unwrap();
         assert_eq!(
             headers.get("anthropic-beta").unwrap().to_str().unwrap(),
             "interleaved-thinking-2025-05-14"
@@ -185,7 +188,7 @@ mod tests {
 
     #[test]
     fn test_build_headers_anthropic_beta_for_claude_opus_thinking() {
-        let headers = build_headers("tok", "sess", "claude-opus-4-6-thinking");
+        let headers = build_headers("tok", "sess", "claude-opus-4-6-thinking").unwrap();
         assert!(headers.get("anthropic-beta").is_some());
     }
 }

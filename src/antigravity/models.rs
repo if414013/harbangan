@@ -66,26 +66,12 @@ pub fn antigravity_model_ids() -> Vec<&'static str> {
 /// but use their own ID as the internal ID (routed to Cloud Code, not Kiro).
 pub fn register_antigravity_models(cache: &ModelCache) {
     for model in ANTIGRAVITY_MODELS {
-        let model_data = serde_json::json!({
-            "modelId": model.id,
-            "modelName": model.display_name,
-            "description": format!("Antigravity (Cloud Code) model: {}", model.display_name),
-            "tokenLimits": {
-                "maxInputTokens": model.max_input_tokens
-            },
-            "_is_antigravity": true
-        });
-
         // Use add_hidden_model so it doesn't overwrite if already present
         // from the Kiro API response.
         if !cache.is_valid_model(model.id) {
             cache.add_hidden_model(model.id, model.id);
             tracing::debug!(model = model.id, "Registered antigravity model");
         }
-
-        // Overwrite with our richer metadata regardless
-        // (add_hidden_model won't overwrite existing entries)
-        let _ = model_data; // metadata is in the hidden model entry already
     }
 
     tracing::info!(

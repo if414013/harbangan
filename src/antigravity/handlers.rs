@@ -175,7 +175,7 @@ async fn send_with_account_retry(
 
         // Build envelope and headers
         let envelope = build_cloud_code_request(&project_id, model, google_request.clone());
-        let headers = build_headers(&token, &session_id, model);
+        let headers = build_headers(&token, &session_id, model)?;
 
         debug!(
             email = %email,

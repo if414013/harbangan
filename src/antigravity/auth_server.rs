@@ -132,7 +132,10 @@ async fn handle_connection(
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let mut buf = vec![0u8; 4096];
-    let n = stream.read(&mut buf).await?;
+    let n = stream
+        .read(&mut buf)
+        .await
+        .context("Failed to read from OAuth callback connection")?;
     let request = String::from_utf8_lossy(&buf[..n]);
 
     // Parse the request line to get the path
@@ -163,10 +166,7 @@ async fn handle_connection(
     let state = params.get("state").copied();
 
     if let Some(err) = error {
-        let body = format!(
-            "<html><body><h1>Authentication Failed</h1><p>Error: {}</p></body></html>",
-            err
-        );
+        let body = "<html><body><h1>Authentication Failed</h1><p>An error occurred during authentication.</p></body></html>";
         let response = format!(
             "HTTP/1.1 400 Bad Request\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
             body.len(),

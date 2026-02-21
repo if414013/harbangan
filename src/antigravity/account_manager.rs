@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use tokio::sync::RwLock;
 
@@ -15,7 +16,6 @@ use super::strategies::health_tracker::HealthTracker;
 use super::strategies::quota_tracker::QuotaTracker;
 use super::strategies::token_bucket::TokenBucket;
 use super::strategies::{create_strategy, SelectionStrategy, StrategyKind};
-
 use super::account_storage::{self, StoredAccount};
 
 // === Constants ===
@@ -35,7 +35,6 @@ const CAPACITY_BACKOFF_TIERS: &[u64] = &[5, 10, 20, 30, 60];
 // === Account State ===
 
 /// Runtime state for a single account.
-#[derive(Debug)]
 pub struct AccountState {
     /// Account email address.
     pub email: String,
@@ -128,6 +127,24 @@ impl AccountState {
     }
 }
 
+impl std::fmt::Debug for AccountState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AccountState")
+            .field("email", &self.email)
+            .field("composite_refresh_token", &"[REDACTED]")
+            .field("health", &self.health)
+            .field("token_bucket", &self.token_bucket)
+            .field("quota", &self.quota)
+            .field("rate_limits", &self.rate_limits)
+            .field("consecutive_failures", &self.consecutive_failures)
+            .field("last_used", &self.last_used)
+            .field("is_invalid", &self.is_invalid)
+            .field("invalid_reason", &self.invalid_reason)
+            .field("added_at", &self.added_at)
+            .finish()
+    }
+}
+
 // === Account Manager ===
 
 /// Multi-account manager with pluggable load balancing.
@@ -187,12 +204,15 @@ impl AccountManager {
         email: String,
         composite_refresh_token: String,
     ) -> anyhow::Result<()> {
-        if self.accounts.contains_key(&email) {
-            anyhow::bail!("Account already exists: {}", email);
-        }
-
         let state = AccountState::new(email.clone(), composite_refresh_token);
-        self.accounts.insert(email, state);
+        match self.accounts.entry(email) {
+            Entry::Occupied(o) => {
+                anyhow::bail!("Account already exists: {}", o.key());
+            }
+            Entry::Vacant(v) => {
+                v.insert(state);
+            }
+        }
         self.save_to_storage();
 
         tracing::info!(count = self.accounts.len(), "Account added");
@@ -288,7 +308,7 @@ impl AccountManager {
         self.token_manager
             .get_access_token(email, &composite)
             .await
-            .map_err(|e| anyhow::anyhow!("{}", e))
+            .map_err(|e| anyhow::anyhow!(e).context("Failed to get access token"))
     }
 
     /// Gets the project ID for the given account.
@@ -313,9 +333,6 @@ impl AccountManager {
 
         if let Some(mut entry) = self.accounts.get_mut(email) {
             let duration = Duration::from_millis(duration_ms);
-            entry
-                .rate_limits
-                .insert(model.to_string(), Instant::now() + duration);
 
             // Apply backoff tier based on consecutive failures
             let tier_idx =
