@@ -1,4 +1,8 @@
 #[allow(dead_code)]
+pub mod account_manager;
+#[allow(dead_code)]
+pub mod account_storage;
+#[allow(dead_code)]
 pub mod auth;
 #[allow(dead_code)]
 pub mod auth_server;
@@ -8,3 +12,5 @@ pub mod constants;
 pub mod models;
 #[allow(dead_code)]
 pub mod router;
+#[allow(dead_code)]
+pub mod strategies;
