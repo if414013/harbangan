@@ -5,4 +5,6 @@
 
 pub mod anthropic_to_google;
 pub mod content_converter;
+pub mod google_to_anthropic;
+pub mod google_to_openai;
 pub mod schema_sanitizer;
