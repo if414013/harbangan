@@ -11,6 +11,8 @@ pub mod constants;
 #[allow(dead_code)]
 pub mod converters;
 #[allow(dead_code)]
+pub mod handlers;
+#[allow(dead_code)]
 pub mod http_client;
 #[allow(dead_code)]
 pub mod models;

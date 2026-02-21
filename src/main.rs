@@ -163,6 +163,30 @@ async fn main() -> Result<()> {
         tracing::info!("✅ Antigravity models registered in cache");
     }
 
+    // Initialize antigravity components when enabled
+    let (backend_router, antigravity_client, account_manager, session_manager) =
+        if config.antigravity.enabled {
+            use antigravity::account_manager::AccountManager;
+            use antigravity::http_client::CloudCodeClient;
+            use antigravity::router::BackendRouter;
+            use antigravity::session::SessionManager;
+            use antigravity::strategies::StrategyKind;
+
+            let router = BackendRouter::new(&config.antigravity);
+            let client = CloudCodeClient::new(3).expect("Failed to create Cloud Code HTTP client");
+            let mgr = AccountManager::load(StrategyKind::Hybrid);
+            let sess = tokio::sync::Mutex::new(SessionManager::new());
+            tracing::info!("✅ Antigravity backend initialized");
+            (
+                Some(router),
+                Some(Arc::new(client)),
+                Some(Arc::new(mgr)),
+                Some(Arc::new(sess)),
+            )
+        } else {
+            (None, None, None, None)
+        };
+
     let resolver =
         resolver::ModelResolver::new(model_cache.clone(), std::collections::HashMap::new());
     tracing::info!("✅ Model resolver initialized");
@@ -178,6 +202,10 @@ async fn main() -> Result<()> {
         resolver,
         config: Arc::new(config.clone()),
         metrics: Arc::clone(&metrics),
+        backend_router,
+        antigravity_client,
+        account_manager,
+        session_manager,
     };
 
     let app = build_app(app_state);

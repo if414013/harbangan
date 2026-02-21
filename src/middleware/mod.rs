@@ -155,6 +155,10 @@ mod tests {
             resolver,
             config,
             metrics,
+            backend_router: None,
+            antigravity_client: None,
+            account_manager: None,
+            session_manager: None,
         }
     }
 
@@ -487,6 +491,10 @@ mod tests {
             resolver,
             config,
             metrics,
+            backend_router: None,
+            antigravity_client: None,
+            account_manager: None,
+            session_manager: None,
         }
     }
 

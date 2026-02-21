@@ -13,6 +13,10 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::antigravity::account_manager::AccountManager;
+use crate::antigravity::http_client::CloudCodeClient;
+use crate::antigravity::router::{Backend, BackendRouter};
+use crate::antigravity::session::SessionManager;
 use crate::auth::AuthManager;
 use crate::cache::ModelCache;
 use crate::config::Config;
@@ -42,6 +46,11 @@ pub struct AppState {
     pub resolver: ModelResolver,
     pub config: Arc<Config>,
     pub metrics: Arc<MetricsCollector>,
+    // Antigravity backend (optional, enabled via config)
+    pub backend_router: Option<BackendRouter>,
+    pub antigravity_client: Option<Arc<CloudCodeClient>>,
+    pub account_manager: Option<Arc<AccountManager>>,
+    pub session_manager: Option<Arc<tokio::sync::Mutex<SessionManager>>>,
 }
 
 /// Guard to ensure active connections are decremented on drop
@@ -207,6 +216,26 @@ async fn chat_completions_handler(
         resolution.source,
         resolution.is_verified
     );
+
+    // Route to antigravity backend if enabled and model matches
+    if let Some(router) = &state.backend_router {
+        if matches!(router.resolve(&request.model), Backend::Antigravity) {
+            let client = state.antigravity_client.as_ref().ok_or_else(|| {
+                ApiError::ConfigError("Antigravity client not initialized".to_string())
+            })?;
+            let acct_mgr = state.account_manager.as_ref().ok_or_else(|| {
+                ApiError::ConfigError("Account manager not initialized".to_string())
+            })?;
+            let sess_mgr = state.session_manager.as_ref().ok_or_else(|| {
+                ApiError::ConfigError("Session manager not initialized".to_string())
+            })?;
+            guard.complete(0, 0);
+            return crate::antigravity::handlers::antigravity_chat_completions(
+                acct_mgr, client, sess_mgr, &request,
+            )
+            .await;
+        }
+    }
 
     // Generate conversation ID
     let conversation_id = Uuid::new_v4().to_string();
@@ -439,6 +468,26 @@ async fn anthropic_messages_handler(
         resolution.source,
         resolution.is_verified
     );
+
+    // Route to antigravity backend if enabled and model matches
+    if let Some(router) = &state.backend_router {
+        if matches!(router.resolve(&request.model), Backend::Antigravity) {
+            let client = state.antigravity_client.as_ref().ok_or_else(|| {
+                ApiError::ConfigError("Antigravity client not initialized".to_string())
+            })?;
+            let acct_mgr = state.account_manager.as_ref().ok_or_else(|| {
+                ApiError::ConfigError("Account manager not initialized".to_string())
+            })?;
+            let sess_mgr = state.session_manager.as_ref().ok_or_else(|| {
+                ApiError::ConfigError("Session manager not initialized".to_string())
+            })?;
+            guard.complete(0, 0);
+            return crate::antigravity::handlers::antigravity_anthropic_messages(
+                acct_mgr, client, sess_mgr, &request,
+            )
+            .await;
+        }
+    }
 
     // Generate conversation ID
     let conversation_id = Uuid::new_v4().to_string();
@@ -673,6 +722,10 @@ mod tests {
             resolver,
             config,
             metrics,
+            backend_router: None,
+            antigravity_client: None,
+            account_manager: None,
+            session_manager: None,
         }
     }
 
