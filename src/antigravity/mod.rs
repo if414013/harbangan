@@ -13,6 +13,12 @@ pub mod converters;
 #[allow(dead_code)]
 pub mod models;
 #[allow(dead_code)]
+pub mod request_builder;
+#[allow(dead_code)]
 pub mod router;
 #[allow(dead_code)]
+pub mod session;
+#[allow(dead_code)]
 pub mod strategies;
+#[allow(dead_code)]
+pub mod streaming;
