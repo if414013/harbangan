@@ -259,6 +259,103 @@ Replace `cert.pem` with the actual certificate filename in your `~/.kiro-gateway
 
 ---
 
+## 🌐 Antigravity Backend (Cloud Code)
+
+<details>
+<summary>View Antigravity backend documentation</summary>
+
+The gateway supports an optional second backend — **Antigravity** — which routes requests through Google's Cloud Code infrastructure instead of the default Kiro (AWS CodeWhisperer) backend. This gives you access to additional Claude and Gemini models served via Google's API.
+
+### Supported Antigravity Models
+
+| Model | Family | Thinking |
+| ----- | ------ | :------: |
+| `claude-opus-4-6-thinking` | Claude | Yes |
+| `claude-sonnet-4-5-thinking` | Claude | Yes |
+| `claude-sonnet-4-5` | Claude | No |
+| `gemini-3-flash` | Gemini | Yes (implicit) |
+| `gemini-3-pro-low` | Gemini | Yes (implicit) |
+| `gemini-3-pro-high` | Gemini | Yes (implicit) |
+
+> Gemini 3+ models have thinking enabled implicitly. Claude models require `-thinking` in the name.
+
+### How Routing Works
+
+When the antigravity backend is enabled, the `BackendRouter` inspects each request's model name:
+- Models in the antigravity set (above) are routed to Cloud Code.
+- All other models (e.g., `claude-sonnet-4-6`, `claude-haiku-4.5`, `auto`) continue to route through the default Kiro backend.
+
+If antigravity is disabled (`ANTIGRAVITY_ENABLED=false`, the default), all requests go through Kiro regardless of model name.
+
+### Setup
+
+**1. Obtain a Google OAuth refresh token**
+
+You need a Google account with access to Cloud Code. The gateway uses Google OAuth 2.0 with PKCE for authentication.
+
+**2. Configure the composite token**
+
+The refresh token uses a composite format that bundles project information:
+
+```
+refreshToken|projectId|managedProjectId
+```
+
+- `refreshToken` — The Google OAuth refresh token (required)
+- `projectId` — Your Cloud Code project ID (optional, discovered automatically via `loadCodeAssist` if omitted)
+- `managedProjectId` — Managed project ID (optional, takes priority over `projectId` when present)
+
+**3. Set environment variables**
+
+Add to your `.env` file:
+
+```env
+ANTIGRAVITY_ENABLED=true
+ANTIGRAVITY_REFRESH_TOKEN=your-refresh-token|your-project-id|your-managed-project-id
+```
+
+Or pass via CLI flags:
+
+```bash
+kiro-gateway --antigravity-enabled --antigravity-refresh-token "token|project|managed"
+```
+
+### Environment Variables
+
+| Variable | CLI Flag | Description |
+| -------- | -------- | ----------- |
+| `ANTIGRAVITY_ENABLED` | `--antigravity-enabled` | Enable the Cloud Code backend (default: `false`) |
+| `ANTIGRAVITY_REFRESH_TOKEN` | `--antigravity-refresh-token` | Composite refresh token (`refreshToken\|projectId\|managedProjectId`) |
+| `ANTIGRAVITY_PROJECT_ID` | `--antigravity-project-id` | Override project ID (instead of extracting from token) |
+| `ANTIGRAVITY_ENDPOINT` | `--antigravity-endpoint` | Override API endpoint (skips default fallback chain) |
+
+### Model Fallbacks
+
+When a model hits quota limits, the gateway automatically falls back to a cross-family alternative:
+
+| Primary Model | Fallback |
+| ------------- | -------- |
+| `gemini-3-pro-high` | `claude-opus-4-6-thinking` |
+| `gemini-3-pro-low` | `claude-sonnet-4-5` |
+| `gemini-3-flash` | `claude-sonnet-4-5-thinking` |
+| `claude-opus-4-6-thinking` | `gemini-3-pro-high` |
+| `claude-sonnet-4-5-thinking` | `gemini-3-flash` |
+| `claude-sonnet-4-5` | `gemini-3-flash` |
+
+### Troubleshooting
+
+**"Token refresh failed"** — Your refresh token is expired or invalid. Re-authenticate via the Google OAuth flow to obtain a new one.
+
+**"Account invalid"** — The Google account associated with the token does not have Cloud Code access.
+
+**"Network error"** — Cannot reach the Cloud Code endpoints (`cloudcode-pa.googleapis.com` or `daily-cloudcode-pa.googleapis.com`). Check your network/firewall.
+
+**Requests still going to Kiro** — Verify `ANTIGRAVITY_ENABLED=true` is set and the model name exactly matches one of the supported antigravity models listed above.
+
+</details>
+
+---
+
 ## 🏗️ Architecture
 
 <details>

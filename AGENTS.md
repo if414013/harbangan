@@ -38,6 +38,14 @@ Set in `.env` or export:
 - `KIRO_CLI_DB_FILE` - Path to kiro-cli SQLite database, e.g. `~/.kiro/data.db` (required)
 - `KIRO_REGION` - AWS region (default: `us-east-1`)
 
+### Antigravity (Cloud Code) Environment Variables
+
+Optional — only needed if enabling the antigravity backend:
+- `ANTIGRAVITY_ENABLED` - Enable Cloud Code backend (default: `false`)
+- `ANTIGRAVITY_REFRESH_TOKEN` - Google OAuth composite refresh token (`refreshToken|projectId|managedProjectId`)
+- `ANTIGRAVITY_PROJECT_ID` - Override project ID (optional)
+- `ANTIGRAVITY_ENDPOINT` - Override API endpoint (optional, skips default fallback chain)
+
 ## Architecture Overview
 
 ```
@@ -45,18 +53,22 @@ Client Request (OpenAI/Anthropic format)
     ↓
 routes/mod.rs (Axum HTTP handlers)
     ↓
-converters/ (format translation)
-    ├── openai_to_kiro.rs
-    └── anthropic_to_kiro.rs
-    ↓
-http_client.rs → Kiro API
-    ↓
-streaming/mod.rs (AWS Event Stream parsing)
-    ↓
-converters/
-    ├── kiro_to_openai.rs
-    └── kiro_to_anthropic.rs
-    ↓
+antigravity/router.rs (Backend selection: Kiro vs Cloud Code)
+    ├─── [Kiro backend]                    ├─── [Antigravity backend]
+    │                                      │
+    ↓                                      ↓
+converters/ (format translation)     antigravity/request_builder.rs
+    ├── openai_to_kiro.rs                  ↓
+    └── anthropic_to_kiro.rs         antigravity/http_client.rs → Cloud Code API
+    ↓                                      ↓
+http_client.rs → Kiro API           antigravity/streaming.rs (SSE parsing)
+    ↓                                      ↓
+streaming/mod.rs (AWS Event Stream)  antigravity/converters/ (response mapping)
+    ↓                                      ↓
+converters/                          ┌─────┘
+    ├── kiro_to_openai.rs            │
+    └── kiro_to_anthropic.rs         │
+    ↓                                ↓
 Client Response (SSE stream)
 ```
 
@@ -67,6 +79,18 @@ Client Response (SSE stream)
 - `auth/` - Token management with auto-refresh from SQLite
 - `models/` - Request/response type definitions
 - `error.rs` - Centralized error types
+- `antigravity/` - Cloud Code backend (Google infrastructure)
+  - `router.rs` - Backend selection (Kiro vs Antigravity) based on model name
+  - `auth.rs` - Google OAuth 2.0 with PKCE, token caching
+  - `constants.rs` - API endpoints, model families, OAuth config
+  - `http_client.rs` - Cloud Code HTTP client with endpoint failover
+  - `request_builder.rs` - Cloud Code request construction
+  - `session.rs` - Session management
+  - `streaming.rs` - Cloud Code SSE stream parsing
+  - `converters/` - Google-to-Anthropic/OpenAI response mapping
+  - `handlers.rs` - Route handlers for antigravity requests
+  - `models.rs` - Antigravity model definitions and detection
+  - `account_manager.rs` / `account_storage.rs` - Multi-account support
 
 ## Code Style Guidelines
 
