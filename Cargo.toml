@@ -83,6 +83,7 @@ base64 = "0.22"
 urlencoding = "2"
 hex = "0.4"
 getrandom = "0.2"
+open = "5"
 
 # Benchmark dependencies (optional)
 hdrhistogram = { version = "7", optional = true }
@@ -107,6 +108,10 @@ path = "src/main.rs"
 [[bin]]
 name = "probe_limits"
 path = "src/bin/probe_limits.rs"
+
+[[bin]]
+name = "accounts"
+path = "src/bin/accounts.rs"
 
 [[test]]
 name = "integration_test"
