@@ -576,7 +576,6 @@ mod tests {
                 enabled: false,
                 refresh_token: None,
                 project_id: None,
-                endpoint: None,
             },
         }
     }

@@ -327,7 +327,6 @@ kiro-gateway --antigravity-enabled --antigravity-refresh-token "token|project|ma
 | `ANTIGRAVITY_ENABLED` | `--antigravity-enabled` | Enable the Cloud Code backend (default: `false`) |
 | `ANTIGRAVITY_REFRESH_TOKEN` | `--antigravity-refresh-token` | Composite refresh token (`refreshToken\|projectId\|managedProjectId`) |
 | `ANTIGRAVITY_PROJECT_ID` | `--antigravity-project-id` | Override project ID (instead of extracting from token) |
-| `ANTIGRAVITY_ENDPOINT` | `--antigravity-endpoint` | Override API endpoint (skips default fallback chain) |
 
 ### Model Fallbacks
 

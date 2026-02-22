@@ -44,7 +44,6 @@ mod tests {
             enabled,
             refresh_token: None,
             project_id: None,
-            endpoint: None,
         };
         BackendRouter::new(&config)
     }

@@ -44,7 +44,6 @@ Optional — only needed if enabling the antigravity backend:
 - `ANTIGRAVITY_ENABLED` - Enable Cloud Code backend (default: `false`)
 - `ANTIGRAVITY_REFRESH_TOKEN` - Google OAuth composite refresh token (`refreshToken|projectId|managedProjectId`)
 - `ANTIGRAVITY_PROJECT_ID` - Override project ID (optional)
-- `ANTIGRAVITY_ENDPOINT` - Override API endpoint (optional, skips default fallback chain)
 
 ## Architecture Overview
 

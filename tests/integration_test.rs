@@ -88,7 +88,6 @@ fn create_test_app_state() -> AppState {
             enabled: false,
             refresh_token: None,
             project_id: None,
-            endpoint: None,
         },
     });
 

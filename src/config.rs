@@ -83,10 +83,6 @@ pub struct CliArgs {
     /// Antigravity Cloud Code project ID (overrides value from refresh token)
     #[arg(long, env = "ANTIGRAVITY_PROJECT_ID")]
     pub antigravity_project_id: Option<String>,
-
-    /// Antigravity Cloud Code API endpoint (overrides default endpoint fallback)
-    #[arg(long, env = "ANTIGRAVITY_ENDPOINT")]
-    pub antigravity_endpoint: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -148,8 +144,6 @@ pub struct AntigravityConfig {
     pub refresh_token: Option<String>,
     /// Cloud Code project ID (overrides value embedded in refresh token).
     pub project_id: Option<String>,
-    /// Custom Cloud Code API endpoint (overrides default fallback chain).
-    pub endpoint: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -260,7 +254,6 @@ impl Config {
                 enabled: args.antigravity_enabled,
                 refresh_token: args.antigravity_refresh_token,
                 project_id: args.antigravity_project_id,
-                endpoint: args.antigravity_endpoint,
             },
         };
 
@@ -525,7 +518,6 @@ mod tests {
                 enabled: false,
                 refresh_token: None,
                 project_id: None,
-                endpoint: None,
             },
         };
 
