@@ -337,7 +337,8 @@ impl ToolCallAccumulator {
             "Finalizing tool '{}' with raw arguments: {}",
             tool.name,
             if tool.input_str.len() > 200 {
-                format!("{}...", &tool.input_str[..200])
+                let end = tool.input_str.floor_char_boundary(200);
+                format!("{}...", &tool.input_str[..end])
             } else {
                 tool.input_str.clone()
             }
@@ -369,7 +370,8 @@ impl ToolCallAccumulator {
                         tool.name,
                         e,
                         if tool.input_str.len() > 200 {
-                            format!("{}...", &tool.input_str[..200])
+                            let end = tool.input_str.floor_char_boundary(200);
+                            format!("{}...", &tool.input_str[..end])
                         } else {
                             tool.input_str.clone()
                         }
