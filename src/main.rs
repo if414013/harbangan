@@ -17,6 +17,7 @@ mod resolver;
 mod routes;
 mod streaming;
 mod thinking_parser;
+mod truncation;
 mod tls;
 mod tokenizer;
 mod utils;

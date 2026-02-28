@@ -218,6 +218,23 @@ async fn chat_completions_handler(
         .await
         .unwrap_or_default();
 
+    // Inject truncation recovery messages if enabled
+    let mut request = request;
+    if state.config.truncation_recovery {
+        // Convert messages to Value for injection
+        let mut msg_values: Vec<serde_json::Value> = request
+            .messages
+            .iter()
+            .filter_map(|m| serde_json::to_value(m).ok())
+            .collect();
+        crate::truncation::inject_openai_truncation_recovery(&mut msg_values);
+        // Convert back
+        request.messages = msg_values
+            .into_iter()
+            .filter_map(|v| serde_json::from_value(v).ok())
+            .collect();
+    }
+
     // Convert OpenAI request to Kiro format
     let kiro_payload_result =
         build_kiro_payload(&request, &conversation_id, &profile_arn, &state.config).map_err(
@@ -323,6 +340,7 @@ async fn chat_completions_handler(
             input_tokens,
             Some(output_tokens_handle),
             include_usage,
+            state.config.truncation_recovery,
         )
         .await
         .inspect_err(|e| {
@@ -368,6 +386,7 @@ async fn chat_completions_handler(
             &request.model,
             first_token_timeout,
             input_tokens,
+            state.config.truncation_recovery,
         )
         .await
         .inspect_err(|e| {
@@ -449,6 +468,26 @@ async fn anthropic_messages_handler(
         .get_profile_arn()
         .await
         .unwrap_or_default();
+
+    // Inject truncation recovery messages if enabled
+    let mut request = request;
+    if state.config.truncation_recovery {
+        // Convert messages to Value for injection
+        let mut msg_values: Vec<serde_json::Value> = request.messages.iter().map(|m| {
+            serde_json::json!({
+                "role": m.role,
+                "content": m.content
+            })
+        }).collect();
+        crate::truncation::inject_anthropic_truncation_recovery(&mut msg_values);
+        // Convert back
+        request.messages = msg_values.into_iter().map(|v| {
+            crate::models::anthropic::AnthropicMessage {
+                role: v["role"].as_str().unwrap_or("user").to_string(),
+                content: v["content"].clone(),
+            }
+        }).collect();
+    }
 
     // Convert Anthropic request to Kiro format
     let kiro_payload_result =
@@ -540,6 +579,7 @@ async fn anthropic_messages_handler(
             first_token_timeout,
             input_tokens,
             Some(output_tokens_handle),
+            state.config.truncation_recovery,
         )
         .await
         .inspect_err(|e| {
@@ -584,6 +624,7 @@ async fn anthropic_messages_handler(
             &request.model,
             first_token_timeout,
             input_tokens,
+            state.config.truncation_recovery,
         )
         .await
         .inspect_err(|e| {
@@ -655,6 +696,7 @@ mod tests {
             tls_enabled: false,
             tls_cert_path: None,
             tls_key_path: None,
+            truncation_recovery: true,
         });
 
         let metrics = Arc::new(crate::metrics::MetricsCollector::new());

@@ -44,6 +44,10 @@ pub struct CliArgs {
     #[arg(long, env = "FAKE_REASONING_MAX_TOKENS", default_value = "4000")]
     pub fake_reasoning_max_tokens: u32,
 
+    /// Enable truncation recovery (detect and recover from truncated API responses)
+    #[arg(long, env = "TRUNCATION_RECOVERY", default_value = "true")]
+    pub truncation_recovery: bool,
+
     /// First token timeout in seconds
     #[arg(long, env = "FIRST_TOKEN_TIMEOUT", default_value = "15")]
     pub first_token_timeout: u64,
@@ -108,6 +112,9 @@ pub struct Config {
     pub fake_reasoning_max_tokens: u32,
     #[allow(dead_code)]
     pub fake_reasoning_handling: FakeReasoningHandling,
+
+    // Truncation recovery
+    pub truncation_recovery: bool,
 
     // Dashboard
     pub dashboard: bool,
@@ -213,6 +220,8 @@ impl Config {
             fake_reasoning_handling: parse_fake_reasoning_handling(
                 &std::env::var("FAKE_REASONING_HANDLING").unwrap_or_default(),
             ),
+
+            truncation_recovery: args.truncation_recovery,
 
             dashboard: args.dashboard,
 
@@ -475,6 +484,7 @@ mod tests {
             fake_reasoning_enabled: false,
             fake_reasoning_max_tokens: 0,
             fake_reasoning_handling: FakeReasoningHandling::AsReasoningContent,
+            truncation_recovery: true,
             dashboard: false,
             tls_enabled,
             tls_cert_path: None,

@@ -359,6 +359,21 @@ pub fn build_kiro_payload_core(
         full_system_prompt.len()
     );
 
+    // Add truncation recovery legitimization to system prompt if enabled
+    let truncation_system_addition =
+        crate::truncation::get_truncation_recovery_system_addition(config.truncation_recovery);
+    if !truncation_system_addition.is_empty() {
+        if !full_system_prompt.is_empty() {
+            full_system_prompt.push_str(&truncation_system_addition);
+        } else {
+            full_system_prompt = truncation_system_addition.trim().to_string();
+        }
+    }
+    debug!(
+        "After truncation recovery addition, full_system_prompt length: {}",
+        full_system_prompt.len()
+    );
+
     // If no tools are defined, strip ALL tool-related content from messages
     // Kiro API rejects requests with toolResults but no tools
     let (messages_with_tools_handled, _stripped_tool_results) = if tools.is_none() {
@@ -568,6 +583,7 @@ mod tests {
             fake_reasoning_enabled: false,
             fake_reasoning_max_tokens: 4000,
             fake_reasoning_handling: crate::config::FakeReasoningHandling::AsReasoningContent,
+            truncation_recovery: true,
             dashboard: false,
             tls_enabled: false,
             tls_cert_path: None,

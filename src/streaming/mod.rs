@@ -56,6 +56,9 @@ pub struct ToolUse {
     pub tool_use_id: String,
     pub name: String,
     pub input: Value,
+    /// Truncation info set when JSON parsing fails due to truncation (not serialized)
+    #[serde(skip)]
+    pub truncation_info: Option<crate::truncation::TruncationInfo>,
 }
 
 /// Usage information from Kiro API
@@ -344,6 +347,8 @@ impl ToolCallAccumulator {
             }
         );
 
+        let mut truncation_info = None;
+
         // Parse accumulated input string as JSON
         let input = if tool.input_str.is_empty() {
             tracing::debug!(
@@ -364,18 +369,30 @@ impl ToolCallAccumulator {
                     parsed
                 }
                 Err(e) => {
-                    // If parsing fails, log warning and use empty object
-                    tracing::warn!(
-                        "Failed to parse tool '{}' arguments: {}. Raw: {}",
-                        tool.name,
-                        e,
-                        if tool.input_str.len() > 200 {
-                            let end = tool.input_str.floor_char_boundary(200);
-                            format!("{}...", &tool.input_str[..end])
-                        } else {
-                            tool.input_str.clone()
-                        }
-                    );
+                    // Diagnose if this is truncation vs malformed JSON
+                    let info = crate::truncation::diagnose_json_truncation(&tool.input_str);
+                    if info.is_truncated {
+                        tracing::error!(
+                            "TRUNCATION DETECTED: tool '{}' (id={}) arguments truncated: {} (raw size: {} bytes)",
+                            tool.name,
+                            tool.tool_use_id,
+                            info.reason,
+                            info.size_bytes
+                        );
+                        truncation_info = Some(info);
+                    } else {
+                        tracing::warn!(
+                            "Failed to parse tool '{}' arguments: {}. Raw: {}",
+                            tool.name,
+                            e,
+                            if tool.input_str.len() > 200 {
+                                let end = tool.input_str.floor_char_boundary(200);
+                                format!("{}...", &tool.input_str[..end])
+                            } else {
+                                tool.input_str.clone()
+                            }
+                        );
+                    }
                     Value::Object(Default::default())
                 }
             }
@@ -385,6 +402,7 @@ impl ToolCallAccumulator {
             tool_use_id: tool.tool_use_id,
             name: tool.name,
             input,
+            truncation_info,
         };
 
         self.completed_tools.push(completed.clone());
@@ -729,6 +747,7 @@ pub fn parse_kiro_event_with_accumulator(
                         tool_use_id,
                         name,
                         input,
+                        truncation_info: None,
                     }),
                     usage: None,
                     context_usage_percentage: None,
@@ -1334,11 +1353,13 @@ mod tests {
                 tool_use_id: "call_1".to_string(),
                 name: "test".to_string(),
                 input: serde_json::json!({}),
+                truncation_info: None,
             },
             ToolUse {
                 tool_use_id: "call_1".to_string(),
                 name: "test".to_string(),
                 input: serde_json::json!({"key": "value"}),
+                truncation_info: None,
             },
         ];
 
@@ -1355,11 +1376,13 @@ mod tests {
                 tool_use_id: "call_1".to_string(),
                 name: "test".to_string(),
                 input: serde_json::json!({"key": "value"}),
+                truncation_info: None,
             },
             ToolUse {
                 tool_use_id: "call_2".to_string(),
                 name: "test".to_string(),
                 input: serde_json::json!({"key": "value"}),
+                truncation_info: None,
             },
         ];
 
@@ -1374,11 +1397,13 @@ mod tests {
                 tool_use_id: "call_1".to_string(),
                 name: "tool_a".to_string(),
                 input: serde_json::json!({"key": "value1"}),
+                truncation_info: None,
             },
             ToolUse {
                 tool_use_id: "call_2".to_string(),
                 name: "tool_b".to_string(),
                 input: serde_json::json!({"key": "value2"}),
+                truncation_info: None,
             },
         ];
 
@@ -1546,6 +1571,7 @@ mod tests {
             tool_use_id: "call_123".to_string(),
             name: "test_tool".to_string(),
             input: serde_json::json!({"key": "value"}),
+            truncation_info: None,
         };
 
         let json = serde_json::to_string(&tool_use).unwrap();
@@ -1648,6 +1674,7 @@ pub async fn stream_kiro_to_openai(
     input_tokens: i32,
     output_tokens_tracker: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>,
     include_usage: bool,
+    truncation_recovery: bool,
 ) -> Result<BoxStream<'static, Result<String, ApiError>>, ApiError> {
     let completion_id = generate_completion_id();
     let created_time = chrono::Utc::now().timestamp();
@@ -1815,14 +1842,36 @@ pub async fn stream_kiro_to_openai(
             created_time,
             input_tokens,
             tracker_for_final,
+            truncation_recovery,
         )),
         move |state_opt| async move {
-            let (state_arc, completion_id, model, created_time, input_tokens, tracker) = state_opt?;
+            let (state_arc, completion_id, model, created_time, input_tokens, tracker, truncation_recovery) = state_opt?;
             let state = state_arc.lock().unwrap();
             let mut final_chunks = Vec::new();
 
             // Deduplicate tool calls before sending
             let deduped_tool_calls = deduplicate_tool_calls(state.tool_calls.clone());
+
+            // Save truncation state for recovery on next request
+            if truncation_recovery {
+                for tc in &deduped_tool_calls {
+                    if let Some(ref info) = tc.truncation_info {
+                        crate::truncation::TRUNCATION_STATE.save_tool_truncation(
+                            &tc.tool_use_id,
+                            &tc.name,
+                            info.clone(),
+                        );
+                    }
+                }
+                // Detect content truncation: no usage + has content + no tools
+                if state.usage.is_none()
+                    && !state.accumulated_text.is_empty()
+                    && deduped_tool_calls.is_empty()
+                {
+                    crate::truncation::TRUNCATION_STATE
+                        .save_content_truncation(&state.accumulated_text);
+                }
+            }
 
             // Send tool calls if present
             if !deduped_tool_calls.is_empty() {
@@ -1996,6 +2045,7 @@ pub async fn stream_kiro_to_anthropic(
     first_token_timeout_secs: u64,
     input_tokens: i32,
     output_tokens_tracker: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>,
+    truncation_recovery: bool,
 ) -> Result<BoxStream<'static, Result<String, ApiError>>, ApiError> {
     let message_id = generate_anthropic_message_id();
     let model = model.to_string();
@@ -2210,10 +2260,10 @@ pub async fn stream_kiro_to_anthropic(
     });
 
     // Add final events
-    let final_events_stream = futures::stream::unfold(Some(state_for_final), move |state_opt| {
+    let final_events_stream = futures::stream::unfold(Some((state_for_final, truncation_recovery)), move |state_opt| {
         let tracker = tracker_for_final.clone();
         async move {
-            let state_arc = state_opt?;
+            let (state_arc, truncation_recovery) = state_opt?;
             let state = state_arc.lock().unwrap();
         let mut final_events = Vec::new();
 
@@ -2237,6 +2287,27 @@ pub async fn stream_kiro_to_anthropic(
 
         // Deduplicate tool calls before sending
         let deduped_tool_calls = deduplicate_tool_calls(state.tool_calls.clone());
+
+        // Save truncation state for recovery on next request
+        if truncation_recovery {
+            for tc in &deduped_tool_calls {
+                if let Some(ref info) = tc.truncation_info {
+                    crate::truncation::TRUNCATION_STATE.save_tool_truncation(
+                        &tc.tool_use_id,
+                        &tc.name,
+                        info.clone(),
+                    );
+                }
+            }
+            // Detect content truncation: no usage + has content + no tools
+            if state.usage.is_none()
+                && !state.accumulated_text.is_empty()
+                && deduped_tool_calls.is_empty()
+            {
+                crate::truncation::TRUNCATION_STATE
+                    .save_content_truncation(&state.accumulated_text);
+            }
+        }
 
         // Log tool calls for debugging
         if !deduped_tool_calls.is_empty() {
@@ -2358,6 +2429,7 @@ pub async fn collect_openai_response(
     model: &str,
     first_token_timeout_secs: u64,
     input_tokens: i32,
+    truncation_recovery: bool,
 ) -> Result<Value, ApiError> {
     use futures::StreamExt;
 
@@ -2406,6 +2478,22 @@ pub async fn collect_openai_response(
 
     // Deduplicate tool calls
     let tool_calls = deduplicate_tool_calls(tool_calls);
+
+    // Save truncation state for recovery on next request
+    if truncation_recovery {
+        for tc in &tool_calls {
+            if let Some(ref info) = tc.truncation_info {
+                crate::truncation::TRUNCATION_STATE.save_tool_truncation(
+                    &tc.tool_use_id,
+                    &tc.name,
+                    info.clone(),
+                );
+            }
+        }
+        if usage.is_none() && !full_content.is_empty() && tool_calls.is_empty() {
+            crate::truncation::TRUNCATION_STATE.save_content_truncation(&full_content);
+        }
+    }
 
     // Build message
     let mut message = serde_json::json!({
@@ -2491,6 +2579,7 @@ pub async fn collect_anthropic_response(
     model: &str,
     first_token_timeout_secs: u64,
     input_tokens: i32,
+    truncation_recovery: bool,
 ) -> Result<Value, ApiError> {
     use futures::StreamExt;
 
@@ -2538,6 +2627,22 @@ pub async fn collect_anthropic_response(
 
     // Deduplicate tool calls
     let tool_calls = deduplicate_tool_calls(tool_calls);
+
+    // Save truncation state for recovery on next request
+    if truncation_recovery {
+        for tc in &tool_calls {
+            if let Some(ref info) = tc.truncation_info {
+                crate::truncation::TRUNCATION_STATE.save_tool_truncation(
+                    &tc.tool_use_id,
+                    &tc.name,
+                    info.clone(),
+                );
+            }
+        }
+        if usage.is_none() && !full_content.is_empty() && tool_calls.is_empty() {
+            crate::truncation::TRUNCATION_STATE.save_content_truncation(&full_content);
+        }
+    }
 
     // Build content blocks
     let mut content_blocks: Vec<Value> = Vec::new();
