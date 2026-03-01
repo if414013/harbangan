@@ -3,8 +3,8 @@ set -e
 
 DB_FILE="${KIRO_CLI_DB_FILE:-/home/kiro/.local/share/kiro-cli/data.sqlite3}"
 
-# Auto-login if database doesn't exist
-if [ ! -f "$DB_FILE" ]; then
+# Auto-login if not already authenticated
+if ! kiro-cli whoami > /dev/null 2>&1; then
   echo ""
   echo "╔═══════════════════════════════════════════════════════════╗"
   echo "║  No Kiro credentials found. Starting login flow...       ║"
