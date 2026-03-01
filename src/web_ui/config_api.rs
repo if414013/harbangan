@@ -85,11 +85,7 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
             }
         }
         "fake_reasoning_enabled" | "truncation_recovery" | "tls_enabled" => {
-            if value.is_boolean()
-                || value
-                    .as_str()
-                    .map_or(false, |s| s == "true" || s == "false")
-            {
+            if value.is_boolean() || value.as_str().is_some_and(|s| s == "true" || s == "false") {
                 Ok(())
             } else {
                 Err(format!("{} must be a boolean", key))

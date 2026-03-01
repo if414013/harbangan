@@ -20,11 +20,18 @@ pub async fn auth_middleware(
     request: Request<Body>,
     next: Next,
 ) -> Result<Response, ApiError> {
+    let proxy_api_key = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .proxy_api_key
+        .clone();
+
     if let Some(auth_header) = request.headers().get("authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
-            tracing::debug!("Received Authorization header: {}", auth_str);
-            let expected = format!("Bearer {}", state.proxy_api_key);
-            tracing::debug!("Expected: {}", expected);
+            tracing::debug!("Received Authorization header: Bearer ****");
+            let expected = format!("Bearer {}", proxy_api_key);
+            tracing::debug!("Expected: ****");
             if auth_str == expected {
                 return Ok(next.run(request).await);
             }
@@ -33,9 +40,9 @@ pub async fn auth_middleware(
 
     if let Some(api_key_header) = request.headers().get("x-api-key") {
         if let Ok(key_str) = api_key_header.to_str() {
-            tracing::debug!("Received x-api-key header: {}", key_str);
-            tracing::debug!("Expected: {}", state.proxy_api_key);
-            if key_str == state.proxy_api_key {
+            tracing::debug!("Received x-api-key header: ****");
+            tracing::debug!("Expected: ****");
+            if key_str == proxy_api_key {
                 return Ok(next.run(request).await);
             }
         }
@@ -67,7 +74,12 @@ pub async fn hsts_middleware(
     let mut response = next.run(request).await;
 
     // Only add HSTS header when TLS is active
-    if state.config.is_tls_active() {
+    if state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .is_tls_active()
+    {
         response.headers_mut().insert(
             axum::http::header::STRICT_TRANSPORT_SECURITY,
             axum::http::HeaderValue::from_static("max-age=31536000"),
@@ -107,50 +119,32 @@ mod tests {
 
     fn create_test_state() -> AppState {
         let cache = ModelCache::new(3600);
-        let auth_manager = Arc::new(
+        let auth_manager_for_http = Arc::new(
             AuthManager::new_for_testing("test-token".to_string(), "us-east-1".to_string(), 300)
                 .unwrap(),
         );
         let http_client =
-            Arc::new(KiroHttpClient::new(auth_manager.clone(), 20, 30, 300, 3).unwrap());
+            Arc::new(KiroHttpClient::new(auth_manager_for_http, 20, 30, 300, 3).unwrap());
+        let auth_manager = Arc::new(tokio::sync::RwLock::new(
+            AuthManager::new_for_testing("test-token".to_string(), "us-east-1".to_string(), 300)
+                .unwrap(),
+        ));
         let resolver = ModelResolver::new(cache.clone(), HashMap::new());
-        let config = Arc::new(Config {
-            server_host: "0.0.0.0".to_string(),
-            server_port: 8000,
+        let config = Config {
             proxy_api_key: "test-key-123".to_string(),
-            kiro_region: "us-east-1".to_string(),
-            kiro_cli_db_file: std::path::PathBuf::from("/tmp/test.db"),
-            streaming_timeout: 300,
-            token_refresh_threshold: 300,
-            first_token_timeout: 15,
-            http_max_connections: 20,
-            http_connect_timeout: 30,
-            http_request_timeout: 300,
-            http_max_retries: 3,
-            debug_mode: crate::config::DebugMode::Off,
-            log_level: "info".to_string(),
-            tool_description_max_length: 10000,
-            fake_reasoning_enabled: false,
             fake_reasoning_max_tokens: 10000,
-            fake_reasoning_handling: crate::config::FakeReasoningHandling::AsReasoningContent,
-            truncation_recovery: true,
-            dashboard: false,
-            tls_enabled: false,
-            tls_cert_path: None,
-            tls_key_path: None,
-            web_ui_enabled: false,
-            config_db_path: None,
-        });
+            ..Config::with_defaults()
+        };
 
         let metrics = Arc::new(crate::metrics::MetricsCollector::new());
 
         AppState {
-            proxy_api_key: "test-key-123".to_string(),
             model_cache: cache,
             auth_manager,
             http_client,
             resolver,
-            config,
+            config: Arc::new(std::sync::RwLock::new(config)),
+            setup_complete: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             metrics,
             log_buffer: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
             config_db: None,
@@ -438,50 +432,33 @@ mod tests {
 
     fn create_test_state_with_tls(tls_enabled: bool) -> AppState {
         let cache = ModelCache::new(3600);
-        let auth_manager = Arc::new(
+        let auth_manager_for_http = Arc::new(
             AuthManager::new_for_testing("test-token".to_string(), "us-east-1".to_string(), 300)
                 .unwrap(),
         );
         let http_client =
-            Arc::new(KiroHttpClient::new(auth_manager.clone(), 20, 30, 300, 3).unwrap());
+            Arc::new(KiroHttpClient::new(auth_manager_for_http, 20, 30, 300, 3).unwrap());
+        let auth_manager = Arc::new(tokio::sync::RwLock::new(
+            AuthManager::new_for_testing("test-token".to_string(), "us-east-1".to_string(), 300)
+                .unwrap(),
+        ));
         let resolver = ModelResolver::new(cache.clone(), HashMap::new());
-        let config = Arc::new(Config {
-            server_host: "0.0.0.0".to_string(),
-            server_port: 8000,
+        let config = Config {
             proxy_api_key: "test-key-123".to_string(),
-            kiro_region: "us-east-1".to_string(),
-            kiro_cli_db_file: std::path::PathBuf::from("/tmp/test.db"),
-            streaming_timeout: 300,
-            token_refresh_threshold: 300,
-            first_token_timeout: 15,
-            http_max_connections: 20,
-            http_connect_timeout: 30,
-            http_request_timeout: 300,
-            http_max_retries: 3,
-            debug_mode: crate::config::DebugMode::Off,
-            log_level: "info".to_string(),
-            tool_description_max_length: 10000,
-            fake_reasoning_enabled: false,
             fake_reasoning_max_tokens: 10000,
-            fake_reasoning_handling: crate::config::FakeReasoningHandling::AsReasoningContent,
-            truncation_recovery: true,
-            dashboard: false,
             tls_enabled,
-            tls_cert_path: None,
-            tls_key_path: None,
-            web_ui_enabled: false,
-            config_db_path: None,
-        });
+            ..Config::with_defaults()
+        };
 
         let metrics = Arc::new(crate::metrics::MetricsCollector::new());
 
         AppState {
-            proxy_api_key: "test-key-123".to_string(),
             model_cache: cache,
             auth_manager,
             http_client,
             resolver,
-            config,
+            config: Arc::new(std::sync::RwLock::new(config)),
+            setup_complete: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             metrics,
             log_buffer: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
             config_db: None,

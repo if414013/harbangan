@@ -24,9 +24,20 @@ pub struct ConfigDb {
 
 impl ConfigDb {
     /// Open (or create) the config database at `path` and run migrations.
+    /// On Unix systems, sets restrictive permissions (0o700 on parent dir, 0o600 on DB file).
     pub fn open(path: &Path) -> Result<Self> {
         let conn = rusqlite::Connection::open(path)
             .with_context(|| format!("Failed to open config database: {}", path.display()))?;
+
+        // Set restrictive file permissions on Unix (DB contains secrets)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Some(parent) = path.parent() {
+                std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).ok();
+            }
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).ok();
+        }
 
         let db = Self {
             conn: Mutex::new(conn),
@@ -93,11 +104,15 @@ impl ConfigDb {
     }
 
     /// Upsert a config value and record the change in history.
+    /// All operations (read old value, upsert, history insert, prune) run in a single transaction.
     pub fn set(&self, key: &str, value: &str, source: &str) -> Result<()> {
         let conn = self.conn.lock().expect("config db mutex poisoned");
+        let tx = conn
+            .unchecked_transaction()
+            .context("Failed to begin transaction for config set")?;
 
         // Fetch old value for history
-        let old_value: Option<String> = conn
+        let old_value: Option<String> = tx
             .query_row(
                 "SELECT value FROM config WHERE key = ?",
                 params![key],
@@ -105,7 +120,7 @@ impl ConfigDb {
             )
             .ok();
 
-        conn.execute(
+        tx.execute(
             "INSERT INTO config (key, value, updated_at)
              VALUES (?, ?, datetime('now'))
              ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
@@ -113,12 +128,22 @@ impl ConfigDb {
         )
         .with_context(|| format!("Failed to upsert config key '{}'", key))?;
 
-        conn.execute(
+        tx.execute(
             "INSERT INTO config_history (key, old_value, new_value, source)
              VALUES (?, ?, ?, ?)",
             params![key, old_value, value, source],
         )
         .with_context(|| format!("Failed to record config history for '{}'", key))?;
+
+        // Prune old history entries, keeping the most recent 1000
+        tx.execute(
+            "DELETE FROM config_history WHERE id NOT IN (SELECT id FROM config_history ORDER BY id DESC LIMIT 1000)",
+            [],
+        )
+        .context("Failed to prune config history")?;
+
+        tx.commit()
+            .context("Failed to commit config set transaction")?;
 
         Ok(())
     }
@@ -243,71 +268,77 @@ impl ConfigDb {
         Ok(())
     }
 
-    /// Persist the current Config fields into SQLite.
-    pub fn save_from_config(&self, config: &Config) -> Result<()> {
-        let pairs: Vec<(&str, String)> = vec![
-            ("server_host", config.server_host.clone()),
-            ("server_port", config.server_port.to_string()),
-            ("proxy_api_key", config.proxy_api_key.clone()),
-            ("kiro_region", config.kiro_region.clone()),
-            ("log_level", config.log_level.clone()),
-            (
-                "debug_mode",
-                match config.debug_mode {
-                    DebugMode::Off => "off",
-                    DebugMode::Errors => "errors",
-                    DebugMode::All => "all",
-                }
-                .to_string(),
-            ),
-            (
-                "fake_reasoning_enabled",
-                config.fake_reasoning_enabled.to_string(),
-            ),
-            (
-                "fake_reasoning_max_tokens",
-                config.fake_reasoning_max_tokens.to_string(),
-            ),
-            (
-                "truncation_recovery",
-                config.truncation_recovery.to_string(),
-            ),
-            (
-                "tool_description_max_length",
-                config.tool_description_max_length.to_string(),
-            ),
-            (
-                "first_token_timeout",
-                config.first_token_timeout.to_string(),
-            ),
-            ("tls_enabled", config.tls_enabled.to_string()),
-            (
-                "kiro_cli_db_file",
-                config.kiro_cli_db_file.display().to_string(),
-            ),
+    /// Check if initial setup has been completed (proxy_api_key and kiro_refresh_token both exist).
+    pub fn is_setup_complete(&self) -> bool {
+        let has_key = self.get("proxy_api_key").ok().flatten().is_some();
+        let has_token = self.get("kiro_refresh_token").ok().flatten().is_some();
+        has_key && has_token
+    }
+
+    /// Save initial setup configuration (proxy key, refresh token, region).
+    /// All four writes are wrapped in a single transaction for atomicity.
+    pub fn save_initial_setup(
+        &self,
+        proxy_key: &str,
+        refresh_token: &str,
+        region: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().expect("config db mutex poisoned");
+        let tx = conn
+            .unchecked_transaction()
+            .context("Failed to begin transaction for initial setup")?;
+
+        let keys_values: &[(&str, &str)] = &[
+            ("proxy_api_key", proxy_key),
+            ("kiro_refresh_token", refresh_token),
+            ("kiro_region", region),
+            ("setup_complete", "true"),
         ];
 
-        for (key, value) in pairs {
-            self.set(key, &value, "config_sync")?;
+        for &(key, value) in keys_values {
+            let old_value: Option<String> = tx
+                .query_row(
+                    "SELECT value FROM config WHERE key = ?",
+                    params![key],
+                    |row| row.get(0),
+                )
+                .ok();
+
+            tx.execute(
+                "INSERT INTO config (key, value, updated_at)
+                 VALUES (?, ?, datetime('now'))
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                params![key, value],
+            )
+            .with_context(|| format!("Failed to upsert config key '{}' during setup", key))?;
+
+            tx.execute(
+                "INSERT INTO config_history (key, old_value, new_value, source)
+                 VALUES (?, ?, ?, ?)",
+                params![key, old_value, value, "setup"],
+            )
+            .with_context(|| {
+                format!("Failed to record config history for '{}' during setup", key)
+            })?;
         }
 
-        if let Some(ref p) = config.tls_cert_path {
-            self.set("tls_cert_path", &p.display().to_string(), "config_sync")?;
-        }
-        if let Some(ref p) = config.tls_key_path {
-            self.set("tls_key_path", &p.display().to_string(), "config_sync")?;
-        }
+        tx.commit()
+            .context("Failed to commit initial setup transaction")?;
 
         Ok(())
+    }
+
+    /// Get the stored Kiro refresh token.
+    pub fn get_refresh_token(&self) -> Result<Option<String>> {
+        self.get("kiro_refresh_token")
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::path::PathBuf;
 
-    use crate::config::FakeReasoningHandling;
+    use super::*;
 
     fn create_test_db() -> (ConfigDb, PathBuf) {
         use std::sync::atomic::{AtomicU64, Ordering};
@@ -324,31 +355,8 @@ mod tests {
 
     fn create_test_config() -> Config {
         Config {
-            server_host: "127.0.0.1".to_string(),
-            server_port: 8000,
             proxy_api_key: "test-key".to_string(),
-            kiro_region: "us-east-1".to_string(),
-            kiro_cli_db_file: PathBuf::from("/tmp/test.db"),
-            streaming_timeout: 300,
-            token_refresh_threshold: 300,
-            first_token_timeout: 15,
-            http_max_connections: 20,
-            http_connect_timeout: 30,
-            http_request_timeout: 300,
-            http_max_retries: 3,
-            debug_mode: DebugMode::Off,
-            log_level: "info".to_string(),
-            tool_description_max_length: 10000,
-            fake_reasoning_enabled: true,
-            fake_reasoning_max_tokens: 4000,
-            fake_reasoning_handling: FakeReasoningHandling::AsReasoningContent,
-            truncation_recovery: true,
-            dashboard: false,
-            tls_enabled: false,
-            tls_cert_path: None,
-            tls_key_path: None,
-            web_ui_enabled: false,
-            config_db_path: None,
+            ..Config::with_defaults()
         }
     }
 
@@ -438,11 +446,13 @@ mod tests {
     }
 
     #[test]
-    fn test_save_and_load_config() {
+    fn test_set_and_load_config() {
         let (db, _tmp) = create_test_db();
-        let original = create_test_config();
 
-        db.save_from_config(&original).unwrap();
+        db.set("log_level", "info", "test").unwrap();
+        db.set("server_port", "8000", "test").unwrap();
+        db.set("fake_reasoning_enabled", "true", "test").unwrap();
+        db.set("truncation_recovery", "true", "test").unwrap();
 
         let mut loaded = create_test_config();
         loaded.log_level = "changed".to_string();
@@ -466,6 +476,59 @@ mod tests {
         db.load_into_config(&mut config).unwrap();
 
         assert_eq!(config.debug_mode, DebugMode::Errors);
+    }
+
+    #[test]
+    fn test_is_setup_complete_false_when_empty() {
+        let (db, _tmp) = create_test_db();
+        assert!(!db.is_setup_complete());
+    }
+
+    #[test]
+    fn test_is_setup_complete_false_with_only_key() {
+        let (db, _tmp) = create_test_db();
+        db.set("proxy_api_key", "test-key", "test").unwrap();
+        assert!(!db.is_setup_complete());
+    }
+
+    #[test]
+    fn test_is_setup_complete_true() {
+        let (db, _tmp) = create_test_db();
+        db.set("proxy_api_key", "test-key", "test").unwrap();
+        db.set("kiro_refresh_token", "test-token", "test").unwrap();
+        assert!(db.is_setup_complete());
+    }
+
+    #[test]
+    fn test_save_initial_setup() {
+        let (db, _tmp) = create_test_db();
+        db.save_initial_setup("my-key", "my-token", "us-west-2")
+            .unwrap();
+
+        assert_eq!(db.get("proxy_api_key").unwrap(), Some("my-key".to_string()));
+        assert_eq!(
+            db.get("kiro_refresh_token").unwrap(),
+            Some("my-token".to_string())
+        );
+        assert_eq!(
+            db.get("kiro_region").unwrap(),
+            Some("us-west-2".to_string())
+        );
+        assert_eq!(db.get("setup_complete").unwrap(), Some("true".to_string()));
+        assert!(db.is_setup_complete());
+    }
+
+    #[test]
+    fn test_get_refresh_token() {
+        let (db, _tmp) = create_test_db();
+
+        assert_eq!(db.get_refresh_token().unwrap(), None);
+
+        db.set("kiro_refresh_token", "my-token", "test").unwrap();
+        assert_eq!(
+            db.get_refresh_token().unwrap(),
+            Some("my-token".to_string())
+        );
     }
 
     #[test]

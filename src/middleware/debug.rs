@@ -485,8 +485,16 @@ pub async fn debug_middleware(
     request: Request,
     next: Next,
 ) -> Response {
+    // Read config snapshot for debug mode check
+    let debug_mode = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .debug_mode
+        .clone();
+
     // Skip if debug mode is off
-    if matches!(state.config.debug_mode, DebugMode::Off) {
+    if matches!(debug_mode, DebugMode::Off) {
         return next.run(request).await;
     }
 
@@ -499,7 +507,7 @@ pub async fn debug_middleware(
     }
 
     // Set debug mode on the global logger
-    DEBUG_LOGGER.set_mode(state.config.debug_mode.clone()).await;
+    DEBUG_LOGGER.set_mode(debug_mode).await;
 
     // Prepare for new request (clears buffers/directory)
     DEBUG_LOGGER.prepare_new_request().await;

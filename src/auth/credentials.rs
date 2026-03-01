@@ -3,8 +3,11 @@ use chrono::{DateTime, Utc};
 use std::path::Path;
 
 use super::types::{AuthType, Credentials, SqliteDeviceRegistration, SqliteTokenData};
+use crate::web_ui::config_db::ConfigDb;
 
 /// Load credentials from SQLite database (kiro-cli)
+/// Kept for backwards compatibility — normal flow uses `load_from_config_db`.
+#[allow(dead_code)]
 pub fn load_from_sqlite(path: &Path) -> Result<Credentials> {
     let conn = rusqlite::Connection::open(path)
         .with_context(|| format!("Failed to open SQLite database: {}", path.display()))?;
@@ -70,14 +73,43 @@ pub fn load_from_sqlite(path: &Path) -> Result<Credentials> {
     })
 }
 
+/// Load credentials from the gateway's config database (KiroDesktop auth type).
+///
+/// Reads `kiro_refresh_token` and `kiro_region` from the config DB.
+/// Returns credentials with `client_id: None, client_secret: None`,
+/// which triggers the KiroDesktop auth path.
+pub fn load_from_config_db(config_db: &ConfigDb) -> Result<Credentials> {
+    let refresh_token = config_db
+        .get_refresh_token()?
+        .context("No kiro_refresh_token found in config database")?;
+
+    let region = config_db
+        .get("kiro_region")?
+        .unwrap_or_else(|| "us-east-1".to_string());
+
+    tracing::info!("Loaded credentials from config DB (KiroDesktop auth)");
+
+    Ok(Credentials {
+        refresh_token,
+        access_token: None,
+        expires_at: None,
+        profile_arn: None,
+        region,
+        client_id: None,
+        client_secret: None,
+        sso_region: None,
+        scopes: None,
+    })
+}
+
 /// Detect authentication type based on credentials
 pub fn detect_auth_type(creds: &Credentials) -> AuthType {
     if creds.client_id.is_some() && creds.client_secret.is_some() {
         tracing::info!("Detected auth type: AWS SSO OIDC (kiro-cli)");
         AuthType::AwsSsoOidc
     } else {
-        tracing::warn!("Missing client_id or client_secret - this should not happen with kiro-cli");
-        AuthType::AwsSsoOidc
+        tracing::info!("Detected auth type: Kiro Desktop");
+        AuthType::KiroDesktop
     }
 }
 
@@ -111,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_auth_type() {
+    fn test_detect_auth_type_sso() {
         let creds = Credentials {
             refresh_token: "token".to_string(),
             access_token: None,
@@ -124,5 +156,75 @@ mod tests {
             scopes: None,
         };
         assert_eq!(detect_auth_type(&creds), AuthType::AwsSsoOidc);
+    }
+
+    #[test]
+    fn test_detect_auth_type_kiro_desktop() {
+        let creds = Credentials {
+            refresh_token: "token".to_string(),
+            access_token: None,
+            expires_at: None,
+            profile_arn: None,
+            region: "us-east-1".to_string(),
+            client_id: None,
+            client_secret: None,
+            sso_region: None,
+            scopes: None,
+        };
+        assert_eq!(detect_auth_type(&creds), AuthType::KiroDesktop);
+    }
+
+    #[test]
+    fn test_load_from_config_db() {
+        let path =
+            std::env::temp_dir().join(format!("test_creds_db_{}.sqlite", std::process::id()));
+        let db = ConfigDb::open(&path).unwrap();
+        db.set("kiro_refresh_token", "my-refresh-token", "test")
+            .unwrap();
+        db.set("kiro_region", "us-west-2", "test").unwrap();
+
+        let creds = load_from_config_db(&db).unwrap();
+        assert_eq!(creds.refresh_token, "my-refresh-token");
+        assert_eq!(creds.region, "us-west-2");
+        assert!(creds.client_id.is_none());
+        assert!(creds.client_secret.is_none());
+
+        let auth_type = detect_auth_type(&creds);
+        assert_eq!(auth_type, AuthType::KiroDesktop);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_load_from_config_db_default_region() {
+        let path = std::env::temp_dir().join(format!(
+            "test_creds_db_region_{}.sqlite",
+            std::process::id()
+        ));
+        let db = ConfigDb::open(&path).unwrap();
+        db.set("kiro_refresh_token", "token", "test").unwrap();
+
+        let creds = load_from_config_db(&db).unwrap();
+        assert_eq!(creds.region, "us-east-1");
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_load_from_config_db_missing_token() {
+        let path = std::env::temp_dir().join(format!(
+            "test_creds_db_no_token_{}.sqlite",
+            std::process::id()
+        ));
+        let db = ConfigDb::open(&path).unwrap();
+
+        let result = load_from_config_db(&db);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("kiro_refresh_token"));
+
+        let _ = std::fs::remove_file(path);
     }
 }

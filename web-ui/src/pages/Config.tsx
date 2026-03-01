@@ -39,32 +39,21 @@ const CONFIG_GROUPS: { title: string; icon: string; fields: ConfigField[] }[] = 
     title: 'Kiro Backend',
     icon: 'globe',
     fields: [
-      { key: 'kiro_region', label: 'Region', type: 'text' },
+      { key: 'kiro_region', label: 'Region', type: 'text', restart: true },
     ],
   },
   {
     title: 'Timeouts',
     icon: 'clock',
     fields: [
-      { key: 'streaming_timeout', label: 'Streaming (s)', type: 'number' },
       { key: 'first_token_timeout', label: 'First Token (s)', type: 'number' },
-    ],
-  },
-  {
-    title: 'HTTP Client',
-    icon: 'link',
-    fields: [
-      { key: 'http_max_connections', label: 'Max Connections', type: 'number' },
-      { key: 'http_connect_timeout', label: 'Connect Timeout (s)', type: 'number' },
-      { key: 'http_request_timeout', label: 'Request Timeout (s)', type: 'number' },
-      { key: 'http_max_retries', label: 'Max Retries', type: 'number' },
     ],
   },
   {
     title: 'Debug',
     icon: 'edit',
     fields: [
-      { key: 'debug_mode', label: 'Debug Mode', type: 'select', options: ['Off', 'Errors', 'All'] },
+      { key: 'debug_mode', label: 'Debug Mode', type: 'select', options: ['off', 'errors', 'all'] },
       { key: 'log_level', label: 'Log Level', type: 'select', options: ['trace', 'debug', 'info', 'warn', 'error'] },
     ],
   },
@@ -82,13 +71,16 @@ const CONFIG_GROUPS: { title: string; icon: string; fields: ConfigField[] }[] = 
     icon: 'star',
     fields: [
       { key: 'truncation_recovery', label: 'Truncation Recovery', type: 'checkbox' },
-      { key: 'dashboard', label: 'TUI Dashboard', type: 'checkbox' },
       { key: 'tls_enabled', label: 'TLS', type: 'checkbox', restart: true },
       { key: 'tls_cert_path', label: 'TLS Cert Path', type: 'text', restart: true },
       { key: 'tls_key_path', label: 'TLS Key Path', type: 'text', restart: true },
     ],
   },
 ]
+
+const RESTART_KEYS = new Set(
+  CONFIG_GROUPS.flatMap(g => g.fields.filter(f => f.restart).map(f => f.key))
+)
 
 const ICONS: Record<string, React.ReactNode> = {
   server: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="18" r="1"/></svg>,
@@ -111,10 +103,10 @@ export function Config() {
   const savedSnapshot = useRef<string>('')
 
   useEffect(() => {
-    apiFetch<Record<string, unknown>>('/config')
+    apiFetch<{ setup_complete: boolean; config: Record<string, unknown> }>('/config')
       .then(data => {
-        setValues(data)
-        savedSnapshot.current = JSON.stringify(data)
+        setValues(data.config)
+        savedSnapshot.current = JSON.stringify(data.config)
         setLoading(false)
       })
       .catch(err => {
@@ -138,13 +130,30 @@ export function Config() {
     })
   }
 
+  function getChangedKeys(): string[] {
+    try {
+      const saved = JSON.parse(savedSnapshot.current) as Record<string, unknown>
+      return Object.keys(values).filter(k => JSON.stringify(values[k]) !== JSON.stringify(saved[k]))
+    } catch {
+      return []
+    }
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    apiPut('/config', values)
+    const changed = getChangedKeys()
+    if (changed.length === 0) return
+    const payload = Object.fromEntries(changed.map(k => [k, values[k]]))
+    const needsRestart = changed.some(k => RESTART_KEYS.has(k))
+    apiPut('/config', payload)
       .then(() => {
         savedSnapshot.current = JSON.stringify(values)
         setDirty(false)
-        showToast('Configuration saved', 'success')
+        if (needsRestart) {
+          showToast('Configuration saved — restart required for some changes to take effect', 'success')
+        } else {
+          showToast('Configuration saved — applied immediately', 'success')
+        }
         loadHistory()
       })
       .catch(err => showToast('Failed to save: ' + err.message, 'error'))
@@ -178,7 +187,19 @@ export function Config() {
                   <div key={field.key} className="config-row">
                     <label className="config-label" htmlFor={field.key}>
                       {field.label}
-                      {field.restart && <span className="badge-restart">restart</span>}
+                      {field.restart ? (
+                        <span className="badge-restart">restart</span>
+                      ) : (
+                        <span style={{
+                          fontSize: '0.58rem',
+                          fontFamily: 'var(--font-mono)',
+                          padding: '1px 6px',
+                          borderRadius: 20,
+                          background: 'var(--green-dim)',
+                          color: 'var(--green)',
+                          whiteSpace: 'nowrap',
+                        }}>live</span>
+                      )}
                     </label>
                     {field.type === 'select' ? (
                       <select

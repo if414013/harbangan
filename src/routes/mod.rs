@@ -10,11 +10,13 @@ use bytes::Bytes;
 use chrono::Utc;
 use futures::stream::StreamExt;
 use serde_json::{json, Value};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
+use std::sync::RwLock;
 use std::time::Instant;
 
 use crate::auth::AuthManager;
@@ -40,12 +42,13 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Application state shared across handlers
 #[derive(Clone)]
 pub struct AppState {
-    pub proxy_api_key: String,
     pub model_cache: ModelCache,
-    pub auth_manager: Arc<AuthManager>,
+    pub auth_manager: Arc<tokio::sync::RwLock<AuthManager>>,
     pub http_client: Arc<KiroHttpClient>,
     pub resolver: ModelResolver,
-    pub config: Arc<Config>,
+    pub config: Arc<RwLock<Config>>,
+    #[allow(dead_code)]
+    pub setup_complete: Arc<AtomicBool>,
     pub metrics: Arc<MetricsCollector>,
     pub log_buffer: Arc<Mutex<VecDeque<LogEntry>>>,
     pub config_db: Option<Arc<ConfigDb>>,
@@ -219,15 +222,20 @@ async fn chat_completions_handler(
     let conversation_id = Uuid::new_v4().to_string();
 
     // Get profile ARN
-    let profile_arn = state
-        .auth_manager
-        .get_profile_arn()
-        .await
-        .unwrap_or_default();
+    let auth = state.auth_manager.read().await;
+    let profile_arn = auth.get_profile_arn().await.unwrap_or_default();
+    drop(auth);
+
+    // Read config snapshot for this request
+    let config = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
 
     // Inject truncation recovery messages if enabled
     let mut request = request;
-    if state.config.truncation_recovery {
+    if config.truncation_recovery {
         // Convert messages to Value for injection
         let mut msg_values: Vec<serde_json::Value> = request
             .messages
@@ -243,14 +251,12 @@ async fn chat_completions_handler(
     }
 
     // Convert OpenAI request to Kiro format
-    let kiro_payload_result =
-        build_kiro_payload(&request, &conversation_id, &profile_arn, &state.config).map_err(
-            |e| {
-                let err = ApiError::ValidationError(e);
-                state.metrics.record_error(error_type_from_api_error(&err));
-                err
-            },
-        )?;
+    let kiro_payload_result = build_kiro_payload(&request, &conversation_id, &profile_arn, &config)
+        .map_err(|e| {
+            let err = ApiError::ValidationError(e);
+            state.metrics.record_error(error_type_from_api_error(&err));
+            err
+        })?;
 
     let kiro_payload = kiro_payload_result.payload;
 
@@ -267,14 +273,16 @@ async fn chat_completions_handler(
     }
 
     // Get access token
-    let access_token = state.auth_manager.get_access_token().await.map_err(|e| {
+    let auth = state.auth_manager.read().await;
+    let access_token = auth.get_access_token().await.map_err(|e| {
         let err = ApiError::AuthError(format!("Failed to get access token: {}", e));
         state.metrics.record_error(error_type_from_api_error(&err));
         err
     })?;
 
     // Get region
-    let region = state.auth_manager.get_region().await;
+    let region = auth.get_region().await;
+    drop(auth);
 
     // Build Kiro API URL - use /v1/chat/completions endpoint
     let kiro_api_url = format!(
@@ -347,7 +355,7 @@ async fn chat_completions_handler(
             input_tokens,
             Some(output_tokens_handle),
             include_usage,
-            state.config.truncation_recovery,
+            config.truncation_recovery,
         )
         .await
         .inspect_err(|e| {
@@ -387,13 +395,13 @@ async fn chat_completions_handler(
         // We use collect_openai_response to parse the stream and aggregate into a single response.
         tracing::debug!("Handling non-streaming response (collecting stream)");
 
-        let first_token_timeout = state.config.first_token_timeout;
+        let first_token_timeout = config.first_token_timeout;
         let openai_response = crate::streaming::collect_openai_response(
             response,
             &request.model,
             first_token_timeout,
             input_tokens,
-            state.config.truncation_recovery,
+            config.truncation_recovery,
         )
         .await
         .inspect_err(|e| {
@@ -470,15 +478,20 @@ async fn anthropic_messages_handler(
     let conversation_id = Uuid::new_v4().to_string();
 
     // Get profile ARN
-    let profile_arn = state
-        .auth_manager
-        .get_profile_arn()
-        .await
-        .unwrap_or_default();
+    let auth = state.auth_manager.read().await;
+    let profile_arn = auth.get_profile_arn().await.unwrap_or_default();
+    drop(auth);
+
+    // Read config snapshot for this request
+    let config = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
 
     // Inject truncation recovery messages if enabled
     let mut request = request;
-    if state.config.truncation_recovery {
+    if config.truncation_recovery {
         // Convert messages to Value for injection
         let mut msg_values: Vec<serde_json::Value> = request
             .messages
@@ -503,12 +516,13 @@ async fn anthropic_messages_handler(
 
     // Convert Anthropic request to Kiro format
     let kiro_payload_result =
-        build_kiro_payload_anthropic(&request, &conversation_id, &profile_arn, &state.config)
-            .map_err(|e| {
+        build_kiro_payload_anthropic(&request, &conversation_id, &profile_arn, &config).map_err(
+            |e| {
                 let err = ApiError::ValidationError(e);
                 state.metrics.record_error(error_type_from_api_error(&err));
                 err
-            })?;
+            },
+        )?;
 
     let kiro_payload = kiro_payload_result.payload;
 
@@ -525,14 +539,16 @@ async fn anthropic_messages_handler(
     }
 
     // Get access token
-    let access_token = state.auth_manager.get_access_token().await.map_err(|e| {
+    let auth = state.auth_manager.read().await;
+    let access_token = auth.get_access_token().await.map_err(|e| {
         let err = ApiError::AuthError(format!("Failed to get access token: {}", e));
         state.metrics.record_error(error_type_from_api_error(&err));
         err
     })?;
 
     // Get region
-    let region = state.auth_manager.get_region().await;
+    let region = auth.get_region().await;
+    drop(auth);
 
     // Build Kiro API URL - use /v1/messages endpoint
     let kiro_api_url = format!(
@@ -584,14 +600,14 @@ async fn anthropic_messages_handler(
         let output_tokens_handle = streaming_tracker.output_tokens_handle();
 
         // Convert response to Anthropic SSE stream
-        let first_token_timeout = state.config.first_token_timeout;
+        let first_token_timeout = config.first_token_timeout;
         let anthropic_stream = crate::streaming::stream_kiro_to_anthropic(
             response,
             &request.model,
             first_token_timeout,
             input_tokens,
             Some(output_tokens_handle),
-            state.config.truncation_recovery,
+            config.truncation_recovery,
         )
         .await
         .inspect_err(|e| {
@@ -630,13 +646,13 @@ async fn anthropic_messages_handler(
         // We use collect_anthropic_response to parse the stream and aggregate into a single response.
         tracing::debug!("Handling non-streaming response (collecting stream)");
 
-        let first_token_timeout = state.config.first_token_timeout;
+        let first_token_timeout = config.first_token_timeout;
         let anthropic_response = crate::streaming::collect_anthropic_response(
             response,
             &request.model,
             first_token_timeout,
             input_tokens,
-            state.config.truncation_recovery,
+            config.truncation_recovery,
         )
         .await
         .inspect_err(|e| {
@@ -683,45 +699,28 @@ mod tests {
         let http_client =
             Arc::new(KiroHttpClient::new(auth_manager.clone(), 20, 30, 300, 3).unwrap());
 
+        let auth_manager = Arc::new(tokio::sync::RwLock::new(
+            AuthManager::new_for_testing("test-token".to_string(), "us-east-1".to_string(), 300)
+                .unwrap(),
+        ));
+
         let resolver = ModelResolver::new(cache.clone(), HashMap::new());
 
-        let config = Arc::new(Config {
-            server_host: "0.0.0.0".to_string(),
-            server_port: 8000,
+        let config = Config {
             proxy_api_key: "test-key".to_string(),
-            kiro_region: "us-east-1".to_string(),
-            kiro_cli_db_file: std::path::PathBuf::from("/tmp/test.db"),
-            streaming_timeout: 300,
-            token_refresh_threshold: 300,
-            first_token_timeout: 15,
-            http_max_connections: 20,
-            http_connect_timeout: 30,
-            http_request_timeout: 300,
-            http_max_retries: 3,
-            debug_mode: crate::config::DebugMode::Off,
-            log_level: "info".to_string(),
-            tool_description_max_length: 10000,
-            fake_reasoning_enabled: false,
             fake_reasoning_max_tokens: 10000,
-            fake_reasoning_handling: crate::config::FakeReasoningHandling::AsReasoningContent,
-            dashboard: false,
-            tls_enabled: false,
-            tls_cert_path: None,
-            tls_key_path: None,
-            truncation_recovery: true,
-            web_ui_enabled: false,
-            config_db_path: None,
-        });
+            ..Config::with_defaults()
+        };
 
         let metrics = Arc::new(crate::metrics::MetricsCollector::new());
 
         AppState {
-            proxy_api_key: "test-key".to_string(),
             model_cache: cache,
             auth_manager,
             http_client,
             resolver,
-            config,
+            config: Arc::new(RwLock::new(config)),
+            setup_complete: Arc::new(AtomicBool::new(true)),
             metrics,
             log_buffer: Arc::new(Mutex::new(VecDeque::new())),
             config_db: None,

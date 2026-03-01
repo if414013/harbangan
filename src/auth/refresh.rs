@@ -3,7 +3,7 @@ use chrono::{Duration, Utc};
 use reqwest::Client;
 
 use super::types::{
-    AuthType, AwsSsoOidcResponse, Credentials, KiroRefreshRequest, KiroRefreshResponse, TokenData,
+    AwsSsoOidcResponse, Credentials, KiroRefreshRequest, KiroRefreshResponse, TokenData,
 };
 
 /// Get Kiro refresh URL for region
@@ -174,39 +174,4 @@ pub async fn refresh_aws_sso_oidc(client: &Client, creds: &Credentials) -> Resul
         expires_at,
         profile_arn: None,
     })
-}
-
-/// Refresh token with retry logic for SQLite mode
-/// If refresh fails with 400 error, reload credentials from SQLite and retry once
-pub async fn refresh_with_retry(
-    client: &Client,
-    auth_type: AuthType,
-    creds: &mut Credentials,
-    sqlite_path: Option<&std::path::Path>,
-) -> Result<TokenData> {
-    let result = match auth_type {
-        AuthType::KiroDesktop => refresh_kiro_desktop(client, creds).await,
-        AuthType::AwsSsoOidc => refresh_aws_sso_oidc(client, creds).await,
-    };
-
-    // Handle 400 error in SQLite mode by reloading credentials
-    if let Err(ref e) = result {
-        if let Some(sqlite_path) = sqlite_path {
-            if e.to_string().contains("400") {
-                tracing::warn!("Token refresh failed with 400, reloading credentials from SQLite and retrying...");
-
-                // Reload credentials from SQLite
-                *creds = super::credentials::load_from_sqlite(sqlite_path)
-                    .context("Failed to reload credentials from SQLite")?;
-
-                // Retry refresh
-                return match auth_type {
-                    AuthType::KiroDesktop => refresh_kiro_desktop(client, creds).await,
-                    AuthType::AwsSsoOidc => refresh_aws_sso_oidc(client, creds).await,
-                };
-            }
-        }
-    }
-
-    result
 }

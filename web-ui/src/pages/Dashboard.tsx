@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useReducer, useCallback } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useSSE } from '../lib/useSSE'
 import { MetricCard } from '../components/MetricCard'
@@ -25,38 +25,57 @@ interface MetricsData {
   errors?: Record<string, number>
 }
 
+interface MetricsState {
+  connections: number
+  maxConnections: number
+  cpu: number
+  memory: number
+  maxMemory: number
+  sparkData: number[]
+  latency: { p50: number; p95: number; p99: number }
+  models: MetricsData['models']
+  errors: Record<string, number>
+}
+
+const initialState: MetricsState = {
+  connections: 0,
+  maxConnections: 100,
+  cpu: 0,
+  memory: 0,
+  maxMemory: 1024,
+  sparkData: [],
+  latency: { p50: 0, p95: 0, p99: 0 },
+  models: [],
+  errors: {},
+}
+
+function metricsReducer(state: MetricsState, data: MetricsData): MetricsState {
+  const next = { ...state }
+  if (data.active_connections !== undefined) next.connections = data.active_connections
+  if (data.max_connections !== undefined) next.maxConnections = data.max_connections
+  if (data.cpu_percent !== undefined) next.cpu = data.cpu_percent
+  if (data.memory_mb !== undefined) next.memory = data.memory_mb
+  if (data.max_memory_mb !== undefined) next.maxMemory = data.max_memory_mb
+  if (data.request_rate !== undefined) {
+    const updated = [...state.sparkData, data.request_rate]
+    next.sparkData = updated.length > 60 ? updated.slice(updated.length - 60) : updated
+  }
+  if (data.latency) next.latency = data.latency
+  if (data.models) next.models = data.models
+  if (data.errors) next.errors = data.errors
+  return next
+}
+
 interface LayoutContext {
   setConnected: (v: boolean) => void
 }
 
 export function Dashboard() {
   const { setConnected } = useOutletContext<LayoutContext>()
-  const [connections, setConnections] = useState(0)
-  const [maxConnections, setMaxConnections] = useState(100)
-  const [cpu, setCpu] = useState(0)
-  const [memory, setMemory] = useState(0)
-  const [maxMemory, setMaxMemory] = useState(1024)
-  const [sparkData, setSparkData] = useState<number[]>([])
-  const [latency, setLatency] = useState({ p50: 0, p95: 0, p99: 0 })
-  const [models, setModels] = useState<MetricsData['models']>([])
-  const [errors, setErrors] = useState<Record<string, number>>({})
+  const [state, dispatch] = useReducer(metricsReducer, initialState)
 
   const handleMetrics = useCallback((raw: unknown) => {
-    const data = raw as MetricsData
-    if (data.active_connections !== undefined) setConnections(data.active_connections)
-    if (data.max_connections !== undefined) setMaxConnections(data.max_connections)
-    if (data.cpu_percent !== undefined) setCpu(data.cpu_percent)
-    if (data.memory_mb !== undefined) setMemory(data.memory_mb)
-    if (data.max_memory_mb !== undefined) setMaxMemory(data.max_memory_mb)
-    if (data.request_rate !== undefined) {
-      setSparkData(prev => {
-        const next = [...prev, data.request_rate!]
-        return next.length > 60 ? next.slice(next.length - 60) : next
-      })
-    }
-    if (data.latency) setLatency(data.latency)
-    if (data.models) setModels(data.models)
-    if (data.errors) setErrors(data.errors)
+    dispatch(raw as MetricsData)
   }, [])
 
   useSSE('/stream/metrics', 'metrics', handleMetrics, setConnected)
@@ -67,20 +86,20 @@ export function Dashboard() {
         <MetricCard
           label="Active Connections"
           badge="live"
-          value={connections}
-          percent={(connections / maxConnections) * 100}
+          value={state.connections}
+          percent={(state.connections / state.maxConnections) * 100}
         />
         <MetricCard
           label="CPU Usage"
           badge="%"
-          value={cpu}
-          percent={cpu}
+          value={state.cpu}
+          percent={state.cpu}
         />
         <MetricCard
           label="Memory"
           badge="MB"
-          value={memory}
-          percent={(memory / maxMemory) * 100}
+          value={state.memory}
+          percent={(state.memory / state.maxMemory) * 100}
         />
       </div>
 
@@ -90,7 +109,7 @@ export function Dashboard() {
             <span className="card-title">Request Rate</span>
             <span className="card-subtitle">req/s</span>
           </div>
-          <Sparkline data={sparkData} />
+          <Sparkline data={state.sparkData} />
         </div>
         <div className="card">
           <div className="card-header">
@@ -99,15 +118,15 @@ export function Dashboard() {
           <div className="latency-grid">
             <div className="latency-cell">
               <div className="latency-percentile">p50</div>
-              <div className="latency-value">{latency.p50 ? `${latency.p50} ms` : '\u2014'}</div>
+              <div className="latency-value">{state.latency.p50 ? `${state.latency.p50} ms` : '\u2014'}</div>
             </div>
             <div className="latency-cell">
               <div className="latency-percentile">p95</div>
-              <div className="latency-value">{latency.p95 ? `${latency.p95} ms` : '\u2014'}</div>
+              <div className="latency-value">{state.latency.p95 ? `${state.latency.p95} ms` : '\u2014'}</div>
             </div>
             <div className="latency-cell">
               <div className="latency-percentile">p99</div>
-              <div className="latency-value">{latency.p99 ? `${latency.p99} ms` : '\u2014'}</div>
+              <div className="latency-value">{state.latency.p99 ? `${state.latency.p99} ms` : '\u2014'}</div>
             </div>
           </div>
         </div>
@@ -117,14 +136,14 @@ export function Dashboard() {
         <div className="card-header">
           <span className="card-title">Model Stats</span>
         </div>
-        <ModelTable models={models || []} />
+        <ModelTable models={state.models || []} />
       </div>
 
       <div className="card mb-24">
         <div className="card-header">
           <span className="card-title">Errors</span>
         </div>
-        <ErrorsPanel errors={errors} />
+        <ErrorsPanel errors={state.errors} />
       </div>
 
       <div className="card">
