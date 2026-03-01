@@ -9,7 +9,7 @@
 
 _A Rust rewrite of [kiro-gateway](https://github.com/jwadow/kiro-gateway) — Use Claude models through any OpenAI or Anthropic compatible tool_
 
-[Features](#-features) • [Quick Start](#-quick-start) • [Configuration](#-configuration) • [API Reference](#-api-reference)
+[Features](#-features) • [Quick Start](#-quick-start) • [Docker](#docker) • [Configuration](#-configuration) • [API Reference](#-api-reference)
 
 </div>
 
@@ -54,6 +54,7 @@ This project is a Rust rewrite of the original [kiro-gateway](https://github.com
 | 🔐 **Smart token management**   | Automatic refresh before expiration                                                        |
 | 🔒 **HTTPS / TLS**              | Built-in TLS support with auto-generated self-signed certificates or custom cert/key files |
 | 📊 **Live Dashboard**           | Real-time TUI with metrics, logs, and token usage (toggle with `--dashboard` or press `d`) |
+| 🐳 **Docker Support**           | One-command deployment with auto-login, persistent credentials, and configurable env vars  |
 
 ---
 
@@ -105,6 +106,55 @@ kiro-gateway --tls
 The server will be available at `https://localhost:8000`.
 
 > **Note:** The auto-generated self-signed certificate only covers `localhost`, `127.0.0.1`, and `::1`. If you bind to a network address with `--host 0.0.0.0` and clients connect via a LAN IP or hostname, they will see certificate name mismatch errors. For network access, provide your own certificate with `--tls-cert` and `--tls-key` that includes the appropriate SANs.
+
+### Docker
+
+No Rust toolchain needed — just Docker.
+
+```bash
+# Clone and start
+git clone https://github.com/if414013/rkgw.git
+cd rkgw
+
+# Start with Builder ID (free)
+PROXY_API_KEY=your-secret docker compose up
+
+# Or with Identity Center (pro/SSO)
+PROXY_API_KEY=your-secret \
+  KIRO_SSO_URL=https://your-org.awsapps.com/start \
+  KIRO_SSO_REGION=us-east-1 \
+  docker compose up
+```
+
+On first run, the container automatically starts the kiro-cli login flow. Watch the logs for an OAuth URL — open it in your browser to complete authentication. Credentials are persisted in a Docker volume (`kiro-data`), so you only need to log in once.
+
+#### Environment Variables
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `PROXY_API_KEY` | _(required)_ | Password to protect the proxy |
+| `KIRO_REGION` | `us-east-1` | AWS region for Kiro API |
+| `SERVER_HOST` | `0.0.0.0` | Server bind address |
+| `SERVER_PORT` | `8000` | Server port |
+| `TLS_ENABLED` | `false` | Enable HTTPS (auto-generated self-signed cert) |
+| `LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
+| `DEBUG_MODE` | `off` | Debug mode |
+| `KIRO_SSO_URL` | _(empty)_ | AWS SSO start URL (enables Identity Center login) |
+| `KIRO_SSO_REGION` | _(empty)_ | AWS SSO region (e.g. `us-east-1`, `ap-southeast-1`) |
+
+#### Login Modes
+
+- **Builder ID (free)**: Default when `KIRO_SSO_URL` is not set. Uses AWS Builder ID device-flow authentication.
+- **Identity Center (pro)**: Set `KIRO_SSO_URL` and `KIRO_SSO_REGION` to use your organization's AWS IAM Identity Center.
+
+#### Persistent Credentials
+
+Credentials are stored in the `kiro-data` named volume. To force re-login:
+
+```bash
+docker compose down -v  # removes the volume
+docker compose up       # triggers fresh login
+```
 
 ---
 
