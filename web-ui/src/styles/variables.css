@@ -1,0 +1,35 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg: #101014;
+  --bg-raised: #18181e;
+  --surface: #1e1e26;
+  --surface-hover: #252530;
+  --border: #2a2a36;
+  --border-subtle: #222230;
+
+  --amber: #e8a230;
+  --amber-dim: #c4882a;
+  --amber-glow: rgba(232, 162, 48, 0.12);
+  --amber-glow-strong: rgba(232, 162, 48, 0.25);
+
+  --text: #d8d8e0;
+  --text-secondary: #8888a0;
+  --text-tertiary: #5c5c72;
+
+  --green: #34d399;
+  --green-dim: rgba(52, 211, 153, 0.15);
+  --red: #f87171;
+  --red-dim: rgba(248, 113, 113, 0.15);
+  --yellow: #fbbf24;
+  --yellow-dim: rgba(251, 191, 36, 0.15);
+  --blue: #60a5fa;
+  --blue-dim: rgba(96, 165, 250, 0.15);
+
+  --font-display: 'Outfit', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+}

@@ -61,6 +61,10 @@ tiktoken-rs = "0.5"
 # SQLite support
 rusqlite = { version = "0.31", features = ["bundled"] }
 
+# Embedded frontend assets
+rust-embed = "8"
+mime_guess = "2"
+
 # Utilities
 bytes = "1"
 crossterm = "0.28"
