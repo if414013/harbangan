@@ -1,0 +1,142 @@
+---
+---
+
+// Hero section
+.hero {
+  text-align: center;
+  padding: 2rem 1rem 3rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--border-color, #44475a);
+}
+
+.hero h1 {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.hero .tagline {
+  font-size: 1.15rem;
+  opacity: 0.85;
+  max-width: 640px;
+  margin: 0 auto 1.5rem;
+  line-height: 1.6;
+}
+
+.hero .badges {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.hero .badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--link-color, #7253ed);
+  color: #fff;
+  text-decoration: none;
+}
+
+// Feature cards
+.features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
+  margin: 2rem 0;
+}
+
+.feature-card {
+  padding: 1.25rem;
+  border: 1px solid var(--border-color, #44475a);
+  border-radius: 8px;
+  transition: border-color 0.2s;
+}
+
+.feature-card:hover {
+  border-color: var(--link-color, #7253ed);
+}
+
+.feature-card h3 {
+  margin-top: 0;
+  font-size: 1.05rem;
+}
+
+.feature-card p {
+  font-size: 0.9rem;
+  opacity: 0.85;
+  margin-bottom: 0;
+}
+
+// Navigation cards
+.nav-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.nav-card {
+  display: block;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border-color, #44475a);
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.2s, transform 0.15s;
+  font-weight: 600;
+}
+
+.nav-card:hover {
+  border-color: var(--link-color, #7253ed);
+  transform: translateY(-2px);
+  text-decoration: none;
+  color: inherit;
+}
+
+.nav-card .icon {
+  font-size: 1.4rem;
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+// Mermaid diagram sizing
+.mermaid {
+  text-align: center;
+  margin: 1.5rem 0;
+}
+
+.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+// Code block tweaks
+div.highlighter-rouge {
+  border-radius: 6px;
+  margin: 1rem 0;
+}
+
+code.highlighter-rouge {
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  font-size: 0.88em;
+}
+
+// Responsive
+@media (max-width: 600px) {
+  .hero h1 {
+    font-size: 1.75rem;
+  }
+
+  .features {
+    grid-template-columns: 1fr;
+  }
+
+  .nav-cards {
+    grid-template-columns: 1fr 1fr;
+  }
+}
