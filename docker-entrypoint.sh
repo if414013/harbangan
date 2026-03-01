@@ -66,11 +66,16 @@ if ! kiro-cli whoami > /dev/null 2>&1; then
   echo "→ Running: kiro-cli login $LOGIN_ARGS"
   echo ""
 
-  if ! kiro-cli login $LOGIN_ARGS; then
-    echo ""
-    echo "❌ Login failed!"
-    echo ""
-    if [ -n "$KIRO_SSO_URL" ]; then
+  if [ -n "$KIRO_SSO_URL" ]; then
+    # Identity Center (pro) login requires a PTY workaround.
+    # kiro-cli's input() returns empty string when stdout is not a terminal,
+    # ignoring --identity-provider and --region defaults. Using 'script' to
+    # allocate a pseudo-TTY and piping two newlines to accept the defaults.
+    echo "→ Note: 'script' PTY workaround active for non-TTY Identity Center login"
+    if ! printf '\n\n' | script -qec "kiro-cli login $LOGIN_ARGS" /dev/null; then
+      echo ""
+      echo "❌ Login failed!"
+      echo ""
       echo "   Possible causes:"
       echo "   1. KIRO_SSO_URL is incorrect: $KIRO_SSO_URL"
       echo "   2. KIRO_SSO_REGION is wrong or missing: ${KIRO_SSO_REGION:-(not set)}"
@@ -78,13 +83,18 @@ if ! kiro-cli whoami > /dev/null 2>&1; then
       echo ""
       echo "   To use Builder ID (free) instead, remove KIRO_SSO_URL:"
       echo "   PROXY_API_KEY=xxx docker compose up"
-    else
+      exit 1
+    fi
+  else
+    if ! kiro-cli login $LOGIN_ARGS; then
+      echo ""
+      echo "❌ Login failed!"
+      echo ""
       echo "   Possible causes:"
       echo "   1. Network connectivity issue (can the container reach AWS?)"
       echo "   2. The device authorization timed out"
+      exit 1
     fi
-    echo ""
-    exit 1
   fi
 
   echo ""
