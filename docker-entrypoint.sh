@@ -15,9 +15,11 @@ if ! kiro-cli whoami > /dev/null 2>&1; then
   LOGIN_ARGS="--use-device-flow"
   if [ -n "$KIRO_SSO_URL" ]; then
     LOGIN_ARGS="$LOGIN_ARGS --license pro --identity-provider $KIRO_SSO_URL"
-  fi
-  if [ -n "$KIRO_SSO_REGION" ]; then
-    LOGIN_ARGS="$LOGIN_ARGS --region $KIRO_SSO_REGION"
+    if [ -n "$KIRO_SSO_REGION" ]; then
+      LOGIN_ARGS="$LOGIN_ARGS --region $KIRO_SSO_REGION"
+    fi
+  else
+    LOGIN_ARGS="$LOGIN_ARGS --license free"
   fi
 
   kiro-cli login $LOGIN_ARGS
