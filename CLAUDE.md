@@ -26,8 +26,8 @@ cargo test --features test-utils    # Integration tests
 ## Required Environment Variables
 
 Set in `.env` or export:
-- `PROXY_API_KEY` - Password to protect the proxy server
-- `KIRO_CLI_DB_FILE` - Path to kiro-cli SQLite database (e.g. `~/.kiro/data.db`)
+- `PROXY_API_KEY` - Password to protect the proxy server (configured via Web UI setup)
+- `DATABASE_URL` - PostgreSQL connection string (e.g. `postgres://user:pass@localhost:5432/kiro_gateway`)
 - `KIRO_REGION` - AWS region (default: `us-east-1`)
 
 ## Architecture
@@ -41,7 +41,7 @@ Client (OpenAI or Anthropic format)
   → middleware/ (CORS, auth, debug logging)
   → routes/mod.rs (validate request, resolve model)
   → converters/ (OpenAI/Anthropic → Kiro format)
-  → auth/ (get/refresh AWS SSO token from SQLite)
+  → auth/ (get/refresh Kiro token via refresh token)
   → http_client.rs (POST to Kiro API)
   → streaming/mod.rs (parse AWS Event Stream)
   → thinking_parser.rs (extract reasoning blocks)
@@ -59,17 +59,17 @@ Defined in `routes/mod.rs`. All handlers receive this via Axum's state extractio
 - `model_resolver: Arc<ModelResolver>` - normalizes model name aliases
 - `metrics: Arc<MetricsCollector>` - request latency/token tracking
 - `log_buffer: Arc<RwLock<Vec<LogEntry>>>` - recent logs for dashboard
-- `config_db: Option<Arc<ConfigDb>>` - SQLite config persistence (when web UI enabled)
+- `config_db: Option<Arc<ConfigDb>>` - PostgreSQL config persistence (when web UI enabled)
 
 ### Key Modules
 
 - `converters/` - Bidirectional format translation. Each direction is a separate file (e.g. `openai_to_kiro.rs`). Shared logic lives in `core.rs`.
-- `auth/` - Reads credentials from kiro-cli's SQLite DB, refreshes AWS SSO OIDC tokens automatically before expiry.
+- `auth/` - Manages Kiro authentication using refresh tokens stored in PostgreSQL, auto-refreshes before expiry.
 - `streaming/mod.rs` - Parses Kiro's AWS Event Stream binary format into `KiroEvent` variants, then formats as SSE.
 - `models/` - Request/response types for OpenAI (`openai.rs`), Anthropic (`anthropic.rs`), and Kiro (`kiro.rs`) formats.
 - `truncation.rs` - Detects truncated API responses and triggers recovery retries.
 - `dashboard/` - Optional TUI (ratatui) for real-time monitoring. Enabled with `--dashboard` flag.
-- `web_ui/` - Web dashboard served at `/_ui/`. Has its own routes, templates, and SQLite config persistence.
+- `web_ui/` - Web dashboard served at `/_ui/`. Has its own routes, templates, and PostgreSQL config persistence.
 - `resolver.rs` - Maps model name aliases to canonical Kiro model IDs. Don't hardcode model IDs.
 
 ### API Endpoints

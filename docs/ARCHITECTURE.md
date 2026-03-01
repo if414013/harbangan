@@ -71,7 +71,7 @@ flowchart TB
 
     subgraph External
         KIRO[Kiro/CodeWhisperer API]
-        SQLITE[(kiro-cli SQLite DB)]
+        PG[(PostgreSQL DB)]
         SSOOIDC[AWS SSO OIDC]
     end
 
@@ -96,7 +96,7 @@ flowchart TB
     K2O --> SSE
     K2A --> SSE
 
-    AUTHMGR --> SQLITE
+    AUTHMGR --> PG
     AUTHMGR --> SSOOIDC
     HTTP --> AUTHMGR
     RESOLVER --> CACHE
@@ -240,7 +240,7 @@ flowchart LR
 | `server_host` | String | `0.0.0.0` | Server bind address |
 | `server_port` | u16 | `8000` | Server port |
 | `proxy_api_key` | String | Required | API key for client auth |
-| `kiro_cli_db_file` | PathBuf | Required | Path to kiro-cli SQLite DB |
+| `database_url` | Option<String> | None | PostgreSQL connection string |
 | `kiro_region` | String | `us-east-1` | AWS region |
 | `token_refresh_threshold` | u64 | `300` | Seconds before expiry to refresh |
 | `http_max_retries` | u32 | `3` | Max retry attempts |
@@ -386,13 +386,13 @@ pub struct ModelResolution {
 
 **Source:** `src/auth/`
 
-**Overview:** Manages OAuth token lifecycle with automatic refresh, reading credentials from kiro-cli's SQLite database.
+**Overview:** Manages OAuth token lifecycle with automatic refresh, reading credentials from the PostgreSQL config database.
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant AuthManager
-    participant SQLite
+    participant PostgreSQL
     participant SSOOIDC[AWS SSO OIDC]
 
     Client->>AuthManager: get_access_token()
@@ -421,7 +421,7 @@ sequenceDiagram
 |------|-------------|
 | `mod.rs` | Module exports |
 | `manager.rs` | `AuthManager` - token lifecycle management |
-| `credentials.rs` | SQLite credential loading |
+| `credentials.rs` | Credential loading from config database |
 | `refresh.rs` | Token refresh logic with retry |
 | `types.rs` | Data structures |
 
@@ -920,7 +920,7 @@ flowchart TD
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `PROXY_API_KEY` | Yes | - | Client authentication key |
-| `KIRO_CLI_DB_FILE` | Yes | - | Path to kiro-cli SQLite DB |
+| `DATABASE_URL` | Yes | - | PostgreSQL connection string |
 | `KIRO_REGION` | No | `us-east-1` | AWS region |
 | `SERVER_HOST` | No | `0.0.0.0` | Bind address |
 | `SERVER_PORT` | No | `8000` | Bind port |

@@ -110,26 +110,21 @@ The server will be available at `https://localhost:8000`.
 
 ## ⚙️ Configuration
 
-On first run, `kiro-gateway` will guide you through an interactive setup if no `.env` file is found. It will:
+On first run, `kiro-gateway` starts in setup-only mode and redirects to the Web UI at `/_ui/setup`. The setup wizard will:
 
 - Prompt for a password to protect your gateway
-- Auto-detect your kiro-cli database location
+- Ask for your Kiro refresh token (run `kiro login` first)
 - Let you choose the AWS region
-- Optionally save the configuration to a `.env` file
 
-### Manual Configuration
+All configuration is stored in PostgreSQL and managed exclusively through the Web UI.
+
+### Environment Variables
 
 Create a `.env` file in the project root:
 
 ```env
-# Required - Path to kiro-cli SQLite database
-KIRO_CLI_DB_FILE="~/Library/Application Support/kiro-cli/data.sqlite3"
-
-# Password to protect YOUR proxy server
-PROXY_API_KEY="my-super-secret-password-123"
-
-# Optional
-KIRO_REGION="us-east-1"
+# Required - PostgreSQL connection string
+DATABASE_URL="postgres://kiro:kiro_secret@localhost:5432/kiro_gateway"
 
 # Server binding (optional, defaults to 127.0.0.1:8000 for local-only access)
 # For network access: SERVER_HOST=0.0.0.0 (requires --tls flag)
@@ -176,18 +171,9 @@ All options also work via environment variables: `TLS_ENABLED`, `TLS_CERT`, `TLS
 | `--tls-cert`   | `TLS_CERT`           | Path to TLS certificate file (PEM format)        |
 | `--tls-key`    | `TLS_KEY`            | Path to TLS private key file (PEM format)        |
 
-### Kiro CLI Database Locations
+### Authentication
 
-The gateway auto-detects the kiro-cli database from these common locations:
-
-| Platform        | Path                                                  |
-| --------------- | ----------------------------------------------------- |
-| **macOS**       | `~/Library/Application Support/kiro-cli/data.sqlite3` |
-| **Linux**       | `~/.local/share/kiro-cli/data.sqlite3`                |
-| **macOS (old)** | `~/Library/Application Support/kiro-cli/data.db`      |
-| **Legacy**      | `~/.kiro/data.db`                                     |
-
-The gateway reads credentials from the kiro-cli SQLite database and automatically refreshes tokens before expiration.
+The gateway uses Kiro refresh tokens for authentication. Run `kiro login` to authenticate with the Kiro CLI, then provide your refresh token during the Web UI setup wizard. The gateway automatically refreshes tokens before expiration.
 
 ---
 
