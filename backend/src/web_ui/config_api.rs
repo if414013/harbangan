@@ -29,8 +29,6 @@ pub fn classify_config_change(key: &str) -> ChangeType {
         | "first_token_timeout" => ChangeType::HotReload,
         "server_host"
         | "server_port"
-        | "tls_cert_path"
-        | "tls_key_path"
         | "streaming_timeout"
         | "token_refresh_threshold"
         | "http_max_connections"
@@ -167,12 +165,6 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
             }
             Ok(())
         }
-        "tls_cert_path" | "tls_key_path" => {
-            value
-                .as_str()
-                .ok_or_else(|| format!("{} must be a string", key))?;
-            Ok(())
-        }
         _ => Err(format!("Unknown config field: '{}'", key)),
     }
 }
@@ -234,14 +226,6 @@ pub fn get_config_field_descriptions() -> HashMap<&'static str, &'static str> {
     m.insert(
         "http_max_retries",
         "Retry attempts for failed upstream requests (0-10)",
-    );
-    m.insert(
-        "tls_cert_path",
-        "Path to custom TLS certificate file (PEM). Optional — self-signed cert used when not set",
-    );
-    m.insert(
-        "tls_key_path",
-        "Path to custom TLS private key file (PEM). Optional — self-signed key used when not set",
     );
     m.insert(
         "oauth_client_id",
@@ -451,14 +435,6 @@ mod tests {
             ChangeType::RequiresRestart
         );
         assert_eq!(
-            classify_config_change("tls_cert_path"),
-            ChangeType::RequiresRestart
-        );
-        assert_eq!(
-            classify_config_change("tls_key_path"),
-            ChangeType::RequiresRestart
-        );
-        assert_eq!(
             classify_config_change("streaming_timeout"),
             ChangeType::RequiresRestart
         );
@@ -649,8 +625,6 @@ mod tests {
             "http_connect_timeout",
             "http_request_timeout",
             "http_max_retries",
-            "tls_cert_path",
-            "tls_key_path",
         ];
         for key in expected_keys {
             assert!(descs.contains_key(key), "Missing description for '{}'", key);

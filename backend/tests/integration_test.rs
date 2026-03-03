@@ -80,8 +80,6 @@ fn create_test_app_state() -> AppState {
         fake_reasoning_enabled: true,
         fake_reasoning_max_tokens: 4000,
         fake_reasoning_handling: kiro_gateway::config::FakeReasoningHandling::AsReasoningContent,
-        tls_cert_path: None,
-        tls_key_path: None,
         database_url: None,
         google_client_id: String::new(),
         google_client_secret: String::new(),

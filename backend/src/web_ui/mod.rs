@@ -50,7 +50,7 @@ pub async fn setup_guard(
 
 /// Build the web UI router with all /_ui/ routes.
 ///
-/// Public routes (no auth): status, Google auth redirect/callback, SPA.
+/// Public routes (no auth): status, Google auth redirect/callback.
 /// Session-authenticated routes: metrics, system, models, logs, config, auth/me, auth/logout,
 ///   Kiro token management, API key management.
 /// Admin-only routes: domain allowlist management.
@@ -107,13 +107,8 @@ pub fn web_ui_routes(state: AppState) -> Router {
         )
         .with_state(state.clone());
 
-    // --- React SPA: root + static assets (no auth) ---
-    let page_routes = Router::new().route("/", get(routes::spa_index));
-
     Router::new()
         .nest("/_ui/api", session_api_routes)
         .nest("/_ui/api", admin_api_routes)
         .nest("/_ui/api", public_api_routes)
-        .nest("/_ui", page_routes)
-        .fallback(get(routes::spa_fallback))
 }

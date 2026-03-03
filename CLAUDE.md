@@ -2,47 +2,86 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Build & Development Commands
+## Project Structure
 
-```bash
-cargo build                        # Debug build
-cargo build --release              # Release build
-cargo clippy                       # Lint (fix all warnings before committing)
-cargo fmt                          # Format code
-cargo fmt -- --check               # Check formatting only
+```
+rkgw/
+├── backend/          # Rust API server (Axum)
+├── frontend/         # React SPA (Vite + TypeScript), served by nginx
+├── docker-compose.yml
+├── init-certs.sh     # First-time Let's Encrypt cert provisioning
+└── .env / .env.example
 ```
 
 The gateway runs exclusively via docker-compose. There is no standalone CLI binary.
 
-## Testing
+## Build & Development Commands
+
+### Backend (Rust)
 
 ```bash
-cargo test --lib                    # All unit tests
-cargo test --lib <test_name>        # Single test by name
-cargo test --lib <module>::         # All tests in a module
-cargo test --lib -- --nocapture     # Show println! output
-cargo test --features test-utils    # Integration tests
+cd backend && cargo build                  # Debug build
+cd backend && cargo build --release        # Release build
+cd backend && cargo clippy                 # Lint (fix all warnings before committing)
+cd backend && cargo fmt                    # Format code
+cd backend && cargo fmt -- --check         # Check formatting only
+cd backend && cargo test --lib             # All unit tests
+cd backend && cargo test --features test-utils  # Integration tests
+```
+
+### Frontend (React)
+
+```bash
+cd frontend && npm run build    # tsc -b && vite build
+cd frontend && npm run lint     # eslint
+cd frontend && npm run dev      # vite dev server (port 5173, proxies /_ui/api → localhost:8000)
+```
+
+### Docker
+
+```bash
+docker compose build            # Build all images
+docker compose up -d            # Start all services
+docker compose logs -f          # Follow logs
 ```
 
 ## Required Environment Variables
 
-Set in `.env` or export (bootstrap-only — all runtime config is managed via the Web UI):
-- `DATABASE_URL` - PostgreSQL connection string (e.g. `postgres://user:pass@localhost:5432/kiro_gateway`)
-- `SERVER_HOST` / `SERVER_PORT` - Bind address and port (defaults: `0.0.0.0:8000`)
+Set in `.env` (see `.env.example`):
+- `DOMAIN` - Domain for TLS certs (e.g. `gateway.example.com`)
+- `EMAIL` - Email for Let's Encrypt notifications
+- `POSTGRES_PASSWORD` - PostgreSQL password
 - `GOOGLE_CLIENT_ID` - Google OAuth Client ID (required)
 - `GOOGLE_CLIENT_SECRET` - Google OAuth Client Secret (required)
 - `GOOGLE_CALLBACK_URL` - Google OAuth callback URL (required)
-- `TLS_CERT` / `TLS_KEY` - Custom TLS cert/key paths (optional; self-signed generated if omitted)
+
+Backend-only env vars (set automatically by docker-compose):
+- `DATABASE_URL` - PostgreSQL connection string
+- `SERVER_HOST` / `SERVER_PORT` - Bind address and port (defaults: `0.0.0.0:8000`)
 
 ## Architecture
 
-This is a Rust proxy gateway that exposes OpenAI and Anthropic-compatible APIs, translating requests to the Kiro API (AWS CodeWhisperer) backend. Built with Axum 0.7 + Tokio.
+Rust proxy gateway exposing OpenAI and Anthropic-compatible APIs, translating to the Kiro API (AWS CodeWhisperer) backend. Built with Axum 0.7 + Tokio.
 
-### Request Flow
+### Docker Services
+
+```
+Internet → nginx (frontend, ports 443/80)
+              ├── /_ui/*         → serve React SPA
+              ├── /_ui/api/*     → proxy → backend:8000
+              ├── /v1/*          → proxy → backend:8000
+              └── /.well-known/  → certbot webroot
+           certbot → Let's Encrypt cert renewal
+           backend → Rust API server (HTTP, internal only)
+           db → PostgreSQL
+```
+
+### Request Flow (Backend)
 
 ```
 Client (OpenAI or Anthropic format)
-  → middleware/ (CORS, auth, debug logging)
+  → nginx (TLS termination, static files)
+  → backend/ middleware (CORS, auth, debug logging)
   → routes/mod.rs (validate request, resolve model)
   → converters/ (OpenAI/Anthropic → Kiro format)
   → auth/ (get/refresh Kiro token via refresh token)
@@ -55,7 +94,7 @@ Client (OpenAI or Anthropic format)
 
 ### Shared State (AppState)
 
-Defined in `routes/mod.rs`. All handlers receive this via Axum's state extraction:
+Defined in `backend/src/routes/mod.rs`. All handlers receive this via Axum's state extraction:
 - `config: Arc<RwLock<Config>>` - loaded from env vars + DB overlay
 - `auth_manager: Arc<AuthManager>` - token management with auto-refresh
 - `http_client: Arc<KiroHttpClient>` - connection-pooled HTTP client
@@ -65,7 +104,7 @@ Defined in `routes/mod.rs`. All handlers receive this via Axum's state extractio
 - `log_buffer: Arc<Mutex<VecDeque<LogEntry>>>` - recent logs for web UI SSE streaming
 - `config_db: Option<Arc<ConfigDb>>` - PostgreSQL config persistence
 
-### Key Modules
+### Key Modules (backend/src/)
 
 - `converters/` - Bidirectional format translation. Each direction is a separate file (e.g. `openai_to_kiro.rs`). Shared logic lives in `core.rs`.
 - `auth/` - Manages Kiro authentication using refresh tokens stored in PostgreSQL, auto-refreshes before expiry.
@@ -73,7 +112,7 @@ Defined in `routes/mod.rs`. All handlers receive this via Axum's state extractio
 - `models/` - Request/response types for OpenAI (`openai.rs`), Anthropic (`anthropic.rs`), and Kiro (`kiro.rs`) formats.
 - `truncation.rs` - Detects truncated API responses and triggers recovery retries.
 - `log_capture.rs` - Log entry struct + tracing capture layer for web UI SSE log streaming.
-- `web_ui/` - Web dashboard served at `/_ui/`. Has its own routes, templates, and PostgreSQL config persistence.
+- `web_ui/` - Web UI API handlers at `/_ui/api/`. Google SSO, session management, config persistence.
 - `resolver.rs` - Maps model name aliases to canonical Kiro model IDs. Don't hardcode model IDs.
 
 ### API Endpoints
@@ -82,7 +121,8 @@ Defined in `routes/mod.rs`. All handlers receive this via Axum's state extractio
 - `POST /v1/messages` - Anthropic-compatible messages
 - `GET /v1/models` - List available models
 - `GET /health` - Health check
-- `/_ui` - Web dashboard
+- `/_ui` - Web dashboard (served by nginx)
+- `/_ui/api/*` - Web UI API (proxied to backend by nginx)
 
 ## Code Style
 

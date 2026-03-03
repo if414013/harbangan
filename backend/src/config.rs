@@ -1,5 +1,4 @@
 use anyhow::Result;
-use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -35,10 +34,6 @@ pub struct Config {
 
     // Truncation recovery
     pub truncation_recovery: bool,
-
-    // TLS (always on — self-signed cert generated when no custom cert/key provided)
-    pub tls_cert_path: Option<PathBuf>,
-    pub tls_key_path: Option<PathBuf>,
 
     // Database
     pub database_url: Option<String>,
@@ -89,8 +84,6 @@ impl Config {
             fake_reasoning_max_tokens: 4000,
             fake_reasoning_handling: FakeReasoningHandling::AsReasoningContent,
             truncation_recovery: true,
-            tls_cert_path: None,
-            tls_key_path: None,
             database_url: None,
             google_client_id: String::new(),
             google_client_secret: String::new(),
@@ -117,10 +110,6 @@ impl Config {
 
         // Database
         config.database_url = std::env::var("DATABASE_URL").ok();
-
-        // TLS
-        config.tls_cert_path = std::env::var("TLS_CERT").ok().map(|s| expand_tilde(&s));
-        config.tls_key_path = std::env::var("TLS_KEY").ok().map(|s| expand_tilde(&s));
 
         // Google SSO
         config.google_client_id = std::env::var("GOOGLE_CLIENT_ID").unwrap_or_default();
@@ -149,45 +138,8 @@ impl Config {
             anyhow::bail!("GOOGLE_CLIENT_SECRET is required when GOOGLE_CLIENT_ID is set.");
         }
 
-        // Validate TLS configuration
-        if let Some(ref cert) = self.tls_cert_path {
-            if self.tls_key_path.is_none() {
-                anyhow::bail!(
-                    "TLS_CERT was provided without TLS_KEY. Both are required when using custom certificates."
-                );
-            }
-            if !cert.exists() {
-                anyhow::bail!("TLS certificate file not found: {}", cert.display());
-            }
-        }
-        if let Some(ref key) = self.tls_key_path {
-            if self.tls_cert_path.is_none() {
-                anyhow::bail!(
-                    "TLS_KEY was provided without TLS_CERT. Both are required when using custom certificates."
-                );
-            }
-            if !key.exists() {
-                anyhow::bail!("TLS key file not found: {}", key.display());
-            }
-        }
-
         Ok(())
     }
-
-    /// Whether custom TLS certificates were provided (vs auto-generated self-signed).
-    pub fn has_custom_tls(&self) -> bool {
-        self.tls_cert_path.is_some() && self.tls_key_path.is_some()
-    }
-}
-
-/// Expand tilde (~) in file paths to user's home directory
-pub fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(stripped) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(stripped);
-        }
-    }
-    PathBuf::from(path)
 }
 
 /// Parse debug mode from string
@@ -214,28 +166,6 @@ fn parse_fake_reasoning_handling(s: &str) -> FakeReasoningHandling {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_expand_tilde() {
-        let path = expand_tilde("~/test/file.txt");
-        assert!(path.to_string_lossy().contains("test/file.txt"));
-        assert!(!path.to_string_lossy().starts_with("~"));
-
-        let path = expand_tilde("/absolute/path");
-        assert_eq!(path, PathBuf::from("/absolute/path"));
-    }
-
-    #[test]
-    fn test_expand_tilde_relative_path() {
-        let path = expand_tilde("relative/path");
-        assert_eq!(path, PathBuf::from("relative/path"));
-    }
-
-    #[test]
-    fn test_expand_tilde_just_tilde() {
-        let path = expand_tilde("~");
-        assert_eq!(path, PathBuf::from("~"));
-    }
 
     #[test]
     fn test_parse_debug_mode() {
@@ -340,8 +270,6 @@ mod tests {
         assert_eq!(config.debug_mode, DebugMode::Off);
         assert!(config.fake_reasoning_enabled);
         assert!(config.truncation_recovery);
-        assert!(config.tls_cert_path.is_none());
-        assert!(config.tls_key_path.is_none());
         assert_eq!(config.google_client_id, "");
         assert_eq!(config.google_client_secret, "");
         assert_eq!(config.google_callback_url, "");
@@ -390,15 +318,4 @@ mod tests {
             .contains("GOOGLE_CLIENT_SECRET"));
     }
 
-    #[test]
-    fn test_has_custom_tls() {
-        let mut config = Config::with_defaults();
-        assert!(!config.has_custom_tls());
-
-        config.tls_cert_path = Some(PathBuf::from("/tmp/cert.pem"));
-        assert!(!config.has_custom_tls()); // only cert, no key
-
-        config.tls_key_path = Some(PathBuf::from("/tmp/key.pem"));
-        assert!(config.has_custom_tls()); // both provided
-    }
 }

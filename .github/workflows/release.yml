@@ -12,6 +12,9 @@ jobs:
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: backend
     strategy:
       fail-fast: false
       matrix:
@@ -55,8 +58,8 @@ jobs:
       - name: Package (Unix)
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czvf ../../../kiro-gateway-${{ matrix.target }}.tar.gz kiro-gateway
-          cd ../../..
+          tar -czvf ../../../../kiro-gateway-${{ matrix.target }}.tar.gz kiro-gateway
+          cd ../../../..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -92,10 +95,8 @@ jobs:
       - name: Extract version from tag
         id: version
         run: |
-          # Remove 'v' prefix from tag (e.g., v1.0.4 -> 1.0.4)
           VERSION="${GITHUB_REF_NAME#v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Extracted version: $VERSION"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -105,25 +106,17 @@ jobs:
       - name: Calculate SHA256 checksums
         id: checksums
         run: |
-          # macOS Intel
           MACOS_INTEL_SHA=$(sha256sum artifacts/kiro-gateway-x86_64-apple-darwin/kiro-gateway-x86_64-apple-darwin.tar.gz | cut -d ' ' -f 1)
           echo "macos_intel_sha=$MACOS_INTEL_SHA" >> $GITHUB_OUTPUT
-          echo "macOS Intel SHA256: $MACOS_INTEL_SHA"
 
-          # macOS ARM
           MACOS_ARM_SHA=$(sha256sum artifacts/kiro-gateway-aarch64-apple-darwin/kiro-gateway-aarch64-apple-darwin.tar.gz | cut -d ' ' -f 1)
           echo "macos_arm_sha=$MACOS_ARM_SHA" >> $GITHUB_OUTPUT
-          echo "macOS ARM SHA256: $MACOS_ARM_SHA"
 
-          # Linux Intel
           LINUX_INTEL_SHA=$(sha256sum artifacts/kiro-gateway-x86_64-unknown-linux-gnu/kiro-gateway-x86_64-unknown-linux-gnu.tar.gz | cut -d ' ' -f 1)
           echo "linux_intel_sha=$LINUX_INTEL_SHA" >> $GITHUB_OUTPUT
-          echo "Linux Intel SHA256: $LINUX_INTEL_SHA"
 
-          # Linux ARM
           LINUX_ARM_SHA=$(sha256sum artifacts/kiro-gateway-aarch64-unknown-linux-gnu/kiro-gateway-aarch64-unknown-linux-gnu.tar.gz | cut -d ' ' -f 1)
           echo "linux_arm_sha=$LINUX_ARM_SHA" >> $GITHUB_OUTPUT
-          echo "Linux ARM SHA256: $LINUX_ARM_SHA"
 
       - name: Generate Homebrew formula
         run: |
@@ -159,31 +152,20 @@ jobs:
             def install
               bin.install "kiro-gateway"
             end
-
-            test do
-              assert_match "kiro-gateway", shell_output("#{bin}/kiro-gateway --help 2>&1", 2)
-            end
           end
           FORMULA_EOF
-
-          echo "Generated formula:"
-          cat kiro-gateway.rb
 
       - name: Push to Homebrew tap
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          # Configure git
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Clone the tap repository
           git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/if414013/homebrew-tvps.git tap-repo
 
-          # Copy the formula
           cp kiro-gateway.rb tap-repo/Formula/kiro-gateway.rb
 
-          # Commit and push
           cd tap-repo
           git add Formula/kiro-gateway.rb
           git commit -m "Update kiro-gateway to ${{ steps.version.outputs.version }}"

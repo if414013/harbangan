@@ -420,12 +420,6 @@ impl ConfigDb {
                 "http_max_retries" => {
                     parse_ranged!(key, value, config.http_max_retries, u32, 0, 10);
                 }
-                "tls_cert_path" => {
-                    config.tls_cert_path = Some(std::path::PathBuf::from(value));
-                }
-                "tls_key_path" => {
-                    config.tls_key_path = Some(std::path::PathBuf::from(value));
-                }
                 _ => {}
             }
         }
@@ -1491,35 +1485,6 @@ mod tests {
         assert_eq!(
             config.fake_reasoning_enabled,
             defaults.fake_reasoning_enabled
-        );
-    }
-
-    #[tokio::test]
-    async fn test_load_into_config_tls_paths() {
-        let Some(db) = setup_test_db().await else {
-            eprintln!("Skipping: DATABASE_URL not set");
-            return;
-        };
-        db.set("tls_cert_path", "/etc/ssl/cert.pem", "test")
-            .await
-            .unwrap();
-        db.set("tls_key_path", "/etc/ssl/key.pem", "test")
-            .await
-            .unwrap();
-
-        let mut config = create_test_config();
-        assert!(config.tls_cert_path.is_none());
-        assert!(config.tls_key_path.is_none());
-
-        db.load_into_config(&mut config).await.unwrap();
-
-        assert_eq!(
-            config.tls_cert_path,
-            Some(std::path::PathBuf::from("/etc/ssl/cert.pem"))
-        );
-        assert_eq!(
-            config.tls_key_path,
-            Some(std::path::PathBuf::from("/etc/ssl/key.pem"))
         );
     }
 

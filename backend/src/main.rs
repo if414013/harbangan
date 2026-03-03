@@ -17,7 +17,6 @@ mod resolver;
 mod routes;
 mod streaming;
 mod thinking_parser;
-mod tls;
 mod tokenizer;
 mod truncation;
 mod utils;
@@ -25,9 +24,6 @@ mod web_ui;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Install the rustls crypto provider before any TLS operations.
-    let _ = rustls::crypto::ring::default_provider().install_default();
-
     // Load bootstrap configuration from environment variables
     let mut config = config::Config::load()?;
     config.validate()?;
@@ -214,32 +210,14 @@ async fn main() -> Result<()> {
         .next()
         .context("No resolved socket addresses for configured server host")?;
 
-    // TLS is always on — build rustls config (self-signed if no custom cert/key)
-    let tls_cfg = tls::TlsConfig {
-        cert_path: config.tls_cert_path.clone(),
-        key_path: config.tls_key_path.clone(),
-    };
-    let rustls_config = tls_cfg.build_rustls_config().await?;
-    if config.has_custom_tls() {
-        tracing::info!("TLS enabled (custom certificate)");
-    } else {
-        tracing::info!("TLS enabled (self-signed certificate)");
-    }
-
-    // Unified graceful shutdown via axum_server::Handle
-    let handle = axum_server::Handle::new();
-    let shutdown_handle = handle.clone();
-    tokio::spawn(async move {
-        shutdown_signal().await;
-        shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
-    });
-
     print_startup_banner(&config);
-    tracing::info!("Server listening on https://{}", sock_addr);
+    tracing::info!("Server listening on http://{}", sock_addr);
 
-    axum_server::bind_rustls(sock_addr, rustls_config)
-        .handle(handle)
-        .serve(app.into_make_service())
+    let listener = tokio::net::TcpListener::bind(sock_addr)
+        .await
+        .context("Failed to bind server")?;
+    axum::serve(listener, app.into_make_service())
+        .with_graceful_shutdown(shutdown_signal())
         .await
         .context("Server error")?;
 
@@ -404,10 +382,6 @@ fn build_app(state: routes::AppState) -> axum::Router {
             state.clone(),
             middleware::debug_middleware,
         ))
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            middleware::hsts_middleware,
-        ))
 }
 
 /// Print startup banner
@@ -425,14 +399,9 @@ fn print_startup_banner(config: &config::Config) {
     println!("{}", banner);
     println!("  Version:     {}", env!("CARGO_PKG_VERSION"));
     println!(
-        "  Server:      https://{}:{}",
+        "  Server:      http://{}:{}",
         config.server_host, config.server_port
     );
-    if config.has_custom_tls() {
-        println!("  TLS:         enabled (custom certificate)");
-    } else {
-        println!("  TLS:         enabled (self-signed)");
-    }
     println!("  Region:      {}", config.kiro_region);
     println!("  Debug Mode:  {:?}", config.debug_mode);
     println!("  Log Level:   {}", config.log_level);
@@ -446,7 +415,7 @@ fn print_startup_banner(config: &config::Config) {
         config.fake_reasoning_max_tokens
     );
     println!(
-        "  Web UI:      https://{}:{}/_ui/",
+        "  Web UI:      http://{}:{}/_ui/",
         config.server_host, config.server_port
     );
     println!();

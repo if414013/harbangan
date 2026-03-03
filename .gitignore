@@ -1,8 +1,11 @@
 # Rust
-/target/
+/backend/target/
 **/*.rs.bk
 *.pdb
-Cargo.lock
+
+# Node
+/frontend/node_modules/
+/frontend/dist/
 
 # Environment
 .env
@@ -21,12 +24,6 @@ Thumbs.db
 
 # Debug logs
 debug_logs/
-
-# Benchmarks
-/benches/target/
-
-# Documentation build
-/target/doc/
 
 # Profiling
 flamegraph.svg
@@ -51,4 +48,3 @@ certs/
 # Claude Code
 .claude/
 .mcp.json
-

@@ -16,16 +16,9 @@ bench = ["hdrhistogram", "async-stream"]
 [dependencies]
 # Web framework
 axum = { version = "0.7", features = ["macros"] }
-axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 tower = { version = "0.4", features = ["util"] }
 tower-http = { version = "0.5", features = ["cors", "trace", "compression-gzip"] }
 http-body-util = "0.1"
-
-# TLS / self-signed certificate generation
-rcgen = "0.13"
-rustls = { version = "0.23", features = ["ring"], default-features = false }
-time = "0.3"
-x509-parser = "0.16"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -59,10 +52,6 @@ tiktoken-rs = "0.5"
 
 # PostgreSQL support
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono"] }
-
-# Embedded frontend assets
-rust-embed = "8"
-mime_guess = "2"
 
 # Utilities
 bytes = "1"

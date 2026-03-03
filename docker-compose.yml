@@ -15,29 +15,62 @@ services:
       retries: 5
       start_period: 10s
 
-  gateway:
+  backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
-    image: kiro-gateway:latest
+    image: kiro-gateway-backend:latest
     restart: on-failure:5
-    ports:
-      - "${SERVER_PORT:-9001}:${SERVER_PORT:-9001}"
     env_file:
       - .env
     environment:
-      # These override any matching keys from .env — do not change them.
       SERVER_HOST: "0.0.0.0"
+      SERVER_PORT: "8000"
       DATABASE_URL: postgres://kiro:${POSTGRES_PASSWORD:-kiro_secret}@db:5432/kiro_gateway
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fsk", "https://localhost:${SERVER_PORT:-9001}/health"]
+      test: ["CMD", "curl", "-fs", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 20s
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: kiro-gateway-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot-webroot:/var/www/certbot:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsk", "https://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done'"
+    depends_on:
+      - frontend
+
 volumes:
   pgdata:
+  letsencrypt:
+  certbot-webroot:

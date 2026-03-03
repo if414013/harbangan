@@ -582,8 +582,6 @@ mod tests {
             fake_reasoning_max_tokens: 4000,
             fake_reasoning_handling: crate::config::FakeReasoningHandling::AsReasoningContent,
             truncation_recovery: true,
-            tls_cert_path: None,
-            tls_key_path: None,
             database_url: None,
             google_client_id: String::new(),
             google_client_secret: String::new(),

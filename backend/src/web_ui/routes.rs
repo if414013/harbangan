@@ -2,17 +2,12 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
 use axum::{
-    body::Body,
     extract::{Query, State},
-    http::{header, StatusCode},
-    response::{IntoResponse, Response},
     Json,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sysinfo::{Pid, ProcessesToUpdate, System};
-
-use rust_embed::Embed;
 
 use crate::config::parse_debug_mode;
 use crate::error::ApiError;
@@ -20,64 +15,6 @@ use crate::routes::AppState;
 use crate::web_ui::config_api::{
     classify_config_change, get_config_field_descriptions, validate_config_field, ChangeType,
 };
-
-/// Embedded React SPA assets from web-ui/dist/
-#[derive(Embed)]
-#[folder = "web-ui/dist/"]
-struct WebAssets;
-
-fn mime_from_path(path: &str) -> &'static str {
-    match path.rsplit('.').next() {
-        Some("html") => "text/html; charset=utf-8",
-        Some("css") => "text/css; charset=utf-8",
-        Some("js") => "application/javascript; charset=utf-8",
-        Some("svg") => "image/svg+xml",
-        Some("png") => "image/png",
-        Some("ico") => "image/x-icon",
-        Some("json") => "application/json",
-        Some("woff2") => "font/woff2",
-        Some("woff") => "font/woff",
-        _ => "application/octet-stream",
-    }
-}
-
-/// Serve the SPA index page (root route).
-pub async fn spa_index() -> Response {
-    serve_embedded("index.html")
-}
-
-/// Fallback handler: serves embedded assets for /_ui/* paths,
-/// returns 404 for everything else.
-pub async fn spa_fallback(request: axum::http::Request<Body>) -> Response {
-    let path = request.uri().path();
-    if let Some(sub) = path.strip_prefix("/_ui/") {
-        serve_embedded(sub)
-    } else {
-        (StatusCode::NOT_FOUND, "Not found").into_response()
-    }
-}
-
-fn serve_embedded(path: &str) -> Response {
-    if let Some(file) = WebAssets::get(path) {
-        let content_type = mime_from_path(path);
-        (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, content_type)],
-            file.data,
-        )
-            .into_response()
-    } else if let Some(file) = WebAssets::get("index.html") {
-        // SPA fallback: serve index.html for client-side routes
-        (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
-            file.data,
-        )
-            .into_response()
-    } else {
-        (StatusCode::NOT_FOUND, "Not found").into_response()
-    }
-}
 
 /// GET /ui/api/metrics - Current metrics snapshot
 pub async fn get_metrics(State(state): State<AppState>) -> Json<Value> {

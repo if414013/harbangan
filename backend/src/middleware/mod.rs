@@ -203,24 +203,6 @@ fn extract_api_key(request: &Request<Body>) -> Option<String> {
     None
 }
 
-/// HSTS (HTTP Strict Transport Security) middleware
-///
-/// Always adds the Strict-Transport-Security header since TLS is always on.
-pub async fn hsts_middleware(
-    State(_state): State<AppState>,
-    request: Request<Body>,
-    next: Next,
-) -> Response {
-    let mut response = next.run(request).await;
-
-    response.headers_mut().insert(
-        axum::http::header::STRICT_TRANSPORT_SECURITY,
-        axum::http::HeaderValue::from_static("max-age=31536000"),
-    );
-
-    response
-}
-
 /// Create CORS middleware layer.
 ///
 /// For API proxy routes (/v1/*), allows all origins/methods/headers (clients
@@ -390,34 +372,6 @@ mod tests {
         assert!(response
             .headers()
             .contains_key("access-control-allow-headers"));
-    }
-
-    // HSTS middleware tests
-
-    #[tokio::test]
-    async fn test_hsts_middleware_always_adds_header() {
-        let state = create_test_state();
-        let app = Router::new()
-            .route("/test", get(test_handler))
-            .layer(axum::middleware::from_fn_with_state(
-                state.clone(),
-                hsts_middleware,
-            ))
-            .with_state(state);
-
-        let request = Request::builder().uri("/test").body(Body::empty()).unwrap();
-
-        let response = app.clone().oneshot(request).await.unwrap();
-
-        // HSTS header is always present (TLS is always on)
-        assert!(response
-            .headers()
-            .contains_key(axum::http::header::STRICT_TRANSPORT_SECURITY));
-        let hsts_header = response
-            .headers()
-            .get(axum::http::header::STRICT_TRANSPORT_SECURITY)
-            .unwrap();
-        assert_eq!(hsts_header, "max-age=31536000");
     }
 
     // ── API key auth middleware tests ─────────────────────────────────
