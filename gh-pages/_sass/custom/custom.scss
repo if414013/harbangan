@@ -1,6 +1,3 @@
----
----
-
 // ============================================================
 // Kiro Gateway — Infrastructure Command Center Theme
 // ============================================================
@@ -213,8 +210,8 @@
 // Navigation Cards
 // ============================================================
 .nav-cards {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
   gap: 0.75rem;
   margin: 1.5rem 0;
 }
@@ -278,7 +275,6 @@
   min-height: 200px;
 }
 
-// Scrollbar for mermaid containers
 .mermaid::-webkit-scrollbar {
   height: 6px;
 }
@@ -397,17 +393,17 @@ code.highlighter-rouge {
   }
 
   .features {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr !important;
   }
 
   .nav-cards {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, 1fr) !important;
   }
 }
 
 @media (max-width: 500px) {
   .nav-cards {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr !important;
   }
 
   .hero .badges {
