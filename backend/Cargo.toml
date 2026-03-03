@@ -68,6 +68,12 @@ base64 = "0.22"
 urlencoding = "2"
 rand = "0.8"
 
+# AWS Bedrock guardrails
+aws-sigv4 = "1"
+aws-credential-types = "1"
+cel-interpreter = "0.8"
+cel-parser = "0.8"
+
 # Google SSO / session auth
 openidconnect = "4"
 axum-extra = { version = "0.7", features = ["cookie"] }

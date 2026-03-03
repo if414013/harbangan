@@ -94,6 +94,9 @@ pub struct AppState {
     /// Pending OAuth states: state_param → OAuthPendingState (10-min TTL)
     #[allow(dead_code)]
     pub oauth_pending: Arc<DashMap<String, OAuthPendingState>>,
+    /// Guardrails engine for input/output validation (None when guardrails disabled or no DB)
+    #[allow(dead_code)]
+    pub guardrails_engine: Option<Arc<crate::guardrails::engine::GuardrailsEngine>>,
 }
 
 impl AppState {
@@ -169,6 +172,102 @@ fn error_type_from_api_error(err: &ApiError) -> &'static str {
         ApiError::KiroTokenRequired => "auth",
         ApiError::KiroTokenExpired => "auth",
         ApiError::LastAdmin => "validation",
+        ApiError::GuardrailBlocked { .. } => "guardrail",
+        ApiError::GuardrailWarning { .. } => "guardrail",
+    }
+}
+
+/// Extract the last user message content from OpenAI-format messages.
+fn extract_last_user_message(messages: &[crate::models::openai::ChatMessage]) -> String {
+    for msg in messages.iter().rev() {
+        if msg.role == "user" {
+            if let Some(ref content) = msg.content {
+                if let Some(s) = content.as_str() {
+                    return s.to_string();
+                }
+                return content.to_string();
+            }
+        }
+    }
+    String::new()
+}
+
+/// Extract the last user message content from Anthropic-format messages.
+fn extract_last_user_message_anthropic(
+    messages: &[crate::models::anthropic::AnthropicMessage],
+) -> String {
+    for msg in messages.iter().rev() {
+        if msg.role == "user" {
+            if let Some(s) = msg.content.as_str() {
+                return s.to_string();
+            }
+            return msg.content.to_string();
+        }
+    }
+    String::new()
+}
+
+/// Extract the assistant content from an OpenAI non-streaming response.
+fn extract_assistant_content(response: &Value) -> String {
+    response
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Extract the assistant content from an Anthropic non-streaming response.
+fn extract_assistant_content_anthropic(response: &Value) -> String {
+    response
+        .get("content")
+        .and_then(|c| c.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|block| block.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Build a RequestContext for guardrails CEL evaluation.
+fn build_request_context_openai(
+    request: &ChatCompletionRequest,
+) -> crate::guardrails::RequestContext {
+    let content_length: usize = request
+        .messages
+        .iter()
+        .map(|m| m.content.as_ref().map_or(0, |c| c.to_string().len()))
+        .sum();
+
+    crate::guardrails::RequestContext {
+        model: request.model.clone(),
+        api_format: "openai".to_string(),
+        message_count: request.messages.len(),
+        has_tools: request.tools.is_some(),
+        is_streaming: request.stream,
+        content_length,
+    }
+}
+
+/// Build a RequestContext for guardrails CEL evaluation (Anthropic format).
+fn build_request_context_anthropic(
+    request: &AnthropicMessagesRequest,
+) -> crate::guardrails::RequestContext {
+    let content_length: usize = request
+        .messages
+        .iter()
+        .map(|m| m.content.to_string().len())
+        .sum();
+
+    crate::guardrails::RequestContext {
+        model: request.model.clone(),
+        api_format: "anthropic".to_string(),
+        message_count: request.messages.len(),
+        has_tools: request.tools.is_some(),
+        is_streaming: request.stream,
+        content_length,
     }
 }
 
@@ -325,6 +424,30 @@ async fn chat_completions_handler(
             .into_iter()
             .filter_map(|v| serde_json::from_value(v).ok())
             .collect();
+    }
+
+    // INPUT GUARDRAIL CHECK
+    if config.guardrails_enabled {
+        if let Some(ref engine) = state.guardrails_engine {
+            let user_content = extract_last_user_message(&request.messages);
+            if !user_content.is_empty() {
+                let ctx = build_request_context_openai(&request);
+                match engine.validate_input(&user_content, &ctx).await {
+                    Ok(Some(result))
+                        if result.action == crate::guardrails::GuardrailAction::Intervened =>
+                    {
+                        return Err(ApiError::GuardrailBlocked {
+                            violations: result.results,
+                            processing_time_ms: result.total_processing_time_ms,
+                        });
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!(error = %e, "Input guardrail check failed");
+                    }
+                }
+            }
+        }
     }
 
     // Convert OpenAI request to Kiro format
@@ -495,6 +618,40 @@ async fn chat_completions_handler(
 
         guard.complete(input_tokens as u64, output_tokens);
 
+        // OUTPUT GUARDRAIL CHECK (non-streaming only)
+        if config.guardrails_enabled {
+            if let Some(ref engine) = state.guardrails_engine {
+                let output_text = extract_assistant_content(&openai_response);
+                if !output_text.is_empty() {
+                    let ctx = build_request_context_openai(&request);
+                    match engine.validate_output(&output_text, &ctx).await {
+                        Ok(Some(result))
+                            if result.action
+                                == crate::guardrails::GuardrailAction::Intervened =>
+                        {
+                            return Err(ApiError::GuardrailBlocked {
+                                violations: result.results,
+                                processing_time_ms: result.total_processing_time_ms,
+                            });
+                        }
+                        Ok(Some(result))
+                            if result.action == crate::guardrails::GuardrailAction::Redacted =>
+                        {
+                            return Err(ApiError::GuardrailWarning {
+                                violations: result.results,
+                                processing_time_ms: result.total_processing_time_ms,
+                                redacted_content: output_text,
+                            });
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::error!(error = %e, "Output guardrail check failed");
+                        }
+                    }
+                }
+            }
+        }
+
         DEBUG_LOGGER.discard_buffers().await;
 
         Ok(Json(openai_response).into_response())
@@ -603,6 +760,30 @@ async fn anthropic_messages_handler(
                 content: v["content"].clone(),
             })
             .collect();
+    }
+
+    // INPUT GUARDRAIL CHECK
+    if config.guardrails_enabled {
+        if let Some(ref engine) = state.guardrails_engine {
+            let user_content = extract_last_user_message_anthropic(&request.messages);
+            if !user_content.is_empty() {
+                let ctx = build_request_context_anthropic(&request);
+                match engine.validate_input(&user_content, &ctx).await {
+                    Ok(Some(result))
+                        if result.action == crate::guardrails::GuardrailAction::Intervened =>
+                    {
+                        return Err(ApiError::GuardrailBlocked {
+                            violations: result.results,
+                            processing_time_ms: result.total_processing_time_ms,
+                        });
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!(error = %e, "Input guardrail check failed");
+                    }
+                }
+            }
+        }
     }
 
     // Convert Anthropic request to Kiro format
@@ -760,6 +941,40 @@ async fn anthropic_messages_handler(
 
         guard.complete(input_tokens as u64, output_tokens);
 
+        // OUTPUT GUARDRAIL CHECK (non-streaming only)
+        if config.guardrails_enabled {
+            if let Some(ref engine) = state.guardrails_engine {
+                let output_text = extract_assistant_content_anthropic(&anthropic_response);
+                if !output_text.is_empty() {
+                    let ctx = build_request_context_anthropic(&request);
+                    match engine.validate_output(&output_text, &ctx).await {
+                        Ok(Some(result))
+                            if result.action
+                                == crate::guardrails::GuardrailAction::Intervened =>
+                        {
+                            return Err(ApiError::GuardrailBlocked {
+                                violations: result.results,
+                                processing_time_ms: result.total_processing_time_ms,
+                            });
+                        }
+                        Ok(Some(result))
+                            if result.action == crate::guardrails::GuardrailAction::Redacted =>
+                        {
+                            return Err(ApiError::GuardrailWarning {
+                                violations: result.results,
+                                processing_time_ms: result.total_processing_time_ms,
+                                redacted_content: output_text,
+                            });
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::error!(error = %e, "Output guardrail check failed");
+                        }
+                    }
+                }
+            }
+        }
+
         DEBUG_LOGGER.discard_buffers().await;
 
         Ok(Json(anthropic_response).into_response())
@@ -814,6 +1029,7 @@ mod tests {
             api_key_cache: Arc::new(DashMap::new()),
             kiro_token_cache: Arc::new(DashMap::new()),
             oauth_pending: Arc::new(DashMap::new()),
+            guardrails_engine: None,
         }
     }
 

@@ -62,6 +62,23 @@ pub enum ApiError {
     #[allow(dead_code)]
     LastAdmin,
 
+    /// Content blocked by guardrail policy
+    #[error("Content blocked by guardrail policy")]
+    #[allow(dead_code)]
+    GuardrailBlocked {
+        violations: Vec<crate::guardrails::GuardrailValidationResult>,
+        processing_time_ms: u64,
+    },
+
+    /// Content redacted by guardrail (warning)
+    #[error("Content redacted by guardrail")]
+    #[allow(dead_code)]
+    GuardrailWarning {
+        violations: Vec<crate::guardrails::GuardrailValidationResult>,
+        processing_time_ms: u64,
+        redacted_content: String,
+    },
+
     /// Internal server error
     #[error("Internal error: {0}")]
     Internal(#[from] anyhow::Error),
@@ -105,6 +122,44 @@ impl IntoResponse for ApiError {
                 "last_admin",
                 "Cannot remove or demote the last admin user".to_string(),
             ),
+            ApiError::GuardrailBlocked {
+                ref violations,
+                processing_time_ms,
+            } => {
+                let body = Json(json!({
+                    "error": {
+                        "message": "Content blocked by guardrail policy",
+                        "type": "guardrail_blocked",
+                        "violations": violations,
+                        "processing_time_ms": processing_time_ms,
+                    }
+                }));
+                return (
+                    StatusCode::from_u16(446).unwrap_or(StatusCode::BAD_REQUEST),
+                    body,
+                )
+                    .into_response();
+            }
+            ApiError::GuardrailWarning {
+                ref violations,
+                processing_time_ms,
+                ref redacted_content,
+            } => {
+                let body = Json(json!({
+                    "error": {
+                        "message": "Content redacted by guardrail",
+                        "type": "guardrail_warning",
+                        "violations": violations,
+                        "processing_time_ms": processing_time_ms,
+                        "redacted_content": redacted_content,
+                    }
+                }));
+                return (
+                    StatusCode::from_u16(246).unwrap_or(StatusCode::OK),
+                    body,
+                )
+                    .into_response();
+            }
             ApiError::Internal(err) => {
                 // Log internal errors
                 tracing::error!("Internal error: {:?}", err);

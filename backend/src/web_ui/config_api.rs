@@ -26,7 +26,8 @@ pub fn classify_config_change(key: &str) -> ChangeType {
         | "fake_reasoning_max_tokens"
         | "truncation_recovery"
         | "tool_description_max_length"
-        | "first_token_timeout" => ChangeType::HotReload,
+        | "first_token_timeout"
+        | "guardrails_enabled" => ChangeType::HotReload,
         "server_host"
         | "server_port"
         | "streaming_timeout"
@@ -91,7 +92,7 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
                 )),
             }
         }
-        "fake_reasoning_enabled" | "truncation_recovery" => {
+        "fake_reasoning_enabled" | "truncation_recovery" | "guardrails_enabled" => {
             if value.is_boolean() || value.as_str().is_some_and(|s| s == "true" || s == "false") {
                 Ok(())
             } else {
@@ -241,6 +242,10 @@ pub fn get_config_field_descriptions() -> HashMap<&'static str, &'static str> {
     );
     m.insert("oauth_start_url", "IAM Identity Center start URL");
     m.insert("oauth_sso_region", "AWS region for SSO OIDC endpoints");
+    m.insert(
+        "guardrails_enabled",
+        "Enable AWS Bedrock guardrails for input/output validation",
+    );
     m
 }
 

@@ -8,6 +8,7 @@ mod cache;
 mod config;
 mod converters;
 mod error;
+mod guardrails;
 mod http_client;
 mod log_capture;
 mod metrics;
@@ -168,7 +169,7 @@ async fn main() -> Result<()> {
         .context("Failed to create placeholder auth manager for AppState")?
     };
 
-    let app_state = routes::AppState {
+    let mut app_state = routes::AppState {
         model_cache: model_cache.clone(),
         auth_manager: Arc::new(tokio::sync::RwLock::new(app_auth_manager)),
         http_client: http_client.clone(),
@@ -182,7 +183,27 @@ async fn main() -> Result<()> {
         api_key_cache: Arc::new(dashmap::DashMap::new()),
         kiro_token_cache: Arc::new(dashmap::DashMap::new()),
         oauth_pending: Arc::new(dashmap::DashMap::new()),
+        guardrails_engine: None,
     };
+
+    // Initialize guardrails engine if DB is available
+    if let Some(ref db) = app_state.config_db {
+        let guardrails_db = guardrails::db::GuardrailsDb::new(db.pool().clone());
+        match guardrails::engine::GuardrailsEngine::new(&guardrails_db, config.guardrails_enabled)
+            .await
+        {
+            Ok(engine) => {
+                app_state.guardrails_engine = Some(Arc::new(engine));
+                tracing::info!(
+                    "Guardrails engine initialized (enabled: {})",
+                    config.guardrails_enabled
+                );
+            }
+            Err(e) => {
+                tracing::warn!("Failed to initialize guardrails engine: {}", e);
+            }
+        }
+    }
 
     // Start background tasks (token refresh + session cleanup)
     if let Some(ref db) = app_state.config_db {

@@ -1562,3 +1562,69 @@ select.config-input {
   .main { padding: 12px; }
   .latency-grid { grid-template-columns: 1fr; }
 }
+
+/* ---- Guardrails ---- */
+
+.guardrails-form {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.guardrails-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.guardrails-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.guardrails-form-field .config-label {
+  min-width: auto;
+  font-size: 0.68rem;
+}
+
+.guardrails-form-field .config-input {
+  max-width: 100%;
+}
+
+.guardrails-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.guardrails-cel-input {
+  resize: vertical;
+  min-height: 40px;
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+}
+
+.guardrails-profile-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.guardrails-test-result {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 2px solid currentColor;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+}
+
+@media (max-width: 900px) {
+  .guardrails-form-grid { grid-template-columns: 1fr; }
+}

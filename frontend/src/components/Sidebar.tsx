@@ -40,6 +40,9 @@ export function Sidebar({ connected, open, onClose }: SidebarProps) {
             <NavLink to="/config" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={onClose}>
               <span className="nav-cursor">{'>'}</span> config
             </NavLink>
+            <NavLink to="/guardrails" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={onClose}>
+              <span className="nav-cursor">{'>'}</span> guardrails
+            </NavLink>
             <NavLink to="/admin" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={onClose}>
               <span className="nav-cursor">{'>'}</span> admin
             </NavLink>

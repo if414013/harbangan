@@ -656,6 +656,7 @@ mod tests {
             api_key_cache: Arc::new(dashmap::DashMap::new()),
             kiro_token_cache: Arc::new(dashmap::DashMap::new()),
             oauth_pending: Arc::new(dashmap::DashMap::new()),
+            guardrails_engine: None,
         }
     }
 

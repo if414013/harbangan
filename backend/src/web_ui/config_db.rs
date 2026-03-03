@@ -101,6 +101,17 @@ impl ConfigDb {
             self.migrate_to_v3().await?;
         }
 
+        // Re-read max version after v3 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 4 {
+            self.migrate_to_v4().await?;
+        }
+
         Ok(())
     }
 
@@ -196,6 +207,68 @@ impl ConfigDb {
             .context("Failed to record schema version 3")?;
 
         tracing::info!("Database migration to version 3 complete");
+        Ok(())
+    }
+
+    /// Version 4 migration: guardrails tables.
+    async fn migrate_to_v4(&self) -> Result<()> {
+        tracing::info!("Running database migration to version 4 (guardrails)...");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS guardrail_profiles (
+                id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name              TEXT NOT NULL,
+                provider_name     TEXT NOT NULL DEFAULT 'bedrock',
+                enabled           BOOLEAN NOT NULL DEFAULT true,
+                guardrail_id      TEXT NOT NULL,
+                guardrail_version TEXT NOT NULL DEFAULT '1',
+                region            TEXT NOT NULL DEFAULT 'us-east-1',
+                access_key        TEXT NOT NULL,
+                secret_key        TEXT NOT NULL,
+                created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )",
+        )
+        .execute(&self.pool)
+        .await
+        .context("Failed to create guardrail_profiles table")?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS guardrail_rules (
+                id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name            TEXT NOT NULL,
+                description     TEXT NOT NULL DEFAULT '',
+                enabled         BOOLEAN NOT NULL DEFAULT true,
+                cel_expression  TEXT NOT NULL DEFAULT '',
+                apply_to        TEXT NOT NULL DEFAULT 'both' CHECK (apply_to IN ('input', 'output', 'both')),
+                sampling_rate   SMALLINT NOT NULL DEFAULT 100 CHECK (sampling_rate BETWEEN 0 AND 100),
+                timeout_ms      INTEGER NOT NULL DEFAULT 5000,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )",
+        )
+        .execute(&self.pool)
+        .await
+        .context("Failed to create guardrail_rules table")?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS guardrail_rule_profiles (
+                rule_id    UUID NOT NULL REFERENCES guardrail_rules(id) ON DELETE CASCADE,
+                profile_id UUID NOT NULL REFERENCES guardrail_profiles(id) ON DELETE CASCADE,
+                PRIMARY KEY (rule_id, profile_id)
+            )",
+        )
+        .execute(&self.pool)
+        .await
+        .context("Failed to create guardrail_rule_profiles table")?;
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(4_i32)
+            .execute(&self.pool)
+            .await
+            .context("Failed to record schema version 4")?;
+
+        tracing::info!("Database migration to version 4 complete");
         Ok(())
     }
 
@@ -381,6 +454,17 @@ impl ConfigDb {
                 "truncation_recovery" => {
                     if let Ok(v) = value.parse() {
                         config.truncation_recovery = v;
+                    } else {
+                        tracing::warn!(
+                            "Failed to parse config '{}' value '{}', keeping default",
+                            key,
+                            value
+                        );
+                    }
+                }
+                "guardrails_enabled" => {
+                    if let Ok(v) = value.parse() {
+                        config.guardrails_enabled = v;
                     } else {
                         tracing::warn!(
                             "Failed to parse config '{}' value '{}', keeping default",

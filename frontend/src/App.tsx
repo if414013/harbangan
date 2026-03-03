@@ -8,6 +8,7 @@ import { Config } from './pages/Config'
 import { Login } from './pages/Login'
 import { Profile } from './pages/Profile'
 import { Admin } from './pages/Admin'
+import { Guardrails } from './pages/Guardrails'
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="config" element={<AdminGuard><Config /></AdminGuard>} />
             <Route path="profile" element={<Profile />} />
+            <Route path="guardrails" element={<AdminGuard><Guardrails /></AdminGuard>} />
             <Route path="admin" element={<AdminGuard><Admin /></AdminGuard>} />
           </Route>
         </Routes>

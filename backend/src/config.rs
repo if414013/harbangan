@@ -35,6 +35,9 @@ pub struct Config {
     // Truncation recovery
     pub truncation_recovery: bool,
 
+    // Guardrails
+    pub guardrails_enabled: bool,
+
     // Database
     pub database_url: Option<String>,
 
@@ -84,6 +87,7 @@ impl Config {
             fake_reasoning_max_tokens: 4000,
             fake_reasoning_handling: FakeReasoningHandling::AsReasoningContent,
             truncation_recovery: true,
+            guardrails_enabled: false,
             database_url: None,
             google_client_id: String::new(),
             google_client_secret: String::new(),

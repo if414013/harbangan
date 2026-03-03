@@ -140,3 +140,87 @@ export interface DomainInfo {
   added_by: string | null
   created_at: string
 }
+
+// --- Guardrails Types ---
+
+export interface GuardrailProfile {
+  id: string
+  name: string
+  provider_name: string
+  enabled: boolean
+  guardrail_id: string
+  guardrail_version: string
+  region: string
+  access_key: string
+  secret_key: string
+  created_at: string
+  updated_at: string
+}
+
+export interface GuardrailRule {
+  id: string
+  name: string
+  description: string
+  enabled: boolean
+  cel_expression: string
+  apply_to: 'input' | 'output' | 'both'
+  sampling_rate: number
+  timeout_ms: number
+  profile_ids: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface CelValidationResult {
+  valid: boolean
+  error?: string
+}
+
+export interface GuardrailTestResult {
+  success: boolean
+  action: string
+  response_time_ms: number
+  error?: string
+}
+
+// --- Guardrails API ---
+
+export function getGuardrailProfiles() {
+  return apiFetch<GuardrailProfile[]>('/admin/guardrails/profiles')
+}
+
+export function createGuardrailProfile(profile: Partial<GuardrailProfile>) {
+  return apiPost<GuardrailProfile>('/admin/guardrails/profiles', profile)
+}
+
+export function updateGuardrailProfile(id: string, profile: Partial<GuardrailProfile>) {
+  return apiPut<GuardrailProfile>(`/admin/guardrails/profiles/${id}`, profile)
+}
+
+export function deleteGuardrailProfile(id: string) {
+  return apiDelete(`/admin/guardrails/profiles/${id}`)
+}
+
+export function getGuardrailRules() {
+  return apiFetch<GuardrailRule[]>('/admin/guardrails/rules')
+}
+
+export function createGuardrailRule(rule: Partial<GuardrailRule>) {
+  return apiPost<GuardrailRule>('/admin/guardrails/rules', rule)
+}
+
+export function updateGuardrailRule(id: string, rule: Partial<GuardrailRule>) {
+  return apiPut<GuardrailRule>(`/admin/guardrails/rules/${id}`, rule)
+}
+
+export function deleteGuardrailRule(id: string) {
+  return apiDelete(`/admin/guardrails/rules/${id}`)
+}
+
+export function testGuardrailProfile(profileId: string, content: string) {
+  return apiPost<GuardrailTestResult>('/admin/guardrails/test', { profile_id: profileId, content })
+}
+
+export function validateCelExpression(expression: string) {
+  return apiPost<CelValidationResult>('/admin/guardrails/cel/validate', { expression })
+}

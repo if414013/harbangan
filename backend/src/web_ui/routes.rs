@@ -136,6 +136,7 @@ pub async fn get_config(State(state): State<AppState>) -> Json<Value> {
             "fake_reasoning_enabled": config.fake_reasoning_enabled,
             "fake_reasoning_max_tokens": config.fake_reasoning_max_tokens,
             "truncation_recovery": config.truncation_recovery,
+            "guardrails_enabled": config.guardrails_enabled,
             "tool_description_max_length": config.tool_description_max_length,
         }
     }))
@@ -233,6 +234,13 @@ fn apply_config_field(state: &AppState, key: &str, value: &Value) -> bool {
             }
             Err(_) => false,
         },
+        "guardrails_enabled" => match value_str.parse() {
+            Ok(v) => {
+                config.guardrails_enabled = v;
+                true
+            }
+            Err(_) => false,
+        },
         "tool_description_max_length" => match value_str.parse() {
             Ok(v) => {
                 config.tool_description_max_length = v;
@@ -288,7 +296,7 @@ pub async fn get_config_schema() -> Json<Value> {
             | "http_max_retries" => {
                 field.insert("type".to_string(), json!("number"));
             }
-            "fake_reasoning_enabled" | "truncation_recovery" => {
+            "fake_reasoning_enabled" | "truncation_recovery" | "guardrails_enabled" => {
                 field.insert("type".to_string(), json!("boolean"));
             }
             _ => {

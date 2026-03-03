@@ -3,6 +3,7 @@ pub mod cache;
 pub mod config;
 pub mod converters;
 pub mod error;
+pub mod guardrails;
 pub mod http_client;
 pub mod log_capture;
 pub mod metrics;
