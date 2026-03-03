@@ -17,6 +17,8 @@ nav_order: 1
     <span class="badge">Anthropic Compatible</span>
     <span class="badge">Streaming</span>
     <span class="badge">Multi-User</span>
+    <span class="badge">MCP Gateway</span>
+    <span class="badge">Content Guardrails</span>
   </div>
 </div>
 
@@ -35,6 +37,8 @@ flowchart LR
         NGINX["nginx\n(TLS)"]
         subgraph GW["Backend"]
             MW["Middleware\n(CORS, Auth)"]
+            GUARD["Guardrails"]
+            MCP_INJ["MCP Tools"]
             CONV["Format\nConverters"]
             STREAM["Stream\nParser"]
         end
@@ -48,7 +52,9 @@ flowchart LR
     OAI --> NGINX
     ANT --> NGINX
     NGINX --> MW
-    MW --> CONV
+    MW --> GUARD
+    GUARD --> MCP_INJ
+    MCP_INJ --> CONV
     CONV --> KIRO
     KIRO --> STREAM
     STREAM --> NGINX
@@ -81,6 +87,14 @@ flowchart LR
   <div class="feature-card">
     <h3>Web Dashboard</h3>
     <p>Built-in web UI for configuration, user management, API key management, and real-time log streaming.</p>
+  </div>
+  <div class="feature-card">
+    <h3>MCP Gateway</h3>
+    <p>Connect external MCP tool servers over HTTP, SSE, or STDIO. Tools are automatically discovered and injected into chat requests with per-request filtering.</p>
+  </div>
+  <div class="feature-card">
+    <h3>Content Guardrails</h3>
+    <p>AWS Bedrock-powered content validation with CEL rule engine. Validate input before sending and output before returning, with configurable sampling and fail-open design.</p>
   </div>
 </div>
 
@@ -138,5 +152,7 @@ Then open `https://your-domain.com/_ui/` to complete setup via Google SSO.
 | `/v1/chat/completions` | POST | OpenAI-compatible chat completions |
 | `/v1/messages` | POST | Anthropic-compatible messages |
 | `/v1/models` | GET | List available models |
+| `/v1/mcp/tool/execute` | POST | Execute MCP tool |
+| `/mcp` | POST/GET | MCP JSON-RPC protocol |
 | `/health` | GET | Health check |
 | `/_ui/` | GET | Web dashboard |

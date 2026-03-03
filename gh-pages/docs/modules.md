@@ -42,11 +42,15 @@ graph TD
     tokenizer["tokenizer.rs<br/><i>Token counting</i>"]
     error["error.rs<br/><i>Error types</i>"]
     bench["bench/<br/><i>Benchmarking</i>"]
+    guardrails["guardrails/<br/><i>CEL rules + Bedrock<br/>content validation</i>"]
+    mcp["mcp/<br/><i>MCP Gateway: tool servers,<br/>JSON-RPC, transports</i>"]
 
     main --> config
     main --> routes
     main --> web_ui
     main --> log_capture
+    main --> guardrails
+    main --> mcp
 
     routes --> middleware
     routes --> converters
@@ -57,6 +61,8 @@ graph TD
     routes --> metrics
     routes --> truncation
     routes --> tokenizer
+    routes --> guardrails
+    routes --> mcp
 
     converters --> models
     converters --> thinking
@@ -74,6 +80,9 @@ graph TD
     http_client --> auth
     http_client --> error
 
+    mcp --> web_ui
+    guardrails --> web_ui
+
     style main fill:#4a9eff,color:#fff
     style routes fill:#ff6b6b,color:#fff
     style converters fill:#51cf66,color:#fff
@@ -82,6 +91,8 @@ graph TD
     style web_ui fill:#cc5de8,color:#fff
     style models fill:#868e96,color:#fff
     style log_capture fill:#ff922b,color:#fff
+    style guardrails fill:#e64980,color:#fff
+    style mcp fill:#20c997,color:#fff
 ```
 
 ---
@@ -174,6 +185,35 @@ graph TD
 | `web_ui::config_db` | `backend/src/web_ui/config_db.rs` | `ConfigDb` — PostgreSQL-backed configuration persistence using `sqlx`. Auto-creates `config`, `config_history`, and `schema_version` tables. Provides `get/set/get_all`, `load_into_config()` overlay, `save_initial_setup()`, `save_oauth_setup()`, and `get_history()` with automatic pruning (keeps last 1000 entries). All writes are transactional. |
 | `web_ui::sse` | `backend/src/web_ui/sse.rs` | Server-Sent Event streams for the Web UI. `metrics_stream` pushes metrics snapshots every 1 second. `logs_stream` pushes new log entries every 500ms. Both include 15-second keep-alive pings. |
 
+### Guardrails
+
+| Module | File(s) | Description |
+|--------|---------|-------------|
+| `guardrails` | `backend/src/guardrails/mod.rs` | Module root. Re-exports `GuardrailsDb` and `GuardrailsEngine`. |
+| `guardrails::engine` | `backend/src/guardrails/engine.rs` | `GuardrailsEngine` — orchestrates content validation. Loads rules from DB, evaluates CEL conditions, calls Bedrock API concurrently per profile, aggregates results. Supports sampling (0-100%). Fails open on engine errors. Methods: `validate_input()`, `validate_output()`, `reload()`. |
+| `guardrails::cel` | `backend/src/guardrails/cel.rs` | `CelEvaluator` — compiles and evaluates CEL (Common Expression Language) expressions with caching. Available variables: `request.model`, `request.api_format`, `request.message_count`, `request.has_tools`, `request.is_streaming`, `request.content_length`. Empty expressions match all requests. |
+| `guardrails::bedrock` | `backend/src/guardrails/bedrock.rs` | `BedrockGuardrailClient` — calls AWS Bedrock ApplyGuardrail API with SigV4 request signing. Supports content policy, topic policy, word policy, and PII detection violations. Returns `GuardrailAction::None`, `Intervened`, or `Redacted`. Includes region validation for SSRF protection. |
+| `guardrails::db` | `backend/src/guardrails/db.rs` | `GuardrailsDb` — PostgreSQL layer for guardrail profiles and rules. Three tables: `guardrail_profiles`, `guardrail_rules`, `guardrail_rule_profiles` (junction). CRUD operations + `load_config()` for in-memory snapshot. |
+| `guardrails::api` | `backend/src/guardrails/api.rs` | Admin API handlers for guardrail profiles and rules CRUD. Includes test endpoint for validating a profile against Bedrock and CEL expression validation endpoint. All admin-only with session + CSRF. |
+| `guardrails::types` | `backend/src/guardrails/types.rs` | Type definitions: `GuardrailRule`, `GuardrailProfile`, `GuardrailAction` (None/Intervened/Redacted), `ApplyTo` (Input/Output/Both), `RequestContext`, `GuardrailViolation`, `GuardrailCheckResult`. |
+
+### MCP Gateway
+
+| Module | File(s) | Description |
+|--------|---------|-------------|
+| `mcp` | `backend/src/mcp/mod.rs` | `McpManager` — orchestrates MCP client connections, tool discovery, and execution. Manages background health monitors and tool syncers per client. Initialization loads clients from DB and auto-connects enabled clients. |
+| `mcp::api` | `backend/src/mcp/api.rs` | Admin API handlers: CRUD for MCP clients, reconnect, list tools per client. Tool execution endpoint (`POST /v1/mcp/tool/execute`). All admin routes require session + CSRF. |
+| `mcp::server` | `backend/src/mcp/server.rs` | JSON-RPC 2.0 server at `/mcp`. Implements `initialize`, `tools/list`, `tools/call`, `ping` methods. GET returns SSE stream for keep-alive. Aggregates tools from all connected clients with `{clientName}_{toolName}` namespacing. |
+| `mcp::client_manager` | `backend/src/mcp/client_manager.rs` | `ClientManager` — handles transport creation, connection lifecycle, initialization handshake (MCP `initialize` + `notifications/initialized`), tool discovery, reconnection, and graceful shutdown. |
+| `mcp::transport::http` | `backend/src/mcp/transport/http.rs` | HTTP transport — stateless POST-based JSON-RPC. Includes SSRF protection (blocks private IPs: 127/8, 10/8, 172.16/12, 192.168/16), URL validation. |
+| `mcp::transport::sse` | `backend/src/mcp/transport/sse.rs` | SSE transport — persistent GET stream with POST-based request delivery. Receives `endpoint` event for POST URL, correlates responses via JSON-RPC IDs using oneshot channels. |
+| `mcp::transport::stdio` | `backend/src/mcp/transport/stdio.rs` | STDIO transport — spawns child process with newline-delimited JSON-RPC on stdin/stdout. Command allowlist (npx, node, python, python3, uvx, docker). Blocked env vars (LD_PRELOAD, DYLD_*). |
+| `mcp::health_monitor` | `backend/src/mcp/health_monitor.rs` | Background health check per client. Prefers `ping`, falls back to `tools/list`. Tracks consecutive failures, marks client as Error after max failures reached. |
+| `mcp::tool_syncer` | `backend/src/mcp/tool_syncer.rs` | Background tool re-discovery per client (configurable interval). Refreshes tool list from `tools/list` JSON-RPC call. |
+| `mcp::tool_manager` | `backend/src/mcp/tool_manager.rs` | Tool filtering and execution. Two-tier filtering: client config whitelist (`tools_to_execute`) + per-request headers (`x-kgw-mcp-include-clients`, `x-kgw-mcp-include-tools`). Validates client names (no underscores). |
+| `mcp::db` | `backend/src/mcp/db.rs` | `McpDb` — PostgreSQL layer for MCP client configs. Table: `mcp_clients` with columns for connection type, URL/stdio config, auth headers (base64-encoded), tool whitelist, health check settings. |
+| `mcp::types` | `backend/src/mcp/types.rs` | Type definitions: `McpClientConfig`, `McpClientState`, `McpConnectionType` (Http/Sse/Stdio), `McpConnectionState` (Connected/Connecting/Disconnected/Error), `McpAuthType`, `McpTool`, `McpStdioConfig`, `JsonRpcRequest/Response`, `ToolExecuteRequest/Response`, `McpToolInfo`. |
+
 ### Benchmarking
 
 | Module | File(s) | Description |
@@ -212,6 +252,8 @@ All request handlers receive shared application state via Axum's `State` extract
 - `api_key_cache: Arc<DashMap<String, (Uuid, Uuid)>>` — API key hash → (user_id, key_id)
 - `kiro_token_cache: Arc<DashMap<Uuid, (String, String, Instant)>>` — per-user Kiro tokens (4-min TTL)
 - `oauth_pending: Arc<DashMap<String, OAuthPendingState>>` — PKCE state (10-min TTL, 10k cap)
+- `mcp_manager: Option<Arc<McpManager>>` — MCP Gateway orchestrator (None when disabled or not yet initialized)
+- `guardrails_engine: Option<Arc<GuardrailsEngine>>` — Content validation engine (None when disabled or no DB)
 
 ### Request Guard
 

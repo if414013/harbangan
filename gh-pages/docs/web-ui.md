@@ -288,6 +288,128 @@ The `GET /_ui/api/logs` endpoint returns the current contents of the log buffer 
 
 ---
 
+## MCP Gateway Management
+
+The MCP Gateway management interface allows admins to connect, configure, and monitor external MCP (Model Context Protocol) tool servers. This section is admin-only.
+
+### Adding MCP Servers
+
+To add an MCP server, provide:
+
+- **Name** — A unique identifier for the server (used in tool namespacing as the `clientName` prefix)
+- **Connection Type** — How the gateway connects to the server:
+  - **HTTP** — Stateless POST-based transport. Provide a URL endpoint.
+  - **SSE** — Persistent Server-Sent Events stream. Provide a URL endpoint.
+  - **STDIO** — Child process transport over newline-delimited JSON-RPC. Provide a command, arguments, and optional environment variables.
+- **Connection String** — The URL for HTTP or SSE connections
+
+### Authentication
+
+Each MCP server connection can optionally include authentication:
+
+- **None** — No authentication headers
+- **Custom Headers** — Provide key-value pairs injected into every request to the MCP server
+
+### Tool Filtering
+
+Each server has a tool whitelist (`tools_to_execute`):
+
+- Set to `["*"]` to allow all tools from the server
+- Specify individual tool names to restrict which tools are available
+
+Additionally, clients can filter tools per-request using headers on chat completion requests:
+
+- `x-kgw-mcp-include-clients: client1,client2` — Include tools from specific clients only (`*` for all)
+- `x-kgw-mcp-include-tools: client1-search,client2-*` — Include specific tools or all tools from a client
+
+### Health Monitoring
+
+The gateway monitors each connected MCP server:
+
+- **Health check interval** — Configurable polling interval (default: 10 seconds)
+- **Max consecutive failures** — After this many consecutive health check failures (default: 5), the client is marked as "Error" state
+- **Connection states** — Connected, Connecting, Disconnected, or Error
+
+### Tool Sync
+
+Tools are automatically discovered from connected servers:
+
+- **Auto-refresh** — Tool lists are re-synced at a configurable interval (default: 600 seconds)
+- **Per-client interval** — Each client can override the sync interval (set to 0 to disable)
+- Tools are namespaced as `{clientName}_{toolName}` when injected into chat requests
+
+### Reconnect
+
+Use the reconnect action to force a server to disconnect and reconnect. This is useful after fixing connectivity issues or when a server's tool list has changed.
+
+### Security
+
+- **SSRF protection** — HTTP/SSE transport validates that URLs don't resolve to private or reserved IP addresses (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, etc.)
+- **STDIO command allowlist** — Only permitted commands can be executed: `npx`, `node`, `python`, `python3`, `uvx`, `docker`
+- **Blocked environment variables** — Dangerous env vars (`LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`, etc.) are rejected in STDIO configurations
+
+---
+
+## Content Guardrails Management
+
+The Content Guardrails system provides content validation powered by AWS Bedrock guardrails with a flexible CEL (Common Expression Language) rule engine. This section is admin-only.
+
+### Guardrail Profiles
+
+A profile represents a connection to an AWS Bedrock guardrail. To create a profile, provide:
+
+- **Name** — A descriptive name for the profile
+- **Guardrail ID** — The AWS Bedrock guardrail identifier
+- **Guardrail Version** — The version of the guardrail to use (e.g., `1`)
+- **Region** — AWS region where the guardrail is deployed (e.g., `us-east-1`)
+- **AWS Credentials** — Access key and secret key for authenticating with Bedrock (displayed masked in the UI)
+
+Profiles can be enabled or disabled individually.
+
+### Guardrail Rules
+
+Rules define when and how guardrails are applied. Each rule includes:
+
+- **Name and Description** — Identifies the rule's purpose
+- **CEL Expression** — A condition that determines which requests the rule applies to (leave empty to match all requests)
+- **Apply To** — Whether to validate input (before sending to Kiro), output (before returning to client), or both
+- **Sampling Rate** — Percentage of matching requests to validate (0–100%). Use lower values for high-traffic scenarios
+- **Timeout** — Maximum time to wait for Bedrock validation per rule
+- **Linked Profiles** — One or more guardrail profiles to apply when this rule matches
+
+Rules can be enabled or disabled individually.
+
+### CEL Expression Variables
+
+The following variables are available in CEL expressions:
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `request.model` | string | Model name (e.g., `claude-sonnet-4-20250514`) |
+| `request.api_format` | string | API format (`openai` or `anthropic`) |
+| `request.message_count` | int | Number of messages in the conversation |
+| `request.has_tools` | bool | Whether the request includes tool definitions |
+| `request.is_streaming` | bool | Whether streaming is enabled |
+| `request.content_length` | int | Total content length in bytes |
+
+**Example expressions:**
+- `request.model == "claude-opus-4"` — Only apply to a specific model
+- `request.message_count > 5 && request.has_tools` — Apply to longer tool-using conversations
+- `request.api_format == "openai"` — Apply only to OpenAI-format requests
+
+### Testing
+
+- **Test a profile** — Submit sample content against a specific profile to verify it's working correctly. Returns the guardrail action and response time.
+- **Validate CEL expression** — Check that a CEL expression compiles without errors before saving a rule.
+
+### Fail-Open Design
+
+Guardrails are designed to fail open — if a Bedrock API call fails or times out, the request proceeds without blocking. This prevents guardrail infrastructure issues from causing outages.
+
+**Note:** Output validation is only available for non-streaming requests. Streaming responses bypass output guardrail checks by design.
+
+---
+
 ## API Endpoint Reference
 
 All web UI API endpoints are nested under `/_ui/api/`.
@@ -334,6 +456,8 @@ These require a valid session and CSRF token.
 | `PUT` | `/_ui/api/config` | Update gateway configuration |
 | `*` | `/_ui/api/domains/*` | Domain allowlist management |
 | `*` | `/_ui/api/users/*` | User management |
+| `*` | `/_ui/api/admin/mcp/*` | MCP client management |
+| `*` | `/_ui/api/admin/guardrails/*` | Guardrails profile/rule management |
 
 ---
 

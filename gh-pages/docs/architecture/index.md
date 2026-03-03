@@ -61,6 +61,8 @@ flowchart TB
                 HTTPC["KiroHttpClient<br/><i>Pooled + retry</i>"]
                 METRICS["MetricsCollector"]
                 LOGCAP["LogCapture<br/><i>Tracing layer → SSE</i>"]
+                GUARDRAILS["GuardrailsEngine<br/><i>CEL + Bedrock</i>"]
+                MCP["McpManager<br/><i>Tool servers</i>"]
             end
 
             subgraph Convert["Format Converters"]
@@ -88,6 +90,8 @@ flowchart TB
         QAPI["Q API<br/><i>q.{region}.amazonaws.com</i>"]
         SSOOIDC["AWS SSO OIDC<br/><i>oidc.{region}.amazonaws.com</i>"]
         GOOGLE["Google OAuth<br/><i>accounts.google.com</i>"]
+        BEDROCK["AWS Bedrock<br/><i>bedrock-runtime.{region}.amazonaws.com</i>"]
+        EXTERNAL_TOOLS["External MCP<br/>Tool Servers"]
     end
 
     OAI --> Nginx
@@ -122,6 +126,13 @@ flowchart TB
     CONFIG --> PG
     WEBUI --> GOOGLE
     CERTBOT --> ACME
+
+    OPENAI --> GUARDRAILS
+    ANTHRO --> GUARDRAILS
+    OPENAI --> MCP
+    ANTHRO --> MCP
+    GUARDRAILS --> BEDROCK
+    MCP -.-> |"tool servers"| EXTERNAL_TOOLS
 ```
 
 ---
@@ -170,6 +181,8 @@ classDiagram
         +Arc~DashMap~ api_key_cache
         +Arc~DashMap~ kiro_token_cache
         +Arc~DashMap~ oauth_pending
+        +Option~Arc~McpManager~~ mcp_manager
+        +Option~Arc~GuardrailsEngine~~ guardrails_engine
     }
 
     class ModelCache {
@@ -252,6 +265,8 @@ flowchart TD
     MAIN --> WEBUI["web_ui/"]
     MAIN --> METRICS["metrics"]
     MAIN --> LOGCAP["log_capture"]
+    MAIN --> GUARDRAILS["guardrails/"]
+    MAIN --> MCP["mcp/"]
 
     ROUTES --> CONVERTERS["converters/"]
     ROUTES --> STREAMING["streaming/"]
@@ -263,6 +278,8 @@ flowchart TD
     ROUTES --> TOKENIZER["tokenizer"]
     ROUTES --> TRUNC["truncation"]
     ROUTES --> METRICS
+    ROUTES --> GUARDRAILS
+    ROUTES --> MCP
 
     STREAMING --> THINK["thinking_parser"]
     STREAMING --> TRUNC
@@ -297,6 +314,7 @@ flowchart TD
 | Caching | [DashMap](https://github.com/xacrimon/dashmap) | Lock-free concurrent hash map (models, sessions, API keys, tokens) |
 | Logging | [tracing](https://github.com/tokio-rs/tracing) | Structured, async-aware logging with web UI capture |
 | Token Counting | [tiktoken-rs](https://github.com/zurawiki/tiktoken-rs) | GPT-compatible tokenizer (cl100k_base) |
+| CEL Engine | [cel-interpreter](https://github.com/clarkmcc/cel-rust) | Common Expression Language for guardrail rule conditions |
 | TLS Termination | [nginx](https://nginx.org/) | Reverse proxy with Let's Encrypt TLS via certbot |
 | Frontend | React 19 + Vite 7 + TypeScript 5.9 | Browser-based admin dashboard served by nginx |
 
@@ -328,6 +346,10 @@ On first run (no admin user in DB), the gateway blocks `/v1/*` proxy endpoints w
 
 Each user has their own API keys and Kiro credentials. The middleware identifies users by SHA-256 hashing the provided API key, looking up the user in cache/DB, and injecting per-user Kiro credentials into the request context. This replaces the old global `PROXY_API_KEY` model.
 
+### 7. Pipeline Extensibility (Guardrails + MCP)
+
+Input guardrails run before format conversion, output guardrails run after response collection (non-streaming only). MCP tools are injected into the request's tool list before conversion. Both features are optional (disabled by default) and fail-open to avoid blocking requests on infrastructure errors.
+
 ---
 
 ## Source File Map
@@ -351,4 +373,6 @@ Each user has their own API keys and Kiro credentials. The middleware identifies
 | `backend/src/truncation.rs` | Truncation detection and recovery injection |
 | `backend/src/metrics/` | Request latency, token usage, and error tracking |
 | `backend/src/log_capture.rs` | Tracing capture layer for web UI SSE log streaming |
+| `backend/src/guardrails/` | Content validation: CEL rule engine, AWS Bedrock guardrails, profiles/rules CRUD |
+| `backend/src/mcp/` | MCP Gateway: tool server connections (HTTP/SSE/STDIO), tool discovery, execution, JSON-RPC server |
 | `backend/src/web_ui/` | Web UI API: Google SSO, sessions, per-user API keys, Kiro tokens, config, users |

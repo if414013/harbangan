@@ -24,7 +24,7 @@ cd backend && cargo build                        # Debug build
 cd backend && cargo build --release              # Release build
 cd backend && cargo clippy                       # Lint — fix ALL warnings before committing
 cd backend && cargo fmt                          # Format
-cd backend && cargo test --lib                   # Unit tests (335 tests)
+cd backend && cargo test --lib                   # Unit tests (395 tests)
 cd backend && cargo test --lib <test_name>       # Single test
 cd backend && cargo test --lib <module>::        # All tests in a module
 cd backend && cargo test --lib -- --nocapture    # Show println! output
@@ -61,7 +61,7 @@ Set in `.env` (see `.env.example`):
 
 Auto-set by docker-compose: `DATABASE_URL`, `SERVER_HOST` (0.0.0.0), `SERVER_PORT` (8000).
 
-All runtime config (region, timeouts, debug mode, etc.) is managed via the Web UI at `/_ui/` and persisted in PostgreSQL.
+All runtime config (region, timeouts, debug mode, etc.) is managed via the Web UI at `/_ui/` and persisted in PostgreSQL. This includes `mcp_enabled` and `guardrails_enabled` (both default to `false`).
 
 ## Architecture
 
@@ -85,11 +85,13 @@ Client (OpenAI or Anthropic format)
   → nginx (TLS termination)
   → middleware/ (CORS, API key auth → per-user Kiro creds)
   → routes/mod.rs (validate request, resolve model)
+  → guardrails/ input check (if enabled, CEL rule matching + Bedrock API)
   → converters/ (OpenAI/Anthropic → Kiro format)
   → auth/ (get per-user Kiro access token, auto-refresh)
   → http_client.rs (POST to Kiro API)
   → streaming/mod.rs (parse AWS Event Stream)
   → thinking_parser.rs (extract reasoning blocks)
+  → guardrails/ output check (if enabled, non-streaming only)
   → converters/ (Kiro → OpenAI/Anthropic format)
   → SSE response back to client
 ```
@@ -122,6 +124,8 @@ Defined in `backend/src/routes/mod.rs`:
 - `api_key_cache: Arc<DashMap<String, (Uuid, Uuid)>>` — API key hash → (user_id, key_id)
 - `kiro_token_cache: Arc<DashMap<Uuid, (String, String, Instant)>>` — per-user Kiro tokens (4-min TTL)
 - `oauth_pending: Arc<DashMap<String, OAuthPendingState>>` — PKCE state (10-min TTL, 10k cap)
+- `guardrails_engine: Option<Arc<GuardrailsEngine>>` — Content validation engine (CEL rules + Bedrock API)
+- `mcp_manager: Option<Arc<McpManager>>` — MCP Gateway orchestrator (client connections, tool discovery, execution)
 
 ### Key Modules (backend/src/)
 
@@ -131,8 +135,13 @@ Defined in `backend/src/routes/mod.rs`:
 - `models/` — Request/response types for OpenAI, Anthropic, and Kiro formats.
 - `web_ui/` — Web UI API handlers. Google SSO (`google_auth.rs`), session management (`session.rs`), per-user API keys (`api_keys.rs`), per-user Kiro tokens (`user_kiro.rs`), config persistence (`config_db.rs`).
 - `middleware/` — CORS, API key auth (SHA-256 + cache/DB lookup), debug logging.
+- `guardrails/` — Content safety via AWS Bedrock guardrails (CEL rule engine + Bedrock API). Input/output validation with configurable rules stored in PostgreSQL.
+- `mcp/` — MCP Gateway. Manages external tool servers over HTTP/SSE/STDIO transports. Includes client lifecycle (`client_manager.rs`), health monitoring, tool discovery/sync, and DB persistence.
+- `metrics/` — Request latency and token usage tracking (`MetricsCollector`).
 - `resolver.rs` — Maps model aliases to canonical Kiro model IDs. Don't hardcode model IDs.
+- `tokenizer.rs` — Token counting via tiktoken (cl100k_base) with Claude correction factor (1.15x).
 - `truncation.rs` — Detects truncated API responses and triggers recovery retries.
+- `cache.rs` — `ModelCache` with TTL-based model metadata caching.
 - `log_capture.rs` — Tracing capture layer for web UI SSE log streaming.
 
 ### API Endpoints
@@ -141,6 +150,11 @@ Defined in `backend/src/routes/mod.rs`:
 - `POST /v1/chat/completions` — OpenAI-compatible
 - `POST /v1/messages` — Anthropic-compatible
 - `GET /v1/models` — List models
+- `POST /v1/mcp/tool/execute` — Execute MCP tool
+
+**MCP Server Protocol (auth via API key):**
+- `POST /mcp` — JSON-RPC 2.0 MCP server protocol
+- `GET /mcp` — MCP SSE stream
 
 **Infrastructure:**
 - `GET /health` — Health check
@@ -151,6 +165,8 @@ Defined in `backend/src/routes/mod.rs`:
 - Session: `/metrics`, `/system`, `/models`, `/logs`, `/config`, `/config/schema`, `/config/history`, `/auth/me`, `/stream/metrics` (SSE), `/stream/logs` (SSE)
 - Mutations (+ CSRF): `/auth/logout`, Kiro token routes, API key routes
 - Admin-only (+ CSRF): `PUT /config`, domain allowlist routes, user management routes
+- Admin-only: MCP client CRUD routes (`/_ui/api/admin/mcp/clients/*`)
+- Admin-only: Guardrails profile/rule CRUD routes (`/_ui/api/guardrails/*`), CEL validation, profile testing
 
 ## Code Style
 

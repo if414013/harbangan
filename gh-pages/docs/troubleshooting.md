@@ -328,6 +328,92 @@ ss -tlnp | grep -E ':(80|443)\s'
 
 ---
 
+## MCP Gateway Issues
+
+### MCP client stuck in "Error" state
+
+**Cause:** The MCP server has failed consecutive health checks beyond the configured threshold.
+
+**Solutions:**
+- Check the health check interval (`mcp_health_check_interval`, default: 10s) and max failures (`mcp_max_consecutive_failures`, default: 5)
+- Verify the MCP server is reachable from the Docker network
+- Check the server's connection string or STDIO command is correct
+- Try the **Reconnect** action in the MCP management UI to force a fresh connection
+
+### Tools not appearing in chat requests
+
+**Cause:** MCP tools are not being injected into chat completion requests.
+
+**Solutions:**
+- Verify `mcp_enabled` is set to `true` in the configuration
+- Check the MCP client is in "Connected" state (not Error or Disconnected)
+- Check the client's `tools_to_execute` whitelist — it must include the tool name or `*` for all
+- If using per-request filtering, check your headers:
+  - `x-kgw-mcp-include-clients` must include the client name (or `*`)
+  - `x-kgw-mcp-include-tools` must include the tool (or `clientName-*`)
+
+### STDIO transport fails to start
+
+**Cause:** The STDIO command is not in the allowed command list.
+
+**Solutions:**
+- Only these commands are allowed: `npx`, `node`, `python`, `python3`, `uvx`, `docker`
+- Check that the command is available in the backend container's PATH
+- Verify no blocked environment variables are set (`LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`, etc.)
+
+### HTTP/SSE transport connection refused
+
+**Cause:** The MCP server URL is unreachable or blocked by SSRF protections.
+
+**Solutions:**
+- Private/reserved IP addresses are blocked by default (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+- If your MCP server is on the same Docker network, use the container hostname rather than a private IP
+- Verify the URL is accessible from within the Docker network: `docker compose exec backend curl -v <mcp-server-url>`
+
+---
+
+## Guardrails Issues
+
+### Guardrails not blocking content
+
+**Cause:** Rules or profiles may not be configured correctly.
+
+**Solutions:**
+- Verify `guardrails_enabled` is set to `true` in the configuration
+- Check that the guardrail profile is enabled
+- Check the rule's CEL expression matches your request — use the **Validate CEL** endpoint to check syntax
+- Check the rule's sampling rate — a rate of 50 means only half of matching requests are checked
+- Verify the rule's `apply_to` setting matches the direction (input, output, or both)
+- Use the **Test Profile** feature to verify your AWS Bedrock guardrail responds as expected
+
+### Bedrock API errors
+
+**Cause:** AWS credentials or guardrail configuration is incorrect.
+
+**Solutions:**
+- Verify the AWS access key and secret key are valid and have `bedrock:ApplyGuardrail` permissions
+- Check the AWS region matches where your guardrail is deployed
+- Verify the guardrail ID and version exist in your AWS account
+- Test the profile using the **Test Profile** feature to see detailed error messages
+
+### High latency from guardrails
+
+**Cause:** Guardrail validation adds latency to every matching request.
+
+**Solutions:**
+- Reduce the sampling rate (lower percentage = fewer requests checked)
+- Increase the per-rule `timeout_ms` if Bedrock calls are timing out
+- Use CEL expressions to target only specific request types rather than checking everything
+- Consider enabling guardrails only for input validation on high-traffic endpoints
+
+### Guardrails only working for input, not output
+
+**Cause:** Output validation is only supported for non-streaming requests.
+
+**Solution:** This is by design. Streaming responses bypass output guardrail checks because the response is delivered incrementally. If output validation is important, use non-streaming mode for those requests.
+
+---
+
 ## Log Analysis Tips
 
 ### Enable Debug Logging

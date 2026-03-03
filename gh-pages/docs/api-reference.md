@@ -557,6 +557,99 @@ for model in models.data:
 
 ---
 
+## MCP Endpoints
+
+The MCP (Model Context Protocol) Gateway allows external tool servers to be connected and their tools injected into chat requests. These endpoints require API key authentication.
+
+### POST /v1/mcp/tool/execute
+
+Execute a tool on a connected MCP server. Requires API key authentication.
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tool_name` | string | Yes | Namespaced tool name in `clientName_toolName` format. |
+| `arguments` | object | Yes | Arguments to pass to the tool. |
+| `call_id` | string | No | Optional correlation ID echoed back in the response. |
+
+#### Response
+
+```json
+{
+  "call_id": "abc-123",
+  "tool_name": "my_server_search",
+  "result": {
+    "content": "Search results here..."
+  },
+  "is_error": false
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `call_id` | string or null | Echoed from request if provided. |
+| `tool_name` | string | The namespaced tool name from the request. |
+| `result` | object | Tool execution result or error details. |
+| `is_error` | boolean | `true` if the tool returned an error. |
+
+#### Example
+
+```bash
+curl -X POST https://your-domain/v1/mcp/tool/execute \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool_name": "my_server_search",
+    "arguments": {"query": "hello world"},
+    "call_id": "call-001"
+  }'
+```
+
+### POST /mcp
+
+JSON-RPC 2.0 MCP server endpoint. Accepts standard MCP protocol methods.
+
+#### Supported Methods
+
+| Method | Description |
+|--------|-------------|
+| `initialize` | Initialize the MCP session. |
+| `tools/list` | List all available tools across connected MCP clients. |
+| `tools/call` | Execute a tool by name with arguments. |
+| `ping` | Keep-alive ping. |
+
+Tools returned by `tools/list` are namespaced as `{clientName}_{toolName}`.
+
+#### Example
+
+```bash
+curl -X POST https://your-domain/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/list",
+    "id": 1
+  }'
+```
+
+### GET /mcp
+
+SSE stream for MCP protocol keep-alive pings.
+
+### MCP Per-Request Filtering Headers
+
+When sending chat completion requests (`/v1/chat/completions` or `/v1/messages`), you can control which MCP tools are injected using these headers:
+
+| Header | Description | Example |
+|--------|-------------|---------|
+| `x-kgw-mcp-include-clients` | Comma-separated client names to include. Use `*` for all. | `client1,client2` |
+| `x-kgw-mcp-include-tools` | Comma-separated tools as `clientName-toolName` or `clientName-*` for all tools from a client. | `client1-search,client2-*` |
+
+Filtering is two-tiered: the client's configured tool whitelist (`tools_to_execute`) is applied first, then request-level headers filter further. Both must allow a tool for it to be included.
+
+---
+
 ## Infrastructure Endpoints
 
 ### GET /health
@@ -637,6 +730,8 @@ All web UI API endpoints are under `/_ui/api/`. See the [Web Dashboard](web-ui.h
 | `PUT` | `/_ui/api/config` | Update configuration |
 | `*` | `/_ui/api/domains/*` | Domain allowlist |
 | `*` | `/_ui/api/users/*` | User management |
+| `*` | `/_ui/api/admin/mcp/*` | MCP client management |
+| `*` | `/_ui/api/admin/guardrails/*` | Guardrails profile/rule management |
 
 ---
 
@@ -665,6 +760,10 @@ All errors follow a consistent JSON format:
 | `500` | `config_error` | Server configuration issue (e.g. missing database). |
 | `503` | `setup_required` | Initial setup has not been completed. Visit `/_ui/` to configure the gateway. |
 | Various | `kiro_api_error` | Upstream Kiro API returned an error. The HTTP status is forwarded from the upstream response. |
+| `403` | `guardrail_blocked` | Content blocked by guardrail policy. Response includes violation details. |
+| `200` | `guardrail_warning` | Content was redacted by guardrail (e.g. PII masking). Includes redacted content. |
+| `404` | `mcp_client_not_found` | Referenced MCP client does not exist. |
+| `502` | `mcp_protocol_error` | MCP tool server returned a protocol error. |
 
 ---
 

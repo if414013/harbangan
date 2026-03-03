@@ -69,6 +69,11 @@ These settings are managed through the Web UI at `/_ui/` and stored in PostgreSQ
 | `truncation_recovery` | `true` | Yes | Detect and retry truncated API responses. |
 | `tool_description_max_length` | `10000` | Yes | Max character length for tool descriptions. |
 | `first_token_timeout` | `15` (sec) | Yes | Cancel and retry if no token received within this time. |
+| `mcp_enabled` | `false` | Yes | Enable/disable MCP Gateway globally. |
+| `mcp_tool_execution_timeout` | `30` (sec) | Yes | Tool call timeout in seconds (1–86400). |
+| `mcp_health_check_interval` | `10` (sec) | Yes | Health monitor polling interval in seconds (1–86400). |
+| `mcp_max_consecutive_failures` | `5` | Yes | Failures before marking an MCP client as Error (1–100). |
+| `guardrails_enabled` | `false` | Yes | Enable/disable content guardrails globally. |
 
 **Hot-reload = Yes** means the change applies immediately without restarting. **Hot-reload = No** means the change is saved to the database but requires a restart to take effect.
 
@@ -138,6 +143,10 @@ On first launch (no admin user in the database), the gateway operates in **setup
 | `user_kiro_credentials` | Per-user Kiro refresh tokens |
 | `config` | Key-value runtime configuration |
 | `config_history` | Audit log of configuration changes |
+| `mcp_clients` | MCP server connections (config, state, encrypted headers) |
+| `guardrail_profiles` | AWS Bedrock guardrail profiles (credentials encrypted) |
+| `guardrail_rules` | Guardrail rules (CEL expressions, sampling, timeouts) |
+| `guardrail_rule_profiles` | Many-to-many mapping of rules to profiles |
 
 ### Backup and restore
 

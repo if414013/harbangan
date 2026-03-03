@@ -32,6 +32,8 @@ sequenceDiagram
     participant Auth as Auth Middleware
     participant Setup as Setup Guard
     participant Handler as Route Handler
+    participant GuardrailEngine as Guardrails Engine
+    participant McpMgr as MCP Manager
     participant Resolver as Model Resolver
     participant Converter as Converter
     participant TokenCount as Tokenizer
@@ -65,9 +67,28 @@ sequenceDiagram
     Setup->>Handler: Request passes all guards
 
     Handler->>Handler: Validate request (messages non-empty, etc.)
+
+    opt Guardrails enabled (input)
+        Handler->>GuardrailEngine: validate_input(last_user_message, RequestContext)
+        GuardrailEngine->>GuardrailEngine: Evaluate CEL rules, call Bedrock API per profile
+        alt Content blocked
+            GuardrailEngine-->>Client: 403 Guardrail Blocked
+        else Content redacted
+            GuardrailEngine-->>Handler: GuardrailWarning (redacted content)
+        else Content passed
+            GuardrailEngine-->>Handler: OK (no violations)
+        end
+    end
+
     Handler->>Resolver: Resolve model name
     Resolver->>Resolver: Normalize → check hidden models → check cache
     Resolver-->>Handler: ModelResolution {internal_id, source, is_verified}
+
+    opt MCP enabled
+        Handler->>McpMgr: get_available_tools(request_headers)
+        McpMgr-->>Handler: MCP tools (namespaced as clientName_toolName)
+        Handler->>Handler: Inject MCP tools into request tool list
+    end
 
     Handler->>Truncation: Inject recovery messages (if enabled)
     Handler->>Converter: Convert to Kiro format
@@ -111,6 +132,16 @@ sequenceDiagram
     else Non-streaming mode
         StreamParser->>StreamParser: Collect all events
         StreamParser->>OutConverter: Build complete response JSON
+        opt Guardrails enabled (output, non-streaming only)
+            OutConverter->>GuardrailEngine: validate_output(assistant_content, RequestContext)
+            alt Content blocked
+                GuardrailEngine-->>Client: 403 Guardrail Blocked
+            else Content redacted
+                GuardrailEngine-->>OutConverter: GuardrailWarning (redacted content)
+            else Content passed
+                GuardrailEngine-->>OutConverter: OK
+            end
+        end
         OutConverter-->>Client: Single JSON response
     end
 ```
@@ -163,6 +194,17 @@ Each handler validates the incoming request:
 - **OpenAI** (`chat_completions_handler`): Messages array must be non-empty.
 - **Anthropic** (`anthropic_messages_handler`): Messages array must be non-empty and `max_tokens` must be positive. The `anthropic-version` header is logged but not required.
 
+### Step 5.5: Input Guardrails
+
+If `guardrails_engine` is present and enabled, the handler extracts the last user message content and builds a `RequestContext` containing `model`, `api_format`, `message_count`, `has_tools`, `is_streaming`, and `content_length`. It then calls `engine.validate_input()`.
+
+The engine evaluates CEL expressions on each rule to determine which rules apply to this request. Matching rules are grouped by profile. For each matching profile, the engine calls the AWS Bedrock ApplyGuardrail API concurrently, with configurable sampling (0-100%). Results are aggregated:
+
+- **No violations** → request proceeds normally
+- **`Intervened`** → returns `403 Forbidden` with violation details (`GuardrailBlocked`)
+- **`Redacted`** → returns `200 OK` with redacted content and a warning (`GuardrailWarning`)
+- **Engine error** → fails open (request proceeds, error is logged)
+
 ### Step 6: Model Resolution
 
 The `ModelResolver` in `backend/src/resolver.rs` normalizes client-provided model names through a multi-stage pipeline:
@@ -182,6 +224,16 @@ The resolution result includes the `source` field (`"hidden"`, `"cache"`, or `"p
 ### Step 7: Truncation Recovery Injection
 
 When `truncation_recovery` is enabled (default: `true`), the handler calls `truncation::inject_openai_truncation_recovery()` or `truncation::inject_anthropic_truncation_recovery()` to modify the message array. If a previous response was detected as truncated, a recovery message is injected asking the model to re-emit the truncated content.
+
+### Step 7.5: MCP Tool Injection
+
+If `mcp_manager` is present and enabled, the handler calls `mcp_manager.get_available_tools(headers)` to retrieve tools from all connected MCP servers. Tools are namespaced as `{clientName}_{toolName}` to avoid collisions across servers.
+
+Two-tier filtering controls which tools are injected:
+1. **Client config whitelist** — the `tools_to_execute` field on each MCP client config limits which of its tools are exposed
+2. **Per-request headers** — clients can send `x-kgw-mcp-include-clients` and `x-kgw-mcp-include-tools` headers to filter tools for a specific request
+
+The filtered tools are merged into the request's existing tool list before format conversion.
 
 ### Step 8: Format Conversion (Inbound)
 
@@ -246,6 +298,14 @@ The streaming functions (`stream_kiro_to_openai()`, `stream_kiro_to_anthropic()`
 
 For non-streaming requests, `collect_openai_response()` or `collect_anthropic_response()` consumes the entire event stream and aggregates it into a single JSON response object. The Kiro API does not have a non-streaming mode — the gateway simulates it by collecting the stream.
 
+### Step 12.5: Output Guardrails (Non-Streaming Only)
+
+After collecting the complete response (non-streaming path only), the handler extracts the assistant content and calls `engine.validate_output()` with the same `RequestContext` used for input validation.
+
+The evaluation flow is identical to input guardrails: CEL expression matching → profile grouping → concurrent Bedrock API calls → result aggregation. The same action outcomes apply (`Intervened` → 403, `Redacted` → 200 with warning, engine error → fail open).
+
+**Important**: Output guardrails are NOT available for streaming responses. Since streaming responses are sent to the client incrementally, there is no opportunity to validate the complete output before delivery.
+
 ---
 
 ## OpenAI vs Anthropic Flow Differences
@@ -263,6 +323,8 @@ While the overall pipeline is identical, there are format-specific differences:
 | Thinking content | `reasoning_content` field in delta | `thinking` content block type |
 | Usage reporting | In final chunk (when `include_usage: true`) | In `message_delta` event |
 | Token counting | `count_message_tokens()` + `count_tools_tokens()` | `count_anthropic_message_tokens()` |
+| Guardrails input | `extract_last_user_message(&request.messages)` | `extract_last_user_message_anthropic(&request.messages)` |
+| Guardrails output | `extract_assistant_content(&response)` | `extract_assistant_content_anthropic(&response)` |
 
 ---
 
@@ -279,6 +341,13 @@ flowchart TD
         KIRO_ERR["KiroApiError<br/><i>Upstream status code</i>"]
         CONFIG_ERR["ConfigError<br/><i>500 Internal Server Error</i>"]
         INTERNAL["Internal<br/><i>500 Internal Server Error</i>"]
+        GUARD_BLOCK["GuardrailBlocked<br/><i>403 Forbidden</i>"]
+        GUARD_WARN["GuardrailWarning<br/><i>200 OK (redacted)</i>"]
+        MCP_CONN["McpConnectionError<br/><i>502 Bad Gateway</i>"]
+        MCP_TOOL["McpToolNotFound<br/><i>404 Not Found</i>"]
+        MCP_EXEC["McpToolExecutionError<br/><i>502 Bad Gateway</i>"]
+        MCP_CLIENT["McpClientNotFound<br/><i>404 Not Found</i>"]
+        MCP_PROTO["McpProtocolError<br/><i>502 Bad Gateway</i>"]
     end
 
     MW_STAGE["Middleware"] --> AUTH_ERR
@@ -287,6 +356,13 @@ flowchart TD
     API_STAGE["Kiro API Call"] --> KIRO_ERR
     CONFIG_STAGE["Config Loading"] --> CONFIG_ERR
     ANY_STAGE["Any Stage"] --> INTERNAL
+    GUARDRAIL_STAGE["Guardrails"] --> GUARD_BLOCK
+    GUARDRAIL_STAGE --> GUARD_WARN
+    MCP_STAGE["MCP Gateway"] --> MCP_CONN
+    MCP_STAGE --> MCP_TOOL
+    MCP_STAGE --> MCP_EXEC
+    MCP_STAGE --> MCP_CLIENT
+    MCP_STAGE --> MCP_PROTO
 ```
 
 All errors are returned as JSON in the OpenAI error format:

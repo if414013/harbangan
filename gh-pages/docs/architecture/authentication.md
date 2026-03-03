@@ -88,6 +88,7 @@ Each user can create multiple API keys through the web UI. Keys are:
 - `GET /` — Status JSON (for load balancers)
 - `GET /health` — Health check
 - `/_ui/api/*` — Web UI API routes (protected by session auth instead)
+- `POST /mcp` — MCP JSON-RPC server endpoint (no auth — intended for internal/trusted tool aggregation)
 
 ---
 
@@ -153,10 +154,17 @@ All mutation endpoints (POST, PUT, DELETE) under `/_ui/api/*` require a valid CS
 
 | Role | Capabilities |
 |------|-------------|
-| Admin | Full access: manage users, update config, manage domain allowlist, all user capabilities |
+| Admin | Full access: manage users, update config, manage domain allowlist, manage guardrail profiles/rules, manage MCP clients, all user capabilities |
 | User | View metrics, manage own API keys, manage own Kiro credentials |
 
 The first user to complete Google SSO setup is automatically assigned the Admin role.
+
+### Admin-Only Feature Routes
+
+The following feature admin routes follow the same session + CSRF pattern as other Web UI mutation endpoints:
+
+- **Guardrails** (`/_ui/api/guardrails/*`) — CRUD for guardrail profiles and rules, test endpoint, CEL validation. All admin-only with session + CSRF on mutations.
+- **MCP Gateway** (`/_ui/api/mcp/*`) — CRUD for MCP clients, reconnect, list tools. All admin-only with session + CSRF on mutations.
 
 ---
 

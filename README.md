@@ -48,6 +48,8 @@ This project is a Rust rewrite of the original [kiro-gateway](https://github.com
 | **Multi-user support**          | Per-user Kiro credentials and API keys                             |
 | **Google SSO**                  | Sign in with Google (PKCE + OpenID Connect) for web UI             |
 | **Role-based access control**   | Admin and User roles with granular permissions                     |
+| **MCP Gateway**                 | Connect external MCP tool servers (HTTP/SSE/STDIO) for tool injection into chat requests |
+| **Content Guardrails**          | AWS Bedrock-powered input/output content validation with CEL rule engine |
 | **Web UI Dashboard**            | Real-time metrics, logs, configuration, and user management        |
 | **Let's Encrypt TLS**           | Automated HTTPS via certbot with auto-renewal                      |
 
@@ -126,8 +128,8 @@ Four docker-compose services:
 
 | Service      | Image                       | Description                                        |
 | ------------ | --------------------------- | -------------------------------------------------- |
-| **db**       | `postgres:16-alpine`        | PostgreSQL database for config, users, and API keys |
-| **backend**  | `kiro-gateway-backend`      | Rust API server (Axum 0.7 + Tokio), plain HTTP     |
+| **db**       | `postgres:16-alpine`        | PostgreSQL database for config, users, API keys, guardrails rules, and MCP client state |
+| **backend**  | `kiro-gateway-backend`      | Rust API server (Axum 0.7 + Tokio) with MCP Gateway and content guardrails |
 | **frontend** | `kiro-gateway-frontend`     | nginx serving React SPA + reverse proxy to backend  |
 | **certbot**  | `certbot/certbot`           | Let's Encrypt certificate provisioning and renewal  |
 
@@ -173,6 +175,11 @@ All runtime settings — region, timeouts, debug mode, allowed domains, etc. —
 - `POST /v1/messages` — Anthropic-compatible
 - `GET /v1/models` — List available models
 
+**MCP (auth via API key):**
+- `POST /v1/mcp/tool/execute` — Execute an MCP tool
+- `POST /mcp` — JSON-RPC 2.0 MCP server protocol
+- `GET /mcp` — MCP SSE stream
+
 **Infrastructure:**
 - `GET /health` — Health check
 - `GET /` — Status JSON
@@ -182,6 +189,8 @@ All runtime settings — region, timeouts, debug mode, allowed domains, etc. —
 - User management and role-based access control
 - Per-user API key generation and Kiro token management
 - Gateway configuration (region, timeouts, allowed domains)
+- MCP server management — register, connect, and manage external tool servers (admin)
+- Guardrails management — configure content safety profiles and CEL-based rules (admin)
 
 ---
 
