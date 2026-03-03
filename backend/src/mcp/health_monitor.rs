@@ -21,7 +21,7 @@ use super::types::{JsonRpcRequest, McpClientState, McpConnectionState};
 pub fn start_health_monitor(
     client_id: Uuid,
     clients: Arc<RwLock<HashMap<Uuid, McpClientState>>>,
-    transports: Arc<RwLock<HashMap<Uuid, Box<dyn McpTransport>>>>,
+    transports: Arc<RwLock<HashMap<Uuid, Arc<dyn McpTransport>>>>,
     interval: Duration,
     max_consecutive_failures: u32,
 ) -> JoinHandle<()> {
@@ -129,7 +129,7 @@ pub fn start_health_monitor(
 ///
 /// Uses `ping` if available, falls back to `tools/list`.
 async fn perform_health_check(
-    transports: &RwLock<HashMap<Uuid, Box<dyn McpTransport>>>,
+    transports: &RwLock<HashMap<Uuid, Arc<dyn McpTransport>>>,
     client_id: Uuid,
     is_ping_available: bool,
 ) -> Result<(), String> {
@@ -151,10 +151,15 @@ async fn perform_health_check(
         }
     };
 
-    let transports_map = transports.read().await;
-    let transport = transports_map
-        .get(&client_id)
-        .ok_or_else(|| "No transport".to_string())?;
+    // Clone transport Arc and release lock before the potentially long await
+    let transport = {
+        let transports_map = transports.read().await;
+        Arc::clone(
+            transports_map
+                .get(&client_id)
+                .ok_or_else(|| "No transport".to_string())?,
+        )
+    };
 
     let result = tokio::time::timeout(check_timeout, transport.send_request(&request))
         .await

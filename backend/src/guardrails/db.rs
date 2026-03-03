@@ -7,12 +7,11 @@ use super::types::{ApplyTo, GuardrailProfile, GuardrailRule, GuardrailsConfig};
 /// Database access layer for guardrails tables.
 ///
 /// Wraps the same PgPool used by ConfigDb — no separate connection.
-#[allow(dead_code)]
 pub struct GuardrailsDb {
     pool: PgPool,
 }
 
-#[allow(dead_code, clippy::type_complexity, clippy::too_many_arguments)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 impl GuardrailsDb {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -130,6 +129,10 @@ impl GuardrailsDb {
     }
 
     /// Create a new guardrail profile.
+    ///
+    /// TODO: `access_key` and `secret_key` are stored as plaintext in the database.
+    /// In production, these should be encrypted at rest (e.g., using a KMS envelope
+    /// encryption scheme) and decrypted only when needed for API calls.
     pub async fn create_profile(
         &self,
         name: &str,

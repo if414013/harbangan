@@ -21,7 +21,7 @@ use super::types::{JsonRpcRequest, McpClientState, McpConnectionState, McpTool};
 pub fn start_tool_syncer(
     client_id: Uuid,
     clients: Arc<RwLock<HashMap<Uuid, McpClientState>>>,
-    transports: Arc<RwLock<HashMap<Uuid, Box<dyn McpTransport>>>>,
+    transports: Arc<RwLock<HashMap<Uuid, Arc<dyn McpTransport>>>>,
     interval: Duration,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -99,7 +99,7 @@ pub fn start_tool_syncer(
 
 /// Send `tools/list` JSON-RPC and parse the response into a tool map.
 async fn discover_tools(
-    transports: &RwLock<HashMap<Uuid, Box<dyn McpTransport>>>,
+    transports: &RwLock<HashMap<Uuid, Arc<dyn McpTransport>>>,
     client_id: Uuid,
 ) -> Result<HashMap<String, McpTool>, String> {
     let sync_timeout = Duration::from_secs(10);
@@ -111,10 +111,15 @@ async fn discover_tools(
         id: Some(serde_json::json!("sync")),
     };
 
-    let transports_map = transports.read().await;
-    let transport = transports_map
-        .get(&client_id)
-        .ok_or_else(|| "No transport".to_string())?;
+    // Clone transport Arc and release lock before the potentially long await
+    let transport = {
+        let transports_map = transports.read().await;
+        Arc::clone(
+            transports_map
+                .get(&client_id)
+                .ok_or_else(|| "No transport".to_string())?,
+        )
+    };
 
     let response = tokio::time::timeout(sync_timeout, transport.send_request(&request))
         .await

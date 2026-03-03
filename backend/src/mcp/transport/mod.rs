@@ -10,7 +10,6 @@ use super::types::{JsonRpcRequest, JsonRpcResponse};
 // ── Transport error ─────────────────────────────────────────────────
 
 #[derive(Error, Debug)]
-#[allow(dead_code)]
 pub enum McpTransportError {
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
@@ -37,7 +36,6 @@ pub enum McpTransportError {
 ///
 /// Each transport sends JSON-RPC 2.0 requests and receives responses.
 #[async_trait]
-#[allow(dead_code)]
 pub trait McpTransport: Send + Sync {
     /// Send a JSON-RPC 2.0 request and await the response.
     async fn send_request(

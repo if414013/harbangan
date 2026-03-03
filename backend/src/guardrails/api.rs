@@ -113,7 +113,7 @@ fn profile_to_json(p: &GuardrailProfile) -> Value {
         "guardrail_id": p.guardrail_id,
         "guardrail_version": p.guardrail_version,
         "region": p.region,
-        "access_key": p.access_key,
+        "access_key": mask_secret(&p.access_key),
         "secret_key": mask_secret(&p.secret_key),
         "created_at": p.created_at.to_rfc3339(),
         "updated_at": p.updated_at.to_rfc3339(),
@@ -227,7 +227,7 @@ async fn get_profile(
         .get_profile(id)
         .await
         .map_err(ApiError::Internal)?
-        .ok_or_else(|| ApiError::ValidationError(format!("Profile '{}' not found", id)))?;
+        .ok_or_else(|| ApiError::NotFound(format!("Profile '{}' not found", id)))?;
 
     Ok(Json(profile_to_json(&profile)))
 }
@@ -262,7 +262,7 @@ async fn update_profile(
         .map_err(ApiError::Internal)?;
 
     if !updated {
-        return Err(ApiError::ValidationError(format!(
+        return Err(ApiError::NotFound(format!(
             "Profile '{}' not found",
             id
         )));
@@ -277,7 +277,7 @@ async fn update_profile(
         .get_profile(id)
         .await
         .map_err(ApiError::Internal)?
-        .ok_or_else(|| ApiError::ValidationError(format!("Profile '{}' not found", id)))?;
+        .ok_or_else(|| ApiError::NotFound(format!("Profile '{}' not found", id)))?;
 
     Ok(Json(profile_to_json(&profile)))
 }
@@ -292,7 +292,7 @@ async fn delete_profile(
     let deleted = db.delete_profile(id).await.map_err(ApiError::Internal)?;
 
     if !deleted {
-        return Err(ApiError::ValidationError(format!(
+        return Err(ApiError::NotFound(format!(
             "Profile '{}' not found",
             id
         )));
@@ -363,7 +363,7 @@ async fn create_rule(
 
     tracing::info!(rule_id = %rule.id, name = %rule.name, "guardrail_rule_created");
 
-    // TODO(Task #4): reload engine config after mutation
+    reload_engine(&state).await;
     Ok(Json(rule_to_json(&rule)))
 }
 
@@ -378,7 +378,7 @@ async fn get_rule(
         .get_rule(id)
         .await
         .map_err(ApiError::Internal)?
-        .ok_or_else(|| ApiError::ValidationError(format!("Rule '{}' not found", id)))?;
+        .ok_or_else(|| ApiError::NotFound(format!("Rule '{}' not found", id)))?;
 
     Ok(Json(rule_to_json(&rule)))
 }
@@ -428,7 +428,7 @@ async fn update_rule(
         .map_err(ApiError::Internal)?;
 
     if !updated {
-        return Err(ApiError::ValidationError(format!(
+        return Err(ApiError::NotFound(format!(
             "Rule '{}' not found",
             id
         )));
@@ -436,13 +436,13 @@ async fn update_rule(
 
     tracing::info!(rule_id = %id, "guardrail_rule_updated");
 
-    // TODO(Task #4): reload engine config after mutation
+    reload_engine(&state).await;
 
     let rule = db
         .get_rule(id)
         .await
         .map_err(ApiError::Internal)?
-        .ok_or_else(|| ApiError::ValidationError(format!("Rule '{}' not found", id)))?;
+        .ok_or_else(|| ApiError::NotFound(format!("Rule '{}' not found", id)))?;
 
     Ok(Json(rule_to_json(&rule)))
 }
@@ -457,7 +457,7 @@ async fn delete_rule(
     let deleted = db.delete_rule(id).await.map_err(ApiError::Internal)?;
 
     if !deleted {
-        return Err(ApiError::ValidationError(format!(
+        return Err(ApiError::NotFound(format!(
             "Rule '{}' not found",
             id
         )));
@@ -489,10 +489,19 @@ async fn test_profile(
         .await
         .map_err(ApiError::Internal)?
         .ok_or_else(|| {
-            ApiError::ValidationError(format!("Profile '{}' not found", body.profile_id))
+            ApiError::NotFound(format!("Profile '{}' not found", body.profile_id))
         })?;
 
-    let client = super::bedrock::BedrockGuardrailClient::new(std::time::Duration::from_secs(10));
+    // Reuse the engine's Bedrock client if available, otherwise create a temporary one
+    let fallback_client;
+    let client: &super::bedrock::BedrockGuardrailClient =
+        if let Some(ref engine) = state.guardrails_engine {
+            engine.bedrock_client()
+        } else {
+            fallback_client =
+                super::bedrock::BedrockGuardrailClient::new(std::time::Duration::from_secs(10));
+            &fallback_client
+        };
 
     let start = std::time::Instant::now();
     match client

@@ -10,6 +10,32 @@ use serde_json::{json, Value};
 
 use super::types::{GuardrailAction, GuardrailProfile, GuardrailViolation};
 
+/// Validate that a region string matches expected AWS region format (e.g. "us-east-1").
+fn validate_region(region: &str) -> Result<()> {
+    // Match: us-east-1, eu-west-2, ap-southeast-1, etc.
+    let is_valid = region.len() <= 25
+        && region
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+
+    if !is_valid || region.is_empty() {
+        anyhow::bail!("Invalid AWS region format: '{}'", region);
+    }
+
+    // Must match pattern: xx-xxxx-N (e.g. us-east-1)
+    let parts: Vec<&str> = region.split('-').collect();
+    if parts.len() < 3 {
+        anyhow::bail!("Invalid AWS region format: '{}' (expected e.g. us-east-1)", region);
+    }
+
+    // Last part must end with a digit
+    if !parts.last().is_some_and(|p| p.chars().last().is_some_and(|c| c.is_ascii_digit())) {
+        anyhow::bail!("Invalid AWS region format: '{}' (expected trailing number)", region);
+    }
+
+    Ok(())
+}
+
 /// Response from the Bedrock ApplyGuardrail API.
 #[derive(Debug, Clone)]
 pub struct BedrockGuardrailResponse {
@@ -41,6 +67,9 @@ impl BedrockGuardrailClient {
         content: &str,
         source: &str,
     ) -> Result<BedrockGuardrailResponse> {
+        // Validate region to prevent SSRF via crafted region strings
+        validate_region(&profile.region)?;
+
         let qualifier = if source == "INPUT" {
             "query"
         } else {
@@ -252,6 +281,22 @@ impl BedrockGuardrailClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_validate_region_valid() {
+        assert!(validate_region("us-east-1").is_ok());
+        assert!(validate_region("eu-west-2").is_ok());
+        assert!(validate_region("ap-southeast-1").is_ok());
+    }
+
+    #[test]
+    fn test_validate_region_invalid() {
+        assert!(validate_region("").is_err());
+        assert!(validate_region("evil.example.com").is_err());
+        assert!(validate_region("us-east-1.evil.com/x").is_err());
+        assert!(validate_region("UPPERCASE").is_err());
+        assert!(validate_region("us").is_err());
+    }
 
     #[test]
     fn test_parse_response_none() {

@@ -22,13 +22,24 @@ fn require_mcp_manager(state: &AppState) -> Result<&std::sync::Arc<super::McpMan
 }
 
 /// Serialize a client response to JSON.
+/// STDIO environment variables are omitted from the response for security.
 fn client_to_json(c: &super::types::McpClientResponse) -> Value {
+    // For STDIO configs, redact environment variable values
+    let safe_stdio_config = c.config.stdio_config.as_ref().map(|cfg| {
+        json!({
+            "command": cfg.command,
+            "args": cfg.args,
+            "envs": cfg.envs.keys().map(|k| (k.clone(), "***".to_string()))
+                .collect::<std::collections::HashMap<String, String>>(),
+        })
+    });
+
     json!({
         "id": c.config.id,
         "name": c.config.name,
         "connection_type": c.config.connection_type,
         "connection_string": c.config.connection_string,
-        "stdio_config": c.config.stdio_config,
+        "stdio_config": safe_stdio_config,
         "auth_type": c.config.auth_type,
         "tools_to_execute": c.config.tools_to_execute,
         "is_ping_available": c.config.is_ping_available,
@@ -57,7 +68,7 @@ async fn list_clients(
     Ok(Json(json!({ "clients": items, "count": items.len() })))
 }
 
-/// POST /admin/mcp/client — Register a new MCP connection.
+/// POST /admin/mcp/clients — Register a new MCP connection.
 async fn create_client(
     State(state): State<AppState>,
     Extension(_session): Extension<SessionInfo>,
@@ -121,7 +132,7 @@ async fn create_client(
     Ok(Json(response))
 }
 
-/// PUT /admin/mcp/client/:id — Update an existing MCP client config.
+/// PUT /admin/mcp/clients/:id — Update an existing MCP client config.
 async fn update_client(
     State(state): State<AppState>,
     Extension(_session): Extension<SessionInfo>,
@@ -180,7 +191,7 @@ async fn update_client(
     Ok(Json(response))
 }
 
-/// DELETE /admin/mcp/client/:id — Remove a client and disconnect.
+/// DELETE /admin/mcp/clients/:id — Remove a client and disconnect.
 async fn delete_client(
     State(state): State<AppState>,
     Extension(_session): Extension<SessionInfo>,
@@ -201,7 +212,7 @@ async fn delete_client(
     Ok(Json(json!({ "ok": true })))
 }
 
-/// POST /admin/mcp/client/:id/reconnect — Force reconnect a client.
+/// POST /admin/mcp/clients/:id/reconnect — Force reconnect a client.
 async fn reconnect_client(
     State(state): State<AppState>,
     Extension(_session): Extension<SessionInfo>,
@@ -230,7 +241,7 @@ async fn reconnect_client(
     Ok(Json(response))
 }
 
-/// GET /admin/mcp/client/:id/tools — List a specific client's tools.
+/// GET /admin/mcp/clients/:id/tools — List a specific client's tools.
 async fn list_client_tools(
     State(state): State<AppState>,
     Extension(_session): Extension<SessionInfo>,
@@ -300,12 +311,11 @@ pub async fn execute_tool_handler(
 /// is applied by `web_ui_routes()` in `web_ui/mod.rs`.
 pub fn mcp_admin_routes() -> Router<AppState> {
     Router::new()
-        .route("/clients", get(list_clients))
-        .route("/client", post(create_client))
+        .route("/clients", get(list_clients).post(create_client))
         .route(
-            "/client/{id}",
+            "/clients/{id}",
             axum::routing::put(update_client).delete(delete_client),
         )
-        .route("/client/{id}/reconnect", post(reconnect_client))
-        .route("/client/{id}/tools", get(list_client_tools))
+        .route("/clients/{id}/reconnect", post(reconnect_client))
+        .route("/clients/{id}/tools", get(list_client_tools))
 }

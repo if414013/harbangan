@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use axum::http::HeaderMap;
 use serde_json::Value;
@@ -159,7 +160,7 @@ pub async fn get_tool_info_list(
 /// 5. Return result
 pub async fn execute_tool(
     clients: &RwLock<HashMap<Uuid, McpClientState>>,
-    transports: &RwLock<HashMap<Uuid, Box<dyn McpTransport>>>,
+    transports: &RwLock<HashMap<Uuid, Arc<dyn McpTransport>>>,
     prefixed_name: &str,
     arguments: Value,
     headers: &HeaderMap,
@@ -169,7 +170,7 @@ pub async fn execute_tool(
     let (client_name, tool_name) = split_prefixed_tool_name(prefixed_name)?;
 
     // Find the client
-    let (client_id, _state) = {
+    let client_id = {
         let clients_map = clients.read().await;
         let entry = clients_map
             .iter()
@@ -199,7 +200,7 @@ pub async fn execute_tool(
             ));
         }
 
-        (*entry.0, state.clone())
+        *entry.0
     };
 
     // Tier 2: Request-level filter
@@ -229,11 +230,15 @@ pub async fn execute_tool(
         id: Some(serde_json::json!(Uuid::new_v4().to_string())),
     };
 
-    // Send via transport with timeout
-    let transports_map = transports.read().await;
-    let transport = transports_map
-        .get(&client_id)
-        .ok_or_else(|| format!("No transport for client '{}'", client_name))?;
+    // Clone transport Arc and release lock before the potentially long await
+    let transport = {
+        let transports_map = transports.read().await;
+        Arc::clone(
+            transports_map
+                .get(&client_id)
+                .ok_or_else(|| format!("No transport for client '{}'", client_name))?,
+        )
+    };
 
     let response = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
@@ -286,7 +291,7 @@ pub async fn get_all_tools_jsonrpc(
 /// Route a `tools/call` JSON-RPC request to the appropriate client (for /mcp server).
 pub async fn call_tool_jsonrpc(
     clients: &RwLock<HashMap<Uuid, McpClientState>>,
-    transports: &RwLock<HashMap<Uuid, Box<dyn McpTransport>>>,
+    transports: &RwLock<HashMap<Uuid, Arc<dyn McpTransport>>>,
     name: &str,
     arguments: Value,
     timeout_secs: u64,
@@ -302,10 +307,7 @@ fn is_tool_allowed_by_config(tool_name: &str, tools_to_execute: &[String]) -> bo
     if tools_to_execute.is_empty() {
         return false;
     }
-    if tools_to_execute.contains(&"*".to_string()) {
-        return true;
-    }
-    tools_to_execute.contains(&tool_name.to_string())
+    tools_to_execute.iter().any(|t| t == "*" || t == tool_name)
 }
 
 /// Parse a comma-separated header value into a list of trimmed strings.
@@ -316,6 +318,22 @@ fn parse_header_list(headers: &HeaderMap, key: &str) -> Option<Vec<String>> {
             .filter(|item| !item.is_empty())
             .collect()
     })
+}
+
+/// Validate that a client name does not contain underscores.
+///
+/// Client names are used as prefixes in namespaced tool names (`clientName_toolName`),
+/// so underscores in client names would make the split ambiguous.
+pub fn validate_client_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("Client name cannot be empty".to_string());
+    }
+    if name.contains('_') {
+        return Err(
+            "Client name cannot contain underscores (used as tool name separator)".to_string(),
+        );
+    }
+    Ok(())
 }
 
 /// Split a prefixed tool name `clientName_toolName` on the first underscore.
@@ -379,5 +397,21 @@ mod tests {
     fn test_parse_header_list_missing() {
         let headers = HeaderMap::new();
         assert!(parse_header_list(&headers, "x-kgw-mcp-include-clients").is_none());
+    }
+
+    #[test]
+    fn test_validate_client_name_valid() {
+        assert!(validate_client_name("myClient").is_ok());
+        assert!(validate_client_name("client-with-dashes").is_ok());
+    }
+
+    #[test]
+    fn test_validate_client_name_underscore() {
+        assert!(validate_client_name("my_client").is_err());
+    }
+
+    #[test]
+    fn test_validate_client_name_empty() {
+        assert!(validate_client_name("").is_err());
     }
 }

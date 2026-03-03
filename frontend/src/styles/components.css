@@ -1,3 +1,24 @@
+/* ---- Skip to Content ---- */
+
+.skip-to-content {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 1000;
+  padding: 8px 16px;
+  background: var(--green);
+  color: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 0 0 var(--radius-sm) 0;
+}
+
+.skip-to-content:focus {
+  left: 0;
+}
+
 /* ---- Layout Shell ---- */
 
 .shell {
@@ -714,7 +735,7 @@
 }
 
 .badge-restart {
-  font-size: 0.55rem;
+  font-size: 0.7rem;
   font-family: var(--font-mono);
   padding: 1px 5px;
   border-radius: var(--radius-sm);
@@ -724,7 +745,7 @@
 }
 
 .badge-live {
-  font-size: 0.55rem;
+  font-size: 0.7rem;
   font-family: var(--font-mono);
   padding: 1px 5px;
   border-radius: var(--radius-sm);
@@ -1464,7 +1485,7 @@ select.config-input {
 /* ---- Role Badge ---- */
 
 .role-badge {
-  font-size: 0.55rem;
+  font-size: 0.7rem;
   font-family: var(--font-mono);
   font-weight: 600;
   padding: 1px 5px;

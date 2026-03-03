@@ -42,7 +42,6 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Per-user Kiro credentials, injected into request extensions by auth middleware.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct UserKiroCreds {
     pub user_id: Uuid,
     pub access_token: String,
@@ -53,7 +52,6 @@ pub struct UserKiroCreds {
 /// Cached session information (in-memory, backed by DB).
 // TODO: Replace `role: String` with a `Role` enum (Admin, User) with serde support.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct SessionInfo {
     pub user_id: Uuid,
     pub email: String,
@@ -63,42 +61,41 @@ pub struct SessionInfo {
 
 /// Pending OAuth state for PKCE validation.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct OAuthPendingState {
     pub nonce: String,
     pub pkce_verifier: String,
     pub created_at: chrono::DateTime<Utc>,
 }
 
-/// Application state shared across handlers
+/// Application state shared across handlers.
+///
+/// Future refactoring: consider grouping related fields into sub-structs
+/// (e.g., AuthState, CacheState, FeatureState) to keep AppState focused.
 #[derive(Clone)]
 pub struct AppState {
+    // Core services
     pub model_cache: ModelCache,
     pub auth_manager: Arc<tokio::sync::RwLock<AuthManager>>,
     pub http_client: Arc<KiroHttpClient>,
     pub resolver: ModelResolver,
     pub config: Arc<RwLock<Config>>,
-    #[allow(dead_code)]
     pub setup_complete: Arc<AtomicBool>,
     pub metrics: Arc<MetricsCollector>,
     pub log_buffer: Arc<Mutex<VecDeque<LogEntry>>>,
     pub config_db: Option<Arc<ConfigDb>>,
-    /// In-memory session cache: session_id → SessionInfo
-    #[allow(dead_code)]
+    // In-memory caches
+    /// session_id → SessionInfo
     pub session_cache: Arc<DashMap<Uuid, SessionInfo>>,
-    /// In-memory API key cache: key_hash → (user_id, key_id)
-    #[allow(dead_code)]
+    /// key_hash → (user_id, key_id)
     pub api_key_cache: Arc<DashMap<String, (Uuid, Uuid)>>,
-    /// In-memory Kiro token cache: user_id → (access_token, region, cached_at)
+    /// user_id → (access_token, region, cached_at)
     pub kiro_token_cache: Arc<DashMap<Uuid, (String, String, std::time::Instant)>>,
-    /// Pending OAuth states: state_param → OAuthPendingState (10-min TTL)
-    #[allow(dead_code)]
+    /// state_param → OAuthPendingState (10-min TTL)
     pub oauth_pending: Arc<DashMap<String, OAuthPendingState>>,
+    // Feature subsystems
     /// Guardrails engine for input/output validation (None when guardrails disabled or no DB)
-    #[allow(dead_code)]
     pub guardrails_engine: Option<Arc<crate::guardrails::engine::GuardrailsEngine>>,
     /// MCP Gateway manager (None when mcp_enabled=false or feature not yet initialized)
-    #[allow(dead_code)]
     pub mcp_manager: Option<Arc<crate::mcp::McpManager>>,
 }
 
@@ -280,6 +277,101 @@ fn build_request_context_anthropic(
     }
 }
 
+// ── Shared pipeline helpers ─────────────────────────────────────────
+// Used by both OpenAI and Anthropic handlers to avoid code duplication.
+
+/// Run input guardrails validation. Returns Err(GuardrailBlocked) if the content is blocked.
+/// On engine errors, logs a warning and allows the request through (fail-open).
+async fn run_input_guardrail_check(
+    engine: &crate::guardrails::engine::GuardrailsEngine,
+    content: &str,
+    ctx: &crate::guardrails::RequestContext,
+) -> Result<(), ApiError> {
+    if content.is_empty() {
+        return Ok(());
+    }
+    match engine.validate_input(content, ctx).await {
+        Ok(Some(result))
+            if result.action == crate::guardrails::GuardrailAction::Intervened =>
+        {
+            Err(ApiError::GuardrailBlocked {
+                violations: result.results,
+                processing_time_ms: result.total_processing_time_ms,
+            })
+        }
+        Ok(_) => Ok(()),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                api_format = %ctx.api_format,
+                model = %ctx.model,
+                "Input guardrail check failed — failing open, request allowed through"
+            );
+            Ok(())
+        }
+    }
+}
+
+/// Run output guardrails validation. Returns Err if content is blocked or redacted.
+/// On engine errors, logs a warning and allows the response through (fail-open).
+async fn run_output_guardrail_check(
+    engine: &crate::guardrails::engine::GuardrailsEngine,
+    content: &str,
+    ctx: &crate::guardrails::RequestContext,
+) -> Result<(), ApiError> {
+    if content.is_empty() {
+        return Ok(());
+    }
+    match engine.validate_output(content, ctx).await {
+        Ok(Some(result))
+            if result.action == crate::guardrails::GuardrailAction::Intervened =>
+        {
+            Err(ApiError::GuardrailBlocked {
+                violations: result.results,
+                processing_time_ms: result.total_processing_time_ms,
+            })
+        }
+        Ok(Some(result))
+            if result.action == crate::guardrails::GuardrailAction::Redacted =>
+        {
+            Err(ApiError::GuardrailWarning {
+                violations: result.results,
+                processing_time_ms: result.total_processing_time_ms,
+                redacted_content: content.to_string(),
+            })
+        }
+        Ok(_) => Ok(()),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                api_format = %ctx.api_format,
+                model = %ctx.model,
+                "Output guardrail check failed — failing open, response allowed through"
+            );
+            Ok(())
+        }
+    }
+}
+
+/// Fetch MCP tools from the gateway and merge them into the existing tool list.
+async fn inject_mcp_tools<T: serde::de::DeserializeOwned>(
+    mcp: &crate::mcp::McpManager,
+    headers: &axum::http::HeaderMap,
+    existing_tools: Option<Vec<T>>,
+) -> Option<Vec<T>> {
+    let mcp_tools = mcp.get_available_tools(headers).await;
+    if mcp_tools.is_empty() {
+        return existing_tools;
+    }
+    let mut tools = existing_tools.unwrap_or_default();
+    for tool_val in mcp_tools {
+        if let Ok(tool) = serde_json::from_value(tool_val) {
+            tools.push(tool);
+        }
+    }
+    Some(tools)
+}
+
 /// Health check routes (no authentication required)
 pub fn health_routes() -> Router {
     Router::new()
@@ -441,17 +533,7 @@ async fn chat_completions_handler(
     // Inject MCP tools into request
     if config.mcp_enabled {
         if let Some(ref mcp) = state.mcp_manager {
-            let mcp_tools = mcp.get_available_tools(&headers).await;
-            if !mcp_tools.is_empty() {
-                let mut tools = request.tools.unwrap_or_default();
-                // Convert MCP tool values into the OpenAI tool format
-                for tool_val in mcp_tools {
-                    if let Ok(tool) = serde_json::from_value(tool_val) {
-                        tools.push(tool);
-                    }
-                }
-                request.tools = Some(tools);
-            }
+            request.tools = inject_mcp_tools(mcp, &headers, request.tools).await;
         }
     }
 
@@ -459,23 +541,8 @@ async fn chat_completions_handler(
     if config.guardrails_enabled {
         if let Some(ref engine) = state.guardrails_engine {
             let user_content = extract_last_user_message(&request.messages);
-            if !user_content.is_empty() {
-                let ctx = build_request_context_openai(&request);
-                match engine.validate_input(&user_content, &ctx).await {
-                    Ok(Some(result))
-                        if result.action == crate::guardrails::GuardrailAction::Intervened =>
-                    {
-                        return Err(ApiError::GuardrailBlocked {
-                            violations: result.results,
-                            processing_time_ms: result.total_processing_time_ms,
-                        });
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        tracing::error!(error = %e, "Input guardrail check failed");
-                    }
-                }
-            }
+            let ctx = build_request_context_openai(&request);
+            run_input_guardrail_check(engine, &user_content, &ctx).await?;
         }
     }
 
@@ -651,33 +718,8 @@ async fn chat_completions_handler(
         if config.guardrails_enabled {
             if let Some(ref engine) = state.guardrails_engine {
                 let output_text = extract_assistant_content(&openai_response);
-                if !output_text.is_empty() {
-                    let ctx = build_request_context_openai(&request);
-                    match engine.validate_output(&output_text, &ctx).await {
-                        Ok(Some(result))
-                            if result.action
-                                == crate::guardrails::GuardrailAction::Intervened =>
-                        {
-                            return Err(ApiError::GuardrailBlocked {
-                                violations: result.results,
-                                processing_time_ms: result.total_processing_time_ms,
-                            });
-                        }
-                        Ok(Some(result))
-                            if result.action == crate::guardrails::GuardrailAction::Redacted =>
-                        {
-                            return Err(ApiError::GuardrailWarning {
-                                violations: result.results,
-                                processing_time_ms: result.total_processing_time_ms,
-                                redacted_content: output_text,
-                            });
-                        }
-                        Ok(_) => {}
-                        Err(e) => {
-                            tracing::error!(error = %e, "Output guardrail check failed");
-                        }
-                    }
-                }
+                let ctx = build_request_context_openai(&request);
+                run_output_guardrail_check(engine, &output_text, &ctx).await?;
             }
         }
 
@@ -794,16 +836,7 @@ async fn anthropic_messages_handler(
     // Inject MCP tools into request
     if config.mcp_enabled {
         if let Some(ref mcp) = state.mcp_manager {
-            let mcp_tools = mcp.get_available_tools(&headers).await;
-            if !mcp_tools.is_empty() {
-                let mut tools = request.tools.unwrap_or_default();
-                for tool_val in mcp_tools {
-                    if let Ok(tool) = serde_json::from_value(tool_val) {
-                        tools.push(tool);
-                    }
-                }
-                request.tools = Some(tools);
-            }
+            request.tools = inject_mcp_tools(mcp, &headers, request.tools).await;
         }
     }
 
@@ -811,23 +844,8 @@ async fn anthropic_messages_handler(
     if config.guardrails_enabled {
         if let Some(ref engine) = state.guardrails_engine {
             let user_content = extract_last_user_message_anthropic(&request.messages);
-            if !user_content.is_empty() {
-                let ctx = build_request_context_anthropic(&request);
-                match engine.validate_input(&user_content, &ctx).await {
-                    Ok(Some(result))
-                        if result.action == crate::guardrails::GuardrailAction::Intervened =>
-                    {
-                        return Err(ApiError::GuardrailBlocked {
-                            violations: result.results,
-                            processing_time_ms: result.total_processing_time_ms,
-                        });
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        tracing::error!(error = %e, "Input guardrail check failed");
-                    }
-                }
-            }
+            let ctx = build_request_context_anthropic(&request);
+            run_input_guardrail_check(engine, &user_content, &ctx).await?;
         }
     }
 
@@ -990,33 +1008,8 @@ async fn anthropic_messages_handler(
         if config.guardrails_enabled {
             if let Some(ref engine) = state.guardrails_engine {
                 let output_text = extract_assistant_content_anthropic(&anthropic_response);
-                if !output_text.is_empty() {
-                    let ctx = build_request_context_anthropic(&request);
-                    match engine.validate_output(&output_text, &ctx).await {
-                        Ok(Some(result))
-                            if result.action
-                                == crate::guardrails::GuardrailAction::Intervened =>
-                        {
-                            return Err(ApiError::GuardrailBlocked {
-                                violations: result.results,
-                                processing_time_ms: result.total_processing_time_ms,
-                            });
-                        }
-                        Ok(Some(result))
-                            if result.action == crate::guardrails::GuardrailAction::Redacted =>
-                        {
-                            return Err(ApiError::GuardrailWarning {
-                                violations: result.results,
-                                processing_time_ms: result.total_processing_time_ms,
-                                redacted_content: output_text,
-                            });
-                        }
-                        Ok(_) => {}
-                        Err(e) => {
-                            tracing::error!(error = %e, "Output guardrail check failed");
-                        }
-                    }
-                }
+                let ctx = build_request_context_anthropic(&request);
+                run_output_guardrail_check(engine, &output_text, &ctx).await?;
             }
         }
 

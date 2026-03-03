@@ -40,7 +40,6 @@ pub enum GuardrailAction {
 
 /// A single violation detected by a guardrail profile.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct GuardrailViolation {
     pub violation_type: String,
     pub category: String,
@@ -51,7 +50,6 @@ pub struct GuardrailViolation {
 
 /// Per-rule, per-profile validation result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct GuardrailValidationResult {
     pub rule_id: Uuid,
     pub profile_id: Uuid,
@@ -62,7 +60,6 @@ pub struct GuardrailValidationResult {
 
 /// Aggregate result across all rules/profiles for a single check.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct GuardrailCheckResult {
     pub passed: bool,
     pub action: GuardrailAction,
@@ -72,7 +69,6 @@ pub struct GuardrailCheckResult {
 
 /// Context about the current request, exposed to CEL expressions.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct RequestContext {
     pub model: String,
     pub api_format: String,
@@ -84,7 +80,6 @@ pub struct RequestContext {
 
 /// A guardrail rule: WHEN to validate.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct GuardrailRule {
     pub id: Uuid,
     pub name: String,
@@ -101,7 +96,6 @@ pub struct GuardrailRule {
 
 /// A guardrail profile: HOW to validate (Bedrock config).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct GuardrailProfile {
     pub id: Uuid,
     pub name: String,
@@ -118,7 +112,6 @@ pub struct GuardrailProfile {
 
 /// In-memory snapshot of guardrails configuration.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct GuardrailsConfig {
     pub enabled: bool,
     pub rules: Vec<GuardrailRule>,

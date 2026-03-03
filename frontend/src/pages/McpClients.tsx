@@ -198,7 +198,15 @@ function McpClientList() {
           </thead>
           <tbody>
             {clients.map(c => (
-              <tr key={c.config.id} onClick={() => setSelectedClient(c)} style={{ cursor: 'pointer' }}>
+              <tr
+                key={c.config.id}
+                onClick={() => setSelectedClient(c)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedClient(c) } }}
+                tabIndex={0}
+                role="button"
+                aria-label={`View details for ${c.config.name}`}
+                style={{ cursor: 'pointer' }}
+              >
                 <td>{c.config.name}</td>
                 <td>
                   <span className="mcp-type-badge">{c.config.connection_type}</span>
@@ -214,6 +222,7 @@ function McpClientList() {
                     type="button"
                     className="role-badge"
                     onClick={e => { e.stopPropagation(); handleToggle(c) }}
+                    aria-label={`Toggle client ${c.config.name} ${c.config.enabled ? 'off' : 'on'}`}
                     style={{
                       background: c.config.enabled ? 'var(--green-dim)' : 'var(--red-dim)',
                       color: c.config.enabled ? 'var(--green)' : 'var(--red)',
@@ -223,13 +232,13 @@ function McpClientList() {
                   </button>
                 </td>
                 <td style={{ display: 'flex', gap: 8 }}>
-                  <button className="device-code-cancel" type="button" onClick={e => { e.stopPropagation(); startEdit(c) }}>
+                  <button className="device-code-cancel" type="button" onClick={e => { e.stopPropagation(); startEdit(c) }} aria-label={`Edit client ${c.config.name}`}>
                     edit
                   </button>
-                  <button className="device-code-cancel" type="button" onClick={e => { e.stopPropagation(); handleReconnect(c.config.id) }}>
+                  <button className="device-code-cancel" type="button" onClick={e => { e.stopPropagation(); handleReconnect(c.config.id) }} aria-label={`Reconnect client ${c.config.name}`}>
                     reconnect
                   </button>
-                  <button className="device-code-cancel" type="button" onClick={e => { e.stopPropagation(); handleDelete(c.config.id) }} style={{ color: 'var(--red)' }}>
+                  <button className="device-code-cancel" type="button" onClick={e => { e.stopPropagation(); handleDelete(c.config.id) }} aria-label={`Delete client ${c.config.name}`} style={{ color: 'var(--red)' }}>
                     delete
                   </button>
                 </td>
@@ -244,7 +253,7 @@ function McpClientList() {
           <div className="guardrails-form-grid">
             <div className="guardrails-form-field">
               <label className="config-label" htmlFor="mcp-name">Name</label>
-              <input id="mcp-name" className="config-input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+              <input id="mcp-name" className="config-input" autoFocus value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div className="guardrails-form-field">
               <label className="config-label" htmlFor="mcp-type">Connection Type</label>

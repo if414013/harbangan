@@ -214,6 +214,8 @@ async fn main() -> Result<()> {
             let mgr = mcp::McpManager::new(
                 Arc::new(mcp_db),
                 config.mcp_tool_execution_timeout,
+                config.mcp_health_check_interval,
+                config.mcp_max_consecutive_failures,
             );
             mgr.initialize().await;
             app_state.mcp_manager = Some(Arc::new(mgr));
@@ -230,6 +232,9 @@ async fn main() -> Result<()> {
         );
         tracing::info!("Background tasks started (token refresh, session cleanup)");
     }
+
+    // Clone mcp_manager reference before moving app_state into the router
+    let mcp_manager_ref = app_state.mcp_manager.clone();
 
     let app = build_app(app_state);
 
@@ -257,6 +262,11 @@ async fn main() -> Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("Server error")?;
+
+    // Gracefully shutdown MCP Gateway (abort background tasks, close transports)
+    if let Some(ref mcp) = mcp_manager_ref {
+        mcp.shutdown().await;
+    }
 
     tracing::info!("Server shutdown complete");
 

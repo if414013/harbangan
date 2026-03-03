@@ -7,7 +7,6 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[allow(dead_code)]
 pub enum McpConnectionType {
     Http,
     Sse,
@@ -15,7 +14,6 @@ pub enum McpConnectionType {
 }
 
 impl McpConnectionType {
-    #[allow(dead_code)]
     pub fn as_str(&self) -> &'static str {
         match self {
             McpConnectionType::Http => "http",
@@ -24,7 +22,6 @@ impl McpConnectionType {
         }
     }
 
-    #[allow(dead_code)]
     pub fn parse_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "http" => Some(McpConnectionType::Http),
@@ -37,14 +34,12 @@ impl McpConnectionType {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[allow(dead_code)]
 pub enum McpAuthType {
     None,
     Headers,
 }
 
 impl McpAuthType {
-    #[allow(dead_code)]
     pub fn as_str(&self) -> &'static str {
         match self {
             McpAuthType::None => "none",
@@ -52,7 +47,6 @@ impl McpAuthType {
         }
     }
 
-    #[allow(dead_code)]
     pub fn parse_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "none" => Some(McpAuthType::None),
@@ -64,7 +58,6 @@ impl McpAuthType {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[allow(dead_code)]
 pub enum McpConnectionState {
     Connected,
     Connecting,
@@ -75,7 +68,6 @@ pub enum McpConnectionState {
 // ── STDIO config ─────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct McpStdioConfig {
     pub command: String,
     pub args: Vec<String>,
@@ -86,7 +78,6 @@ pub struct McpStdioConfig {
 // ── Client config (DB-persisted) ─────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct McpClientConfig {
     pub id: Uuid,
     pub name: String,
@@ -107,7 +98,6 @@ pub struct McpClientConfig {
 // ── Client runtime state ─────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct McpClientState {
     pub config: McpClientConfig,
     pub connection_state: McpConnectionState,
@@ -119,7 +109,6 @@ pub struct McpClientState {
 // ── Tool definition ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct McpTool {
     pub name: String,
     pub description: Option<String>,
@@ -130,7 +119,6 @@ pub struct McpTool {
 // ── JSON-RPC 2.0 types ──────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct JsonRpcRequest {
     pub jsonrpc: String,
     pub method: String,
@@ -141,7 +129,6 @@ pub struct JsonRpcRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct JsonRpcResponse {
     pub jsonrpc: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -153,7 +140,6 @@ pub struct JsonRpcResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct JsonRpcError {
     pub code: i64,
     pub message: String,
@@ -164,7 +150,6 @@ pub struct JsonRpcError {
 // ── Tool execution request/response ──────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct ToolExecuteRequest {
     pub tool_name: String,
     pub arguments: Value,
@@ -173,7 +158,6 @@ pub struct ToolExecuteRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct ToolExecuteResponse {
     pub call_id: Option<String>,
     pub tool_name: String,
@@ -184,7 +168,6 @@ pub struct ToolExecuteResponse {
 // ── Web UI API request/response types ────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 pub struct CreateMcpClientRequest {
     pub name: String,
     pub connection_type: McpConnectionType,
@@ -205,7 +188,6 @@ pub struct CreateMcpClientRequest {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 pub struct UpdateMcpClientRequest {
     pub name: Option<String>,
     pub connection_type: Option<McpConnectionType>,
@@ -220,7 +202,6 @@ pub struct UpdateMcpClientRequest {
 }
 
 #[derive(Debug, Clone, Serialize)]
-#[allow(dead_code)]
 pub struct McpClientResponse {
     pub config: McpClientConfig,
     pub connection_state: McpConnectionState,
@@ -230,7 +211,6 @@ pub struct McpClientResponse {
 
 /// Tool info for injecting into chat request tool lists.
 #[derive(Debug, Clone, Serialize)]
-#[allow(dead_code)]
 pub struct McpToolInfo {
     pub name: String,
     pub description: Option<String>,

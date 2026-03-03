@@ -22,7 +22,7 @@ use super::types::{
 /// a runtime state tracking connection status and discovered tools.
 pub struct ClientManager {
     clients: Arc<RwLock<HashMap<Uuid, McpClientState>>>,
-    transports: Arc<RwLock<HashMap<Uuid, Box<dyn McpTransport>>>>,
+    transports: Arc<RwLock<HashMap<Uuid, Arc<dyn McpTransport>>>>,
     default_timeout_secs: u64,
 }
 
@@ -39,7 +39,7 @@ impl ClientManager {
     }
 
     /// Get a reference to the transports map (for sending requests externally).
-    pub fn transports(&self) -> &Arc<RwLock<HashMap<Uuid, Box<dyn McpTransport>>>> {
+    pub fn transports(&self) -> &Arc<RwLock<HashMap<Uuid, Arc<dyn McpTransport>>>> {
         &self.transports
     }
 
@@ -126,10 +126,12 @@ impl ClientManager {
 
     /// Remove a client: close transport, remove state.
     pub async fn remove_client(&self, id: Uuid) -> Result<()> {
-        // Close transport
+        // Close transport (Arc::get_mut succeeds since we just removed the only reference)
         if let Some(mut transport) = self.transports.write().await.remove(&id) {
-            if let Err(e) = transport.close().await {
-                tracing::warn!(id = %id, error = %e, "Error closing transport during removal");
+            if let Some(t) = Arc::get_mut(&mut transport) {
+                if let Err(e) = t.close().await {
+                    tracing::warn!(id = %id, error = %e, "Error closing transport during removal");
+                }
             }
         }
 
@@ -154,7 +156,9 @@ impl ClientManager {
 
         // Close existing transport
         if let Some(mut transport) = self.transports.write().await.remove(&id) {
-            let _ = transport.close().await;
+            if let Some(t) = Arc::get_mut(&mut transport) {
+                let _ = t.close().await;
+            }
         }
 
         // Set connecting state
@@ -219,7 +223,9 @@ impl ClientManager {
             } else {
                 // Disable: close transport, set disconnected
                 if let Some(mut transport) = self.transports.write().await.remove(&config.id) {
-                    let _ = transport.close().await;
+                    if let Some(t) = Arc::get_mut(&mut transport) {
+                        let _ = t.close().await;
+                    }
                 }
                 if let Some(client) = self.clients.write().await.get_mut(&config.id) {
                     client.connection_state = McpConnectionState::Disconnected;
@@ -236,7 +242,9 @@ impl ClientManager {
         let ids: Vec<Uuid> = self.transports.read().await.keys().copied().collect();
         for id in ids {
             if let Some(mut transport) = self.transports.write().await.remove(&id) {
-                let _ = transport.close().await;
+                if let Some(t) = Arc::get_mut(&mut transport) {
+                    let _ = t.close().await;
+                }
             }
         }
         self.clients.write().await.clear();
@@ -249,7 +257,7 @@ impl ClientManager {
     async fn connect_client(
         &self,
         config: &McpClientConfig,
-    ) -> Result<Box<dyn McpTransport>, McpTransportError> {
+    ) -> Result<Arc<dyn McpTransport>, McpTransportError> {
         match config.connection_type {
             McpConnectionType::Http => {
                 let url = config
@@ -259,7 +267,7 @@ impl ClientManager {
                 let mut transport =
                     HttpTransport::new(url, config.headers.clone(), self.default_timeout_secs);
                 transport.connect().await?;
-                Ok(Box::new(transport))
+                Ok(Arc::new(transport))
             }
             McpConnectionType::Sse => {
                 let url = config
@@ -269,7 +277,7 @@ impl ClientManager {
                 let mut transport =
                     SseTransport::new(url, config.headers.clone(), self.default_timeout_secs);
                 transport.connect().await?;
-                Ok(Box::new(transport))
+                Ok(Arc::new(transport))
             }
             McpConnectionType::Stdio => {
                 let stdio_config = config
@@ -283,7 +291,7 @@ impl ClientManager {
                 let mut transport =
                     StdioTransport::new(stdio_config, self.default_timeout_secs);
                 transport.connect().await?;
-                Ok(Box::new(transport))
+                Ok(Arc::new(transport))
             }
         }
     }

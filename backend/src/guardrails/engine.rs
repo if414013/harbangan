@@ -103,6 +103,11 @@ impl GuardrailsEngine {
         Ok(())
     }
 
+    /// Access the shared Bedrock client (e.g. for the test endpoint).
+    pub fn bedrock_client(&self) -> &BedrockGuardrailClient {
+        &self.bedrock
+    }
+
     /// Core validation logic shared by validate_input and validate_output.
     async fn validate(
         &self,
@@ -110,7 +115,8 @@ impl GuardrailsEngine {
         ctx: &RequestContext,
         source: &str,
     ) -> Result<Option<GuardrailCheckResult>> {
-        let config = self.config.read().await;
+        let config = self.config.read().await.clone();
+        // Lock released — config is an owned snapshot
 
         // Short-circuit if disabled
         if !config.enabled {

@@ -23,7 +23,7 @@ export function Sidebar({ connected, open, onClose }: SidebarProps) {
   }
 
   return (
-    <nav className={`sidebar${open ? ' open' : ''}`} onClick={e => e.stopPropagation()}>
+    <nav className={`sidebar${open ? ' open' : ''}`} aria-label="Main navigation" onClick={e => e.stopPropagation()}>
       <div className="sidebar-brand">
         <h1 aria-label="Kiro"><span aria-hidden="true">{'  _  ___\n | |/ (_)_ _ ___\n | \' <| | \'_/ _ \\\n |_|\\_\\_|_| \\___/'}</span></h1>
         <div className="version">gateway v1.0.8</div>

@@ -39,6 +39,7 @@ export function Layout() {
 
   return (
     <div className="shell">
+      <a href="#main-content" className="skip-to-content">Skip to content</a>
       {sidebarOpen && (
         <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />
       )}
@@ -62,7 +63,7 @@ export function Layout() {
           <span className={connected ? 'tag-ok' : 'tag-err'}>{connected ? 'STREAM' : 'STREAM'}</span>
         </div>
       </header>
-      <main className="main">
+      <main className="main" id="main-content">
         <Outlet context={{ connected, setConnected }} />
       </main>
     </div>

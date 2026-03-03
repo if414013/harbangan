@@ -136,6 +136,7 @@ function GuardrailProfiles() {
                     type="button"
                     className="role-badge"
                     onClick={() => handleToggle(p)}
+                    aria-label={`Toggle profile ${p.name} ${p.enabled ? 'off' : 'on'}`}
                     style={{
                       background: p.enabled ? 'var(--green-dim)' : 'var(--red-dim)',
                       color: p.enabled ? 'var(--green)' : 'var(--red)',
@@ -145,10 +146,10 @@ function GuardrailProfiles() {
                   </button>
                 </td>
                 <td style={{ display: 'flex', gap: 8 }}>
-                  <button className="device-code-cancel" type="button" onClick={() => startEdit(p)}>
+                  <button className="device-code-cancel" type="button" onClick={() => startEdit(p)} aria-label={`Edit profile ${p.name}`}>
                     edit
                   </button>
-                  <button className="device-code-cancel" type="button" onClick={() => handleDelete(p.id)} style={{ color: 'var(--red)' }}>
+                  <button className="device-code-cancel" type="button" onClick={() => handleDelete(p.id)} aria-label={`Delete profile ${p.name}`} style={{ color: 'var(--red)' }}>
                     delete
                   </button>
                 </td>
@@ -162,7 +163,7 @@ function GuardrailProfiles() {
           <div className="guardrails-form-grid">
             <div className="guardrails-form-field">
               <label className="config-label" htmlFor="profile-name">Name</label>
-              <input id="profile-name" className="config-input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+              <input id="profile-name" className="config-input" autoFocus value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div className="guardrails-form-field">
               <label className="config-label" htmlFor="profile-gid">Guardrail ID</label>
@@ -360,6 +361,7 @@ function GuardrailRules() {
                     type="button"
                     className="role-badge"
                     onClick={() => handleToggle(r)}
+                    aria-label={`Toggle rule ${r.name} ${r.enabled ? 'off' : 'on'}`}
                     style={{
                       background: r.enabled ? 'var(--green-dim)' : 'var(--red-dim)',
                       color: r.enabled ? 'var(--green)' : 'var(--red)',
@@ -369,10 +371,10 @@ function GuardrailRules() {
                   </button>
                 </td>
                 <td style={{ display: 'flex', gap: 8 }}>
-                  <button className="device-code-cancel" type="button" onClick={() => startEdit(r)}>
+                  <button className="device-code-cancel" type="button" onClick={() => startEdit(r)} aria-label={`Edit rule ${r.name}`}>
                     edit
                   </button>
-                  <button className="device-code-cancel" type="button" onClick={() => handleDelete(r.id)} style={{ color: 'var(--red)' }}>
+                  <button className="device-code-cancel" type="button" onClick={() => handleDelete(r.id)} aria-label={`Delete rule ${r.name}`} style={{ color: 'var(--red)' }}>
                     delete
                   </button>
                 </td>
@@ -386,7 +388,7 @@ function GuardrailRules() {
           <div className="guardrails-form-grid">
             <div className="guardrails-form-field">
               <label className="config-label" htmlFor="rule-name">Name</label>
-              <input id="rule-name" className="config-input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+              <input id="rule-name" className="config-input" autoFocus value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div className="guardrails-form-field">
               <label className="config-label" htmlFor="rule-desc">Description</label>
@@ -407,11 +409,13 @@ function GuardrailRules() {
                   validate
                 </button>
               </div>
-              {celStatus !== null && (
-                <div style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', marginTop: 4, color: celStatus.startsWith('error') ? 'var(--red)' : 'var(--green)' }}>
-                  {celStatus}
-                </div>
-              )}
+              <div aria-live="polite">
+                {celStatus !== null && (
+                  <div style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', marginTop: 4, color: celStatus.startsWith('error') ? 'var(--red)' : 'var(--green)' }}>
+                    {celStatus}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="guardrails-form-field">
               <label className="config-label" htmlFor="rule-apply">Apply To</label>
@@ -440,6 +444,7 @@ function GuardrailRules() {
                       key={p.id}
                       type="button"
                       className={`pill${form.profile_ids.includes(p.id) ? ' active' : ''}`}
+                      aria-pressed={form.profile_ids.includes(p.id)}
                       onClick={() => toggleProfile(p.id)}
                     >
                       {p.name}
@@ -538,13 +543,15 @@ function GuardrailTester() {
             {testing ? 'testing...' : '$ test'}
           </button>
         </div>
-        {result && (
-          <div className="guardrails-test-result" style={{ color: result.action === 'NONE' ? 'var(--green)' : 'var(--red)' }}>
-            <span>action: {result.action}</span>
-            <span>time: {result.response_time_ms}ms</span>
-            {result.error && <span>error: {result.error}</span>}
-          </div>
-        )}
+        <div aria-live="polite">
+          {result && (
+            <div className="guardrails-test-result" style={{ color: result.action === 'NONE' ? 'var(--green)' : 'var(--red)' }}>
+              <span>action: {result.action}</span>
+              <span>time: {result.response_time_ms}ms</span>
+              {result.error && <span>error: {result.error}</span>}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

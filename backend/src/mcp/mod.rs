@@ -14,9 +14,11 @@ pub use types::*;
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use client_manager::ClientManager;
@@ -25,23 +27,35 @@ use client_manager::ClientManager;
 ///
 /// Wraps `ClientManager` for connection lifecycle and provides the public API
 /// consumed by route handlers and pipeline integration.
-#[allow(dead_code)]
 pub struct McpManager {
     clients: Arc<RwLock<HashMap<Uuid, McpClientState>>>,
     client_manager: ClientManager,
     db: Option<Arc<McpDb>>,
+    /// Background task handles (health monitors + tool syncers) for cleanup on shutdown.
+    background_tasks: RwLock<Vec<JoinHandle<()>>>,
+    /// Default health check interval.
+    health_check_interval_secs: u64,
+    /// Maximum consecutive failures before marking a client as Error.
+    max_consecutive_failures: u32,
 }
 
-#[allow(dead_code)]
 impl McpManager {
     /// Create a new McpManager with a database connection.
-    pub fn new(db: Arc<McpDb>, default_timeout_secs: u64) -> Self {
+    pub fn new(
+        db: Arc<McpDb>,
+        default_timeout_secs: u64,
+        health_check_interval_secs: u64,
+        max_consecutive_failures: u32,
+    ) -> Self {
         let clients = Arc::new(RwLock::new(HashMap::new()));
         let client_manager = ClientManager::new(Arc::clone(&clients), default_timeout_secs);
         Self {
             clients,
             client_manager,
             db: Some(db),
+            background_tasks: RwLock::new(Vec::new()),
+            health_check_interval_secs,
+            max_consecutive_failures,
         }
     }
 
@@ -53,10 +67,14 @@ impl McpManager {
             clients,
             client_manager,
             db: None,
+            background_tasks: RwLock::new(Vec::new()),
+            health_check_interval_secs: 30,
+            max_consecutive_failures: 3,
         }
     }
 
-    /// Initialize: load all clients from DB and connect each enabled one.
+    /// Initialize: load all clients from DB, connect each enabled one,
+    /// and start background health monitors + tool syncers.
     pub async fn initialize(&self) {
         let db = match &self.db {
             Some(db) => db,
@@ -78,16 +96,25 @@ impl McpManager {
                         );
                     }
                 }
-                let connected = self
-                    .clients
-                    .read()
-                    .await
-                    .values()
-                    .filter(|c| c.connection_state == McpConnectionState::Connected)
-                    .count();
+
+                // Start background tasks for connected clients
+                let connected_ids: Vec<(Uuid, i32)> = {
+                    let clients = self.clients.read().await;
+                    clients
+                        .values()
+                        .filter(|c| c.connection_state == McpConnectionState::Connected)
+                        .map(|c| (c.config.id, c.config.tool_sync_interval_secs))
+                        .collect()
+                };
+
+                let connected_count = connected_ids.len();
+                for (client_id, sync_interval) in &connected_ids {
+                    self.start_background_tasks(*client_id, *sync_interval).await;
+                }
+
                 tracing::info!(
                     total = configs.len(),
-                    connected = connected,
+                    connected = connected_count,
                     "MCP Gateway initialized"
                 );
             }
@@ -97,7 +124,34 @@ impl McpManager {
         }
     }
 
+    /// Start health monitor and tool syncer for a specific client.
+    async fn start_background_tasks(&self, client_id: Uuid, tool_sync_interval_secs: i32) {
+        let mut tasks = self.background_tasks.write().await;
+
+        // Start health monitor
+        let health_handle = health_monitor::start_health_monitor(
+            client_id,
+            Arc::clone(&self.clients),
+            self.transports_ref(),
+            Duration::from_secs(self.health_check_interval_secs),
+            self.max_consecutive_failures,
+        );
+        tasks.push(health_handle);
+
+        // Start tool syncer (only if interval > 0)
+        if tool_sync_interval_secs > 0 {
+            let sync_handle = tool_syncer::start_tool_syncer(
+                client_id,
+                Arc::clone(&self.clients),
+                self.transports_ref(),
+                Duration::from_secs(tool_sync_interval_secs as u64),
+            );
+            tasks.push(sync_handle);
+        }
+    }
+
     /// Add a new MCP client. Persists to DB if available, then connects.
+    /// Starts background health monitor and tool syncer after successful connection.
     pub async fn add_client(&self, config: &McpClientConfig) -> Result<()> {
         // Persist to DB
         if let Some(db) = &self.db {
@@ -105,7 +159,22 @@ impl McpManager {
         }
 
         // Connect
-        self.client_manager.add_client(config).await
+        self.client_manager.add_client(config).await?;
+
+        // Start background tasks if client connected successfully
+        let is_connected = self
+            .clients
+            .read()
+            .await
+            .get(&config.id)
+            .is_some_and(|c| c.connection_state == McpConnectionState::Connected);
+
+        if is_connected {
+            self.start_background_tasks(config.id, config.tool_sync_interval_secs)
+                .await;
+        }
+
+        Ok(())
     }
 
     /// Remove an MCP client. Disconnects and removes from DB.
@@ -181,7 +250,7 @@ impl McpManager {
     }
 
     /// Get a reference to the transports RwLock (for tool_manager, server, etc.).
-    pub fn transports_ref(&self) -> Arc<RwLock<HashMap<Uuid, Box<dyn transport::McpTransport>>>> {
+    pub fn transports_ref(&self) -> Arc<RwLock<HashMap<Uuid, Arc<dyn transport::McpTransport>>>> {
         Arc::clone(self.client_manager.transports())
     }
 
@@ -233,6 +302,14 @@ impl McpManager {
     /// Shutdown all clients and background tasks.
     pub async fn shutdown(&self) {
         tracing::info!("McpManager shutting down");
+
+        // Abort all background health monitors and tool syncers
+        let mut tasks = self.background_tasks.write().await;
+        for handle in tasks.drain(..) {
+            handle.abort();
+        }
+        tracing::debug!("Background tasks aborted");
+
         self.client_manager.shutdown_all().await;
     }
 }

@@ -164,11 +164,7 @@ impl IntoResponse for ApiError {
                         "processing_time_ms": processing_time_ms,
                     }
                 }));
-                return (
-                    StatusCode::from_u16(446).unwrap_or(StatusCode::BAD_REQUEST),
-                    body,
-                )
-                    .into_response();
+                return (StatusCode::FORBIDDEN, body).into_response();
             }
             ApiError::GuardrailWarning {
                 ref violations,
@@ -184,11 +180,7 @@ impl IntoResponse for ApiError {
                         "redacted_content": redacted_content,
                     }
                 }));
-                return (
-                    StatusCode::from_u16(246).unwrap_or(StatusCode::OK),
-                    body,
-                )
-                    .into_response();
+                return (StatusCode::OK, body).into_response();
             }
             ApiError::McpConnectionError(msg) => {
                 (StatusCode::BAD_GATEWAY, "mcp_connection_error", msg)

@@ -14,6 +14,18 @@ use tokio::task::JoinHandle;
 use super::{McpTransport, McpTransportError};
 use crate::mcp::types::{JsonRpcRequest, JsonRpcResponse, McpStdioConfig};
 
+/// Allowed commands for STDIO transport. Only these binaries may be spawned.
+const ALLOWED_COMMANDS: &[&str] = &["npx", "node", "python", "python3", "uvx", "docker"];
+
+/// Environment variables that must never be passed to child processes.
+const BLOCKED_ENV_VARS: &[&str] = &[
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH",
+    "DYLD_FRAMEWORK_PATH",
+];
+
 /// STDIO transport for MCP JSON-RPC 2.0.
 ///
 /// Spawns a child process and communicates via newline-delimited JSON-RPC
@@ -105,6 +117,29 @@ impl McpTransport for StdioTransport {
             return Err(McpTransportError::ConnectionFailed(
                 "Empty command".to_string(),
             ));
+        }
+
+        // Validate command against allowlist
+        let base_command = std::path::Path::new(&self.stdio_config.command)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&self.stdio_config.command);
+        if !ALLOWED_COMMANDS.contains(&base_command) {
+            return Err(McpTransportError::ConnectionFailed(format!(
+                "Command '{}' is not in the allowlist. Allowed: {}",
+                self.stdio_config.command,
+                ALLOWED_COMMANDS.join(", ")
+            )));
+        }
+
+        // Block dangerous environment variables
+        for key in self.stdio_config.envs.keys() {
+            if BLOCKED_ENV_VARS.contains(&key.as_str()) {
+                return Err(McpTransportError::ConnectionFailed(format!(
+                    "Environment variable '{}' is blocked for security reasons",
+                    key
+                )));
+            }
         }
 
         let mut cmd = Command::new(&self.stdio_config.command);
@@ -248,8 +283,8 @@ mod tests {
 
     fn test_config() -> McpStdioConfig {
         McpStdioConfig {
-            command: "echo".to_string(),
-            args: vec!["hello".to_string()],
+            command: "node".to_string(),
+            args: vec!["-e".to_string(), "console.log('hello')".to_string()],
             envs: HashMap::new(),
         }
     }
@@ -258,7 +293,35 @@ mod tests {
     fn test_stdio_transport_creation() {
         let transport = StdioTransport::new(test_config(), 30);
         assert!(!transport.connected.load(Ordering::Relaxed));
-        assert_eq!(transport.stdio_config.command, "echo");
+        assert_eq!(transport.stdio_config.command, "node");
+    }
+
+    #[tokio::test]
+    async fn test_stdio_transport_rejects_disallowed_command() {
+        let config = McpStdioConfig {
+            command: "rm".to_string(),
+            args: vec!["-rf".to_string(), "/".to_string()],
+            envs: HashMap::new(),
+        };
+        let mut transport = StdioTransport::new(config, 30);
+        let result = transport.connect().await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not in the allowlist"));
+    }
+
+    #[tokio::test]
+    async fn test_stdio_transport_blocks_dangerous_env_vars() {
+        let config = McpStdioConfig {
+            command: "node".to_string(),
+            args: vec![],
+            envs: HashMap::from([("LD_PRELOAD".to_string(), "/tmp/evil.so".to_string())]),
+        };
+        let mut transport = StdioTransport::new(config, 30);
+        let result = transport.connect().await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("blocked for security reasons"));
     }
 
     #[tokio::test]
@@ -288,10 +351,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_stdio_transport_connect_and_close() {
-        // Use 'cat' as a simple echo-like process that keeps stdin open
+        // Use 'node' as a process that keeps stdin open
         let config = McpStdioConfig {
-            command: "cat".to_string(),
-            args: vec![],
+            command: "node".to_string(),
+            args: vec!["-e".to_string(), "process.stdin.resume()".to_string()],
             envs: HashMap::new(),
         };
         let mut transport = StdioTransport::new(config, 30);

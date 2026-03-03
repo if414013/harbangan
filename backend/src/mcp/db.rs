@@ -20,7 +20,7 @@ impl McpDb {
     pub async fn list_clients(&self) -> Result<Vec<McpClientConfig>> {
         let rows = sqlx::query_as::<_, McpClientRow>(
             "SELECT id, name, connection_type, connection_string, stdio_config,
-                    auth_type, headers_encrypted, tools_to_execute,
+                    auth_type, headers_encrypted AS headers_encoded, tools_to_execute,
                     is_ping_available, tool_sync_interval_secs, enabled,
                     created_at, updated_at
              FROM mcp_clients
@@ -37,7 +37,7 @@ impl McpDb {
     pub async fn get_client(&self, id: Uuid) -> Result<Option<McpClientConfig>> {
         let row = sqlx::query_as::<_, McpClientRow>(
             "SELECT id, name, connection_type, connection_string, stdio_config,
-                    auth_type, headers_encrypted, tools_to_execute,
+                    auth_type, headers_encrypted AS headers_encoded, tools_to_execute,
                     is_ping_available, tool_sync_interval_secs, enabled,
                     created_at, updated_at
              FROM mcp_clients WHERE id = $1",
@@ -58,7 +58,7 @@ impl McpDb {
             .stdio_config
             .as_ref()
             .and_then(|s| serde_json::to_value(s).ok());
-        let headers_encrypted = encode_headers(&config.headers);
+        let headers_encoded = encode_headers(&config.headers);
         let tools_json = serde_json::to_value(&config.tools_to_execute)
             .unwrap_or_else(|_| serde_json::json!(["*"]));
 
@@ -74,7 +74,7 @@ impl McpDb {
         .bind(&config.connection_string)
         .bind(&stdio_json)
         .bind(auth_type)
-        .bind(&headers_encrypted)
+        .bind(&headers_encoded)
         .bind(&tools_json)
         .bind(config.is_ping_available)
         .bind(config.tool_sync_interval_secs)
@@ -94,7 +94,7 @@ impl McpDb {
             .stdio_config
             .as_ref()
             .and_then(|s| serde_json::to_value(s).ok());
-        let headers_encrypted = encode_headers(&config.headers);
+        let headers_encoded = encode_headers(&config.headers);
         let tools_json = serde_json::to_value(&config.tools_to_execute)
             .unwrap_or_else(|_| serde_json::json!(["*"]));
 
@@ -113,7 +113,7 @@ impl McpDb {
         .bind(&config.connection_string)
         .bind(&stdio_json)
         .bind(auth_type)
-        .bind(&headers_encrypted)
+        .bind(&headers_encoded)
         .bind(&tools_json)
         .bind(config.is_ping_available)
         .bind(config.tool_sync_interval_secs)
@@ -147,7 +147,7 @@ struct McpClientRow {
     connection_string: Option<String>,
     stdio_config: Option<serde_json::Value>,
     auth_type: String,
-    headers_encrypted: Option<String>,
+    headers_encoded: Option<String>,
     tools_to_execute: serde_json::Value,
     is_ping_available: bool,
     tool_sync_interval_secs: i32,
@@ -164,7 +164,7 @@ impl McpClientRow {
         let stdio_config: Option<McpStdioConfig> = self
             .stdio_config
             .and_then(|v| serde_json::from_value(v).ok());
-        let headers = decode_headers(self.headers_encrypted.as_deref());
+        let headers = decode_headers(self.headers_encoded.as_deref());
         let tools_to_execute: Vec<String> =
             serde_json::from_value(self.tools_to_execute).unwrap_or_else(|_| vec!["*".to_string()]);
 

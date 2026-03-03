@@ -8,7 +8,6 @@ use uuid::Uuid;
 use crate::config::{Config, DebugMode};
 
 /// Tuple representing a user row: (id, email, name, picture_url, role, created_at).
-#[allow(dead_code)]
 pub type UserRow = (Uuid, String, String, Option<String>, String, DateTime<Utc>);
 
 /// A record of a configuration change.
@@ -225,6 +224,8 @@ impl ConfigDb {
     async fn migrate_to_v4(&self) -> Result<()> {
         tracing::info!("Running database migration to version 4 (guardrails)...");
 
+        let mut tx = self.pool.begin().await.context("Failed to begin v4 migration transaction")?;
+
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS guardrail_profiles (
                 id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -240,7 +241,7 @@ impl ConfigDb {
                 updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )",
         )
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .context("Failed to create guardrail_profiles table")?;
 
@@ -258,7 +259,7 @@ impl ConfigDb {
                 updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )",
         )
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .context("Failed to create guardrail_rules table")?;
 
@@ -269,15 +270,17 @@ impl ConfigDb {
                 PRIMARY KEY (rule_id, profile_id)
             )",
         )
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .context("Failed to create guardrail_rule_profiles table")?;
 
         sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
             .bind(4_i32)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .context("Failed to record schema version 4")?;
+
+        tx.commit().await.context("Failed to commit v4 migration")?;
 
         tracing::info!("Database migration to version 4 complete");
         Ok(())
@@ -286,6 +289,8 @@ impl ConfigDb {
     /// Version 5 migration: MCP clients table.
     async fn migrate_to_v5(&self) -> Result<()> {
         tracing::info!("Running database migration to version 5 (MCP clients)...");
+
+        let mut tx = self.pool.begin().await.context("Failed to begin v5 migration transaction")?;
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS mcp_clients (
@@ -304,15 +309,17 @@ impl ConfigDb {
                 updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )",
         )
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .context("Failed to create mcp_clients table")?;
 
         sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
             .bind(5_i32)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .context("Failed to record schema version 5")?;
+
+        tx.commit().await.context("Failed to commit v5 migration")?;
 
         tracing::info!("Database migration to version 5 complete");
         Ok(())
