@@ -1,9 +1,0 @@
-target/
-web-ui/node_modules/
-web-ui/dist/
-.env
-*.db
-*.sqlite3
-.git/
-docs/
-*.md
