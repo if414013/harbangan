@@ -33,6 +33,11 @@ services:
       KIRO_SSO_URL: "${KIRO_SSO_URL:-}"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       DEBUG_MODE: "${DEBUG_MODE:-off}"
+      DD_AGENT_HOST: datadog-agent
+    labels:
+      com.datadoghq.ad.logs: '[{"source": "rust", "service": "rkgw-gateway"}]'
+      com.datadoghq.tags.env: "${DD_ENV:-production}"
+      com.datadoghq.tags.service: "rkgw-gateway"
     volumes:
       - gateway-data:/data
     healthcheck:
@@ -42,6 +47,27 @@ services:
       retries: 3
       start_period: 15s
 
+
+  datadog-agent:
+    image: datadog/agent:latest
+    profiles:
+      - datadog
+    restart: unless-stopped
+    environment:
+      DD_API_KEY: ${DD_API_KEY}
+      DD_SITE: ${DD_SITE:-datadoghq.com}
+      DD_ENV: ${DD_ENV:-production}
+      DD_APM_ENABLED: "true"
+      DD_APM_NON_LOCAL_TRAFFIC: "true"
+      DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT: "0.0.0.0:4317"
+      DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT: "0.0.0.0:4318"
+      DD_LOGS_ENABLED: "true"
+      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
+      DD_CONTAINER_EXCLUDE: "name:datadog-agent"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
 
 volumes:
   gateway-data:

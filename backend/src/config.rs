@@ -198,7 +198,6 @@ impl Config {
     pub fn is_proxy_only(&self) -> bool {
         self.proxy_api_key.is_some()
     }
-
 }
 
 /// Parse debug mode from string
@@ -376,5 +375,4 @@ mod tests {
             .to_string()
             .contains("GOOGLE_CLIENT_SECRET"));
     }
-
 }

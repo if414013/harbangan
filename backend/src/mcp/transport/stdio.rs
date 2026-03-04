@@ -103,9 +103,7 @@ impl McpTransport for StdioTransport {
                 self.pending_requests.remove(&request_id);
                 McpTransportError::Timeout
             })?
-            .map_err(|_| {
-                McpTransportError::RequestFailed("Response channel closed".to_string())
-            })
+            .map_err(|_| McpTransportError::RequestFailed("Response channel closed".to_string()))
     }
 
     async fn is_connected(&self) -> bool {
@@ -155,10 +153,9 @@ impl McpTransport for StdioTransport {
             .spawn()
             .map_err(|e| McpTransportError::ProcessError(e.to_string()))?;
 
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| McpTransportError::ProcessError("Failed to capture stdin".to_string()))?;
+        let stdin = child.stdin.take().ok_or_else(|| {
+            McpTransportError::ProcessError("Failed to capture stdin".to_string())
+        })?;
 
         let stdout = child.stdout.take().ok_or_else(|| {
             McpTransportError::ProcessError("Failed to capture stdout".to_string())

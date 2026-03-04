@@ -20,11 +20,9 @@ fn is_private_ip(ip: &IpAddr) -> bool {
                 || v4.is_private()     // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
                 || v4.is_link_local()  // 169.254.0.0/16
                 || v4.is_unspecified() // 0.0.0.0
-                || v4.is_broadcast()   // 255.255.255.255
+                || v4.is_broadcast() // 255.255.255.255
         }
-        IpAddr::V6(v6) => {
-            v6.is_loopback() || v6.is_unspecified()
-        }
+        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
     }
 }
 
@@ -65,9 +63,9 @@ async fn validate_url_not_private(url: &str) -> Result<(), McpTransportError> {
     let addr_str = format!("{}:{}", host, port);
 
     // Resolve DNS and check all resulting IPs
-    let addrs = tokio::net::lookup_host(&addr_str)
-        .await
-        .map_err(|e| McpTransportError::ConnectionFailed(format!("DNS resolution failed for '{}': {}", host, e)))?;
+    let addrs = tokio::net::lookup_host(&addr_str).await.map_err(|e| {
+        McpTransportError::ConnectionFailed(format!("DNS resolution failed for '{}': {}", host, e))
+    })?;
 
     for addr in addrs {
         if is_private_ip(&addr.ip()) {
@@ -156,9 +154,7 @@ impl McpTransport for HttpTransport {
     async fn connect(&mut self) -> Result<(), McpTransportError> {
         // HTTP is stateless — validate URL format and security
         if self.url.is_empty() {
-            return Err(McpTransportError::ConnectionFailed(
-                "Empty URL".to_string(),
-            ));
+            return Err(McpTransportError::ConnectionFailed("Empty URL".to_string()));
         }
         if !self.url.starts_with("http://") && !self.url.starts_with("https://") {
             return Err(McpTransportError::ConnectionFailed(format!(
@@ -200,8 +196,7 @@ mod tests {
         let result = transport.connect().await;
         assert!(result.is_err());
 
-        let mut transport =
-            HttpTransport::new("ftp://invalid.com".to_string(), HashMap::new(), 30);
+        let mut transport = HttpTransport::new("ftp://invalid.com".to_string(), HashMap::new(), 30);
         let result = transport.connect().await;
         assert!(result.is_err());
     }

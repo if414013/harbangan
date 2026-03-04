@@ -114,15 +114,19 @@ async fn kiro_setup(
         .await
         .map_err(ApiError::Internal)?;
     // Request body overrides DB values for region and start_url
-    let sso_region = body.region.or(config_db
-        .get("oauth_sso_region")
-        .await
-        .map_err(ApiError::Internal)?)
+    let sso_region = body
+        .region
+        .or(config_db
+            .get("oauth_sso_region")
+            .await
+            .map_err(ApiError::Internal)?)
         .unwrap_or_else(|| "us-east-1".to_string());
-    let start_url = body.start_url.or(config_db
-        .get("oauth_start_url")
-        .await
-        .map_err(ApiError::Internal)?)
+    let start_url = body
+        .start_url
+        .or(config_db
+            .get("oauth_start_url")
+            .await
+            .map_err(ApiError::Internal)?)
         .unwrap_or_default();
 
     let http_client = reqwest::Client::new();
@@ -137,15 +141,10 @@ async fn kiro_setup(
             } else {
                 Some(start_url.as_str())
             };
-            let registration = oauth::register_client(
-                &http_client,
-                &sso_region,
-                "device",
-                None,
-                start_url_opt,
-            )
-            .await
-            .map_err(ApiError::Internal)?;
+            let registration =
+                oauth::register_client(&http_client, &sso_region, "device", None, start_url_opt)
+                    .await
+                    .map_err(ApiError::Internal)?;
 
             // Persist credentials for future use
             config_db

@@ -988,7 +988,9 @@ pub fn build_kiro_history(messages: &[UnifiedMessage], model_id: &str) -> Vec<Va
             }
             "assistant" => {
                 // If no preceding user entry, insert synthetic user first
-                let last_is_user = history.last().map_or(false, |h| h.get("userInputMessage").is_some());
+                let last_is_user = history
+                    .last()
+                    .map_or(false, |h| h.get("userInputMessage").is_some());
                 if !last_is_user {
                     debug!("History: orphaned assistant message, adding synthetic user input");
                     history.push(json!({"userInputMessage": synthetic_user_input(model_id)}));
@@ -1001,7 +1003,11 @@ pub fn build_kiro_history(messages: &[UnifiedMessage], model_id: &str) -> Vec<Va
     }
 
     if !history.is_empty() {
-        debug!("Built {} history entries from {} messages", history.len(), messages.len());
+        debug!(
+            "Built {} history entries from {} messages",
+            history.len(),
+            messages.len()
+        );
     }
 
     history
@@ -1091,7 +1097,6 @@ pub fn synthetic_user_input(model_id: &str) -> Value {
         "origin": "AI_EDITOR",
     })
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1706,17 +1711,17 @@ mod tests {
 
     #[test]
     fn test_build_kiro_history_normal_alternating() {
-        let messages = vec![
-            make_user_msg("Hello"),
-            make_assistant_msg("Hi there"),
-        ];
+        let messages = vec![make_user_msg("Hello"), make_assistant_msg("Hi there")];
         let history = build_kiro_history(&messages, "claude-sonnet-4");
         // Flat: 2 separate entries
         assert_eq!(history.len(), 2);
         assert!(history[0]["userInputMessage"].is_object());
         assert_eq!(history[0]["userInputMessage"]["content"], "Hello");
         assert!(history[1]["assistantResponseMessage"].is_object());
-        assert_eq!(history[1]["assistantResponseMessage"]["content"], "Hi there");
+        assert_eq!(
+            history[1]["assistantResponseMessage"]["content"],
+            "Hi there"
+        );
     }
 
     #[test]
@@ -1748,7 +1753,10 @@ mod tests {
         // Flat: synthetic user + assistant + user + assistant = 4 entries
         assert_eq!(history.len(), 4);
         assert_eq!(history[0]["userInputMessage"]["content"], "(continued)");
-        assert_eq!(history[1]["assistantResponseMessage"]["content"], "Session started");
+        assert_eq!(
+            history[1]["assistantResponseMessage"]["content"],
+            "Session started"
+        );
         assert_eq!(history[2]["userInputMessage"]["content"], "Hi");
         assert_eq!(history[3]["assistantResponseMessage"]["content"], "Hello");
     }
@@ -1791,7 +1799,10 @@ mod tests {
         let history = build_kiro_history(&messages, "claude-sonnet-4");
         assert_eq!(history.len(), 2);
         assert_eq!(history[0]["userInputMessage"]["content"], "(continued)");
-        assert_eq!(history[1]["assistantResponseMessage"]["content"], "I'm here");
+        assert_eq!(
+            history[1]["assistantResponseMessage"]["content"],
+            "I'm here"
+        );
     }
 
     #[test]

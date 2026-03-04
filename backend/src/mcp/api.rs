@@ -83,7 +83,11 @@ async fn create_client(
     // Validate connection_type + connection_string/stdio_config
     match body.connection_type {
         McpConnectionType::Http | McpConnectionType::Sse => {
-            if body.connection_string.as_ref().is_none_or(|s| s.trim().is_empty()) {
+            if body
+                .connection_string
+                .as_ref()
+                .is_none_or(|s| s.trim().is_empty())
+            {
                 return Err(ApiError::ValidationError(
                     "connection_string is required for HTTP/SSE connections".to_string(),
                 ));
@@ -108,7 +112,9 @@ async fn create_client(
         stdio_config: body.stdio_config,
         auth_type: body.auth_type.unwrap_or(McpAuthType::None),
         headers: body.headers.unwrap_or_default(),
-        tools_to_execute: body.tools_to_execute.unwrap_or_else(|| vec!["*".to_string()]),
+        tools_to_execute: body
+            .tools_to_execute
+            .unwrap_or_else(|| vec!["*".to_string()]),
         is_ping_available: body.is_ping_available.unwrap_or(true),
         tool_sync_interval_secs: body.tool_sync_interval_secs.unwrap_or(0),
         enabled: body.enabled.unwrap_or(true),
@@ -116,9 +122,7 @@ async fn create_client(
         updated_at: chrono::Utc::now(),
     };
 
-    mcp.add_client(&config)
-        .await
-        .map_err(ApiError::Internal)?;
+    mcp.add_client(&config).await.map_err(ApiError::Internal)?;
 
     tracing::info!(client_id = %config.id, name = %config.name, "mcp_client_created");
 
@@ -154,10 +158,10 @@ async fn update_client(
             .name
             .map(|n| n.trim().to_string())
             .unwrap_or(existing.config.name),
-        connection_type: body.connection_type.unwrap_or(existing.config.connection_type),
-        connection_string: body
-            .connection_string
-            .or(existing.config.connection_string),
+        connection_type: body
+            .connection_type
+            .unwrap_or(existing.config.connection_type),
+        connection_string: body.connection_string.or(existing.config.connection_string),
         stdio_config: body.stdio_config.or(existing.config.stdio_config),
         auth_type: body.auth_type.unwrap_or(existing.config.auth_type),
         headers: body.headers.unwrap_or(existing.config.headers),
@@ -204,9 +208,7 @@ async fn delete_client(
         .await
         .ok_or_else(|| ApiError::McpClientNotFound(format!("Client '{}' not found", id)))?;
 
-    mcp.remove_client(id)
-        .await
-        .map_err(ApiError::Internal)?;
+    mcp.remove_client(id).await.map_err(ApiError::Internal)?;
 
     tracing::info!(client_id = %id, "mcp_client_deleted");
     Ok(Json(json!({ "ok": true })))
@@ -225,9 +227,7 @@ async fn reconnect_client(
         .await
         .ok_or_else(|| ApiError::McpClientNotFound(format!("Client '{}' not found", id)))?;
 
-    mcp.reconnect_client(id)
-        .await
-        .map_err(ApiError::Internal)?;
+    mcp.reconnect_client(id).await.map_err(ApiError::Internal)?;
 
     tracing::info!(client_id = %id, "mcp_client_reconnected");
 

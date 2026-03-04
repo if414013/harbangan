@@ -109,7 +109,8 @@ impl McpManager {
 
                 let connected_count = connected_ids.len();
                 for (client_id, sync_interval) in &connected_ids {
-                    self.start_background_tasks(*client_id, *sync_interval).await;
+                    self.start_background_tasks(*client_id, *sync_interval)
+                        .await;
                 }
 
                 tracing::info!(

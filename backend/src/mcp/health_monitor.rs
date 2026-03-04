@@ -37,10 +37,7 @@ pub fn start_health_monitor(
             let (is_ping_available, client_name) = {
                 let clients_map = clients.read().await;
                 match clients_map.get(&client_id) {
-                    Some(state) => (
-                        state.config.is_ping_available,
-                        state.config.name.clone(),
-                    ),
+                    Some(state) => (state.config.is_ping_available, state.config.name.clone()),
                     None => {
                         tracing::debug!(id = %client_id, "Health monitor stopping: client removed");
                         return;
@@ -71,12 +68,8 @@ pub fn start_health_monitor(
             }
 
             // Perform health check
-            let check_result = perform_health_check(
-                &transports,
-                client_id,
-                is_ping_available,
-            )
-            .await;
+            let check_result =
+                perform_health_check(&transports, client_id, is_ping_available).await;
 
             // Update state based on result
             let mut clients_map = clients.write().await;

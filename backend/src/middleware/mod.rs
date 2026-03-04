@@ -56,7 +56,10 @@ pub async fn auth_middleware(
     // Proxy-only mode: compare raw key against PROXY_API_KEY, use global auth
     let (is_proxy_only, expected_key) = {
         let cfg = state.config.read().unwrap_or_else(|p| p.into_inner());
-        (cfg.is_proxy_only(), cfg.proxy_api_key.clone().unwrap_or_default())
+        (
+            cfg.is_proxy_only(),
+            cfg.proxy_api_key.clone().unwrap_or_default(),
+        )
     };
 
     if is_proxy_only {
@@ -69,9 +72,10 @@ pub async fn auth_middleware(
 
         // Use global auth manager for token
         let auth = state.auth_manager.read().await;
-        let access_token = auth.get_access_token().await.map_err(|e| {
-            ApiError::AuthError(format!("Failed to get access token: {}", e))
-        })?;
+        let access_token = auth
+            .get_access_token()
+            .await
+            .map_err(|e| ApiError::AuthError(format!("Failed to get access token: {}", e)))?;
         let region = auth.get_region().await;
         drop(auth);
 

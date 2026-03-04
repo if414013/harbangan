@@ -14,8 +14,6 @@ Navigation hub for project context.
 
 ## Active Tracks
 
+- [x] [Datadog APM Integration](./tracks/datadog-apm_20260304/index.md) — Full-stack Datadog APM: backend tracing, metrics, log forwarding, frontend RUM, DD Agent sidecar
+
 <!-- Auto-populated by /conductor:new-track -->
-
-## Getting Started
-
-Run `/conductor:new-track` to create your first feature track.

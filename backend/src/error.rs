@@ -192,9 +192,7 @@ impl IntoResponse for ApiError {
             ApiError::McpClientNotFound(msg) => {
                 (StatusCode::NOT_FOUND, "mcp_client_not_found", msg)
             }
-            ApiError::McpProtocolError(msg) => {
-                (StatusCode::BAD_GATEWAY, "mcp_protocol_error", msg)
-            }
+            ApiError::McpProtocolError(msg) => (StatusCode::BAD_GATEWAY, "mcp_protocol_error", msg),
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg),
             ApiError::Internal(err) => {
                 // Log internal errors

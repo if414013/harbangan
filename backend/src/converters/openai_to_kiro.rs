@@ -409,7 +409,8 @@ pub fn build_kiro_payload_core(
     if !full_system_prompt.is_empty() && !history_messages_vec.is_empty() {
         // Find the first user message in history (may not be index 0 if history starts with assistant)
         if let Some(first_user_idx) = history_messages_vec.iter().position(|m| m.role == "user") {
-            let original_content = extract_text_content(&history_messages_vec[first_user_idx].content);
+            let original_content =
+                extract_text_content(&history_messages_vec[first_user_idx].content);
             debug!(
                 "Adding system prompt to first user history message at index {} (original content: {} chars)",
                 first_user_idx,
@@ -419,7 +420,9 @@ pub fn build_kiro_payload_core(
                 MessageContent::Text(format!("{}\n\n{}", full_system_prompt, original_content));
             system_prompt_injected = true;
         } else {
-            debug!("No user message found in history, will inject system prompt into current message");
+            debug!(
+                "No user message found in history, will inject system prompt into current message"
+            );
         }
     }
 

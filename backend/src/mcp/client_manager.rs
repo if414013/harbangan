@@ -86,10 +86,7 @@ impl ClientManager {
                 let tools = self.discover_tools(&*transport, config).await;
 
                 // Store transport
-                self.transports
-                    .write()
-                    .await
-                    .insert(config.id, transport);
+                self.transports.write().await.insert(config.id, transport);
 
                 // Update state to connected with discovered tools
                 if let Some(client) = self.clients.write().await.get_mut(&config.id) {
@@ -99,8 +96,13 @@ impl ClientManager {
                     client.consecutive_failures = 0;
                 }
 
-                let tool_count = self.clients.read().await.get(&config.id)
-                    .map(|c| c.tools.len()).unwrap_or(0);
+                let tool_count = self
+                    .clients
+                    .read()
+                    .await
+                    .get(&config.id)
+                    .map(|c| c.tools.len())
+                    .unwrap_or(0);
                 tracing::info!(
                     name = %config.name,
                     tools = tool_count,
@@ -260,36 +262,26 @@ impl ClientManager {
     ) -> Result<Arc<dyn McpTransport>, McpTransportError> {
         match config.connection_type {
             McpConnectionType::Http => {
-                let url = config
-                    .connection_string
-                    .clone()
-                    .unwrap_or_default();
+                let url = config.connection_string.clone().unwrap_or_default();
                 let mut transport =
                     HttpTransport::new(url, config.headers.clone(), self.default_timeout_secs);
                 transport.connect().await?;
                 Ok(Arc::new(transport))
             }
             McpConnectionType::Sse => {
-                let url = config
-                    .connection_string
-                    .clone()
-                    .unwrap_or_default();
+                let url = config.connection_string.clone().unwrap_or_default();
                 let mut transport =
                     SseTransport::new(url, config.headers.clone(), self.default_timeout_secs);
                 transport.connect().await?;
                 Ok(Arc::new(transport))
             }
             McpConnectionType::Stdio => {
-                let stdio_config = config
-                    .stdio_config
-                    .clone()
-                    .ok_or_else(|| {
-                        McpTransportError::ConnectionFailed(
-                            "STDIO config required for stdio connection type".to_string(),
-                        )
-                    })?;
-                let mut transport =
-                    StdioTransport::new(stdio_config, self.default_timeout_secs);
+                let stdio_config = config.stdio_config.clone().ok_or_else(|| {
+                    McpTransportError::ConnectionFailed(
+                        "STDIO config required for stdio connection type".to_string(),
+                    )
+                })?;
+                let mut transport = StdioTransport::new(stdio_config, self.default_timeout_secs);
                 transport.connect().await?;
                 Ok(Arc::new(transport))
             }

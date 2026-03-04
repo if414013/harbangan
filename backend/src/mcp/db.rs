@@ -201,9 +201,7 @@ fn encode_headers(headers: &std::collections::HashMap<String, String>) -> Option
 
 fn decode_headers(encoded: Option<&str>) -> std::collections::HashMap<String, String> {
     encoded
-        .and_then(|s| {
-            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, s).ok()
-        })
+        .and_then(|s| base64::Engine::decode(&base64::engine::general_purpose::STANDARD, s).ok())
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .and_then(|json| serde_json::from_str(&json).ok())
         .unwrap_or_default()

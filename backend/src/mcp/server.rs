@@ -168,9 +168,7 @@ pub async fn mcp_post_handler(
 ///
 /// Sends an initial connection/opened event, then keeps
 /// the connection alive with periodic ping events.
-pub async fn mcp_sse_handler(
-    State(state): State<AppState>,
-) -> Result<Response, ApiError> {
+pub async fn mcp_sse_handler(State(state): State<AppState>) -> Result<Response, ApiError> {
     let _mcp = state
         .mcp_manager
         .as_ref()
@@ -217,9 +215,7 @@ pub async fn mcp_sse_handler(
         .header("Cache-Control", "no-cache")
         .header("Connection", "keep-alive")
         .body(Body::from_stream(byte_stream))
-        .map_err(|e| {
-            ApiError::Internal(anyhow::anyhow!("Failed to build SSE response: {}", e))
-        })?;
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to build SSE response: {}", e)))?;
 
     Ok(response)
 }

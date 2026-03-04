@@ -115,9 +115,7 @@ impl McpTransport for SseTransport {
                 self.pending_requests.remove(&request_id);
                 McpTransportError::Timeout
             })?
-            .map_err(|_| {
-                McpTransportError::RequestFailed("Response channel closed".to_string())
-            })
+            .map_err(|_| McpTransportError::RequestFailed("Response channel closed".to_string()))
     }
 
     async fn is_connected(&self) -> bool {
@@ -126,9 +124,7 @@ impl McpTransport for SseTransport {
 
     async fn connect(&mut self) -> Result<(), McpTransportError> {
         if self.url.is_empty() {
-            return Err(McpTransportError::ConnectionFailed(
-                "Empty URL".to_string(),
-            ));
+            return Err(McpTransportError::ConnectionFailed("Empty URL".to_string()));
         }
 
         // Build SSE GET request with auth headers

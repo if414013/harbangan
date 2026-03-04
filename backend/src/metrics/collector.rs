@@ -1,4 +1,8 @@
 use dashmap::DashMap;
+use opentelemetry::{
+    metrics::{Counter, Histogram, Meter},
+    KeyValue,
+};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -94,6 +98,47 @@ impl Drop for StreamingMetricsTracker {
     }
 }
 
+/// OTel instruments used to emit metrics to Datadog via OTLP.
+struct OtelInstruments {
+    /// Total completed requests, attributed by `model` and `api_format`.
+    request_counter: Counter<u64>,
+    /// Request latency in milliseconds, attributed by `model`.
+    latency_histogram: Histogram<f64>,
+    /// Input token count per request, attributed by `model`.
+    input_tokens_counter: Counter<u64>,
+    /// Output token count per request, attributed by `model`.
+    output_tokens_counter: Counter<u64>,
+    /// Total errors, attributed by `error_type`.
+    error_counter: Counter<u64>,
+}
+
+impl OtelInstruments {
+    fn new(meter: &Meter) -> Self {
+        Self {
+            request_counter: meter
+                .u64_counter("kiro.requests.total")
+                .with_description("Total completed proxy requests")
+                .build(),
+            latency_histogram: meter
+                .f64_histogram("kiro.request.duration_ms")
+                .with_description("Request latency in milliseconds")
+                .build(),
+            input_tokens_counter: meter
+                .u64_counter("kiro.tokens.input")
+                .with_description("Total input tokens processed")
+                .build(),
+            output_tokens_counter: meter
+                .u64_counter("kiro.tokens.output")
+                .with_description("Total output tokens generated")
+                .build(),
+            error_counter: meter
+                .u64_counter("kiro.errors.total")
+                .with_description("Total proxy errors by type")
+                .build(),
+        }
+    }
+}
+
 /// Metrics collector for monitoring dashboard
 pub struct MetricsCollector {
     /// Current active connections/requests
@@ -122,10 +167,13 @@ pub struct MetricsCollector {
 
     /// Per-user per-model statistics
     per_user_stats: DashMap<Uuid, DashMap<String, ModelStats>>,
+
+    /// Optional OTel instruments (present when Datadog metrics are enabled).
+    otel: Option<OtelInstruments>,
 }
 
 impl MetricsCollector {
-    /// Create a new metrics collector
+    /// Create a new metrics collector without OTel export.
     pub fn new() -> Self {
         Self {
             active_connections: AtomicU64::new(0),
@@ -137,6 +185,25 @@ impl MetricsCollector {
             token_counts: Mutex::new(VecDeque::with_capacity(RING_BUFFER_CAPACITY)),
             per_model_stats: DashMap::new(),
             per_user_stats: DashMap::new(),
+            otel: None,
+        }
+    }
+
+    /// Create a new metrics collector with OTel instruments wired to the given `Meter`.
+    ///
+    /// Use this when Datadog metrics are enabled (i.e. `init_otel_metrics` returned `Some`).
+    pub fn with_otel(meter: Meter) -> Self {
+        Self {
+            active_connections: AtomicU64::new(0),
+            total_requests: AtomicU64::new(0),
+            total_errors: AtomicU64::new(0),
+            errors_by_type: DashMap::new(),
+            latency_samples: Mutex::new(VecDeque::with_capacity(RING_BUFFER_CAPACITY)),
+            request_rate_samples: Mutex::new(VecDeque::with_capacity(RING_BUFFER_CAPACITY)),
+            token_counts: Mutex::new(VecDeque::with_capacity(RING_BUFFER_CAPACITY)),
+            per_model_stats: DashMap::new(),
+            per_user_stats: DashMap::new(),
+            otel: Some(OtelInstruments::new(&meter)),
         }
     }
 
@@ -183,6 +250,15 @@ impl MetricsCollector {
             .entry(model.to_string())
             .or_default()
             .record_request(latency_ms, input_tokens, output_tokens);
+
+        // Emit OTel metrics when Datadog is configured
+        if let Some(ref otel) = self.otel {
+            let attrs = [KeyValue::new("model", model.to_string())];
+            otel.request_counter.add(1, &attrs);
+            otel.latency_histogram.record(latency_ms, &attrs);
+            otel.input_tokens_counter.add(input_tokens, &attrs);
+            otel.output_tokens_counter.add(output_tokens, &attrs);
+        }
     }
 
     /// Record the end of a request with per-user tracking.
@@ -246,6 +322,12 @@ impl MetricsCollector {
             .entry(error_type.to_string())
             .or_insert_with(|| AtomicU64::new(0))
             .fetch_add(1, Ordering::Relaxed);
+
+        // Emit OTel error metric when Datadog is configured
+        if let Some(ref otel) = self.otel {
+            let attrs = [KeyValue::new("error_type", error_type.to_string())];
+            otel.error_counter.add(1, &attrs);
+        }
     }
 
     /// Get current active connections
@@ -359,6 +441,16 @@ mod tests {
     fn test_metrics_collector_new() {
         let collector = MetricsCollector::new();
         assert_eq!(collector.get_active_connections(), 0);
+        assert!(collector.otel.is_none());
+    }
+
+    #[test]
+    fn test_metrics_collector_with_otel_uses_noop_meter() {
+        // When no provider is set, opentelemetry::global::meter returns a no-op meter.
+        // This verifies that with_otel() builds instruments without panicking.
+        let meter = opentelemetry::global::meter("test");
+        let collector = MetricsCollector::with_otel(meter);
+        assert!(collector.otel.is_some());
     }
 
     #[test]
@@ -370,6 +462,26 @@ mod tests {
 
         collector.record_request_end(150.5, "claude-sonnet-4", 100, 200);
         assert_eq!(collector.get_active_connections(), 0);
+    }
+
+    #[test]
+    fn test_record_request_emits_otel_instruments() {
+        // Uses a no-op meter — just verifies no panic when OTel instruments are present.
+        let meter = opentelemetry::global::meter("test");
+        let collector = MetricsCollector::with_otel(meter);
+
+        collector.record_request_start();
+        collector.record_request_end(200.0, "claude-sonnet-4", 50, 100);
+        assert_eq!(collector.get_active_connections(), 0);
+    }
+
+    #[test]
+    fn test_record_error_emits_otel_instruments() {
+        let meter = opentelemetry::global::meter("test");
+        let collector = MetricsCollector::with_otel(meter);
+
+        collector.record_error("timeout");
+        assert_eq!(collector.total_errors.load(Ordering::Relaxed), 1);
     }
 
     #[test]

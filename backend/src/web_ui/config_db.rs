@@ -224,7 +224,11 @@ impl ConfigDb {
     async fn migrate_to_v4(&self) -> Result<()> {
         tracing::info!("Running database migration to version 4 (guardrails)...");
 
-        let mut tx = self.pool.begin().await.context("Failed to begin v4 migration transaction")?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v4 migration transaction")?;
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS guardrail_profiles (
@@ -290,7 +294,11 @@ impl ConfigDb {
     async fn migrate_to_v5(&self) -> Result<()> {
         tracing::info!("Running database migration to version 5 (MCP clients)...");
 
-        let mut tx = self.pool.begin().await.context("Failed to begin v5 migration transaction")?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v5 migration transaction")?;
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS mcp_clients (

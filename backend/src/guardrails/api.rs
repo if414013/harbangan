@@ -262,10 +262,7 @@ async fn update_profile(
         .map_err(ApiError::Internal)?;
 
     if !updated {
-        return Err(ApiError::NotFound(format!(
-            "Profile '{}' not found",
-            id
-        )));
+        return Err(ApiError::NotFound(format!("Profile '{}' not found", id)));
     }
 
     tracing::info!(profile_id = %id, "guardrail_profile_updated");
@@ -292,10 +289,7 @@ async fn delete_profile(
     let deleted = db.delete_profile(id).await.map_err(ApiError::Internal)?;
 
     if !deleted {
-        return Err(ApiError::NotFound(format!(
-            "Profile '{}' not found",
-            id
-        )));
+        return Err(ApiError::NotFound(format!("Profile '{}' not found", id)));
     }
 
     tracing::info!(profile_id = %id, "guardrail_profile_deleted");
@@ -333,9 +327,8 @@ async fn create_rule(
     // Validate CEL expression if provided
     let cel_expr = body.cel_expression.as_deref().unwrap_or("");
     if !cel_expr.is_empty() {
-        crate::guardrails::cel::CelEvaluator::validate(cel_expr).map_err(|e| {
-            ApiError::ValidationError(format!("Invalid CEL expression: {}", e))
-        })?;
+        crate::guardrails::cel::CelEvaluator::validate(cel_expr)
+            .map_err(|e| ApiError::ValidationError(format!("Invalid CEL expression: {}", e)))?;
     }
 
     let apply_to = body
@@ -398,9 +391,8 @@ async fn update_rule(
 
     let cel_expr = body.cel_expression.as_deref().unwrap_or("");
     if !cel_expr.is_empty() {
-        crate::guardrails::cel::CelEvaluator::validate(cel_expr).map_err(|e| {
-            ApiError::ValidationError(format!("Invalid CEL expression: {}", e))
-        })?;
+        crate::guardrails::cel::CelEvaluator::validate(cel_expr)
+            .map_err(|e| ApiError::ValidationError(format!("Invalid CEL expression: {}", e)))?;
     }
 
     let apply_to = body
@@ -428,10 +420,7 @@ async fn update_rule(
         .map_err(ApiError::Internal)?;
 
     if !updated {
-        return Err(ApiError::NotFound(format!(
-            "Rule '{}' not found",
-            id
-        )));
+        return Err(ApiError::NotFound(format!("Rule '{}' not found", id)));
     }
 
     tracing::info!(rule_id = %id, "guardrail_rule_updated");
@@ -457,10 +446,7 @@ async fn delete_rule(
     let deleted = db.delete_rule(id).await.map_err(ApiError::Internal)?;
 
     if !deleted {
-        return Err(ApiError::NotFound(format!(
-            "Rule '{}' not found",
-            id
-        )));
+        return Err(ApiError::NotFound(format!("Rule '{}' not found", id)));
     }
 
     tracing::info!(rule_id = %id, "guardrail_rule_deleted");
@@ -488,9 +474,7 @@ async fn test_profile(
         .get_profile(body.profile_id)
         .await
         .map_err(ApiError::Internal)?
-        .ok_or_else(|| {
-            ApiError::NotFound(format!("Profile '{}' not found", body.profile_id))
-        })?;
+        .ok_or_else(|| ApiError::NotFound(format!("Profile '{}' not found", body.profile_id)))?;
 
     // Reuse the engine's Bedrock client if available, otherwise create a temporary one
     let fallback_client;
@@ -564,9 +548,7 @@ pub fn guardrails_routes() -> Router<AppState> {
         )
         .route(
             "/guardrails/profiles/{id}",
-            get(get_profile)
-                .put(update_profile)
-                .delete(delete_profile),
+            get(get_profile).put(update_profile).delete(delete_profile),
         )
         .route("/guardrails/rules", get(list_rules).post(create_rule))
         .route(

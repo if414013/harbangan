@@ -340,7 +340,9 @@ pub async fn get_config_schema() -> Json<Value> {
             | "mcp_max_consecutive_failures" => {
                 field.insert("type".to_string(), json!("number"));
             }
-            "fake_reasoning_enabled" | "truncation_recovery" | "guardrails_enabled"
+            "fake_reasoning_enabled"
+            | "truncation_recovery"
+            | "guardrails_enabled"
             | "mcp_enabled" => {
                 field.insert("type".to_string(), json!("boolean"));
             }

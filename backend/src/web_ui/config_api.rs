@@ -97,8 +97,7 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
                 )),
             }
         }
-        "fake_reasoning_enabled" | "truncation_recovery" | "guardrails_enabled"
-        | "mcp_enabled" => {
+        "fake_reasoning_enabled" | "truncation_recovery" | "guardrails_enabled" | "mcp_enabled" => {
             if value.is_boolean() || value.as_str().is_some_and(|s| s == "true" || s == "false") {
                 Ok(())
             } else {
@@ -157,9 +156,7 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
                     "mcp_max_consecutive_failures must be a positive integer".to_string()
                 })?;
             if n == 0 || n > 100 {
-                return Err(
-                    "mcp_max_consecutive_failures must be between 1 and 100".to_string(),
-                );
+                return Err("mcp_max_consecutive_failures must be between 1 and 100".to_string());
             }
             Ok(())
         }
@@ -276,7 +273,10 @@ pub fn get_config_field_descriptions() -> HashMap<&'static str, &'static str> {
         "guardrails_enabled",
         "Enable AWS Bedrock guardrails for input/output validation",
     );
-    m.insert("mcp_enabled", "Enable MCP Gateway for external tool connections");
+    m.insert(
+        "mcp_enabled",
+        "Enable MCP Gateway for external tool connections",
+    );
     m.insert(
         "mcp_tool_execution_timeout",
         "Seconds before an MCP tool execution times out (1-86400)",

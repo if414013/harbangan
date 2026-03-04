@@ -9,9 +9,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use super::transport::McpTransport;
-use super::types::{
-    JsonRpcRequest, McpClientState, McpConnectionState, McpToolInfo,
-};
+use super::types::{JsonRpcRequest, McpClientState, McpConnectionState, McpToolInfo};
 
 /// Get available tools from all connected clients, applying two-tier filtering.
 ///
@@ -48,8 +46,7 @@ pub async fn get_available_tools(
 
         // Tier 2a: Request-level client filter
         if let Some(ref allowed_clients) = include_clients {
-            if !allowed_clients.contains(&"*".to_string())
-                && !allowed_clients.contains(client_name)
+            if !allowed_clients.contains(&"*".to_string()) && !allowed_clients.contains(client_name)
             {
                 continue;
             }
@@ -114,8 +111,7 @@ pub async fn get_tool_info_list(
         let client_name = &state.config.name;
 
         if let Some(ref allowed_clients) = include_clients {
-            if !allowed_clients.contains(&"*".to_string())
-                && !allowed_clients.contains(client_name)
+            if !allowed_clients.contains(&"*".to_string()) && !allowed_clients.contains(client_name)
             {
                 continue;
             }
@@ -258,9 +254,7 @@ pub async fn execute_tool(
 }
 
 /// Get all tools from all connected clients in JSON-RPC format (for /mcp server tools/list).
-pub async fn get_all_tools_jsonrpc(
-    clients: &RwLock<HashMap<Uuid, McpClientState>>,
-) -> Value {
+pub async fn get_all_tools_jsonrpc(clients: &RwLock<HashMap<Uuid, McpClientState>>) -> Value {
     let clients_map = clients.read().await;
     let mut tools = Vec::new();
 
@@ -297,7 +291,15 @@ pub async fn call_tool_jsonrpc(
     timeout_secs: u64,
 ) -> Result<Value, String> {
     let empty_headers = HeaderMap::new();
-    execute_tool(clients, transports, name, arguments, &empty_headers, timeout_secs).await
+    execute_tool(
+        clients,
+        transports,
+        name,
+        arguments,
+        &empty_headers,
+        timeout_secs,
+    )
+    .await
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -338,9 +340,12 @@ pub fn validate_client_name(name: &str) -> Result<(), String> {
 
 /// Split a prefixed tool name `clientName_toolName` on the first underscore.
 fn split_prefixed_tool_name(prefixed: &str) -> Result<(&str, &str), String> {
-    let idx = prefixed
-        .find('_')
-        .ok_or_else(|| format!("Invalid tool name '{}': expected 'clientName_toolName'", prefixed))?;
+    let idx = prefixed.find('_').ok_or_else(|| {
+        format!(
+            "Invalid tool name '{}': expected 'clientName_toolName'",
+            prefixed
+        )
+    })?;
     Ok((&prefixed[..idx], &prefixed[idx + 1..]))
 }
 
@@ -387,10 +392,16 @@ mod tests {
     #[test]
     fn test_parse_header_list() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-kgw-mcp-include-clients", "client1, client2".parse().unwrap());
+        headers.insert(
+            "x-kgw-mcp-include-clients",
+            "client1, client2".parse().unwrap(),
+        );
 
         let result = parse_header_list(&headers, "x-kgw-mcp-include-clients");
-        assert_eq!(result, Some(vec!["client1".to_string(), "client2".to_string()]));
+        assert_eq!(
+            result,
+            Some(vec!["client1".to_string(), "client2".to_string()])
+        );
     }
 
     #[test]

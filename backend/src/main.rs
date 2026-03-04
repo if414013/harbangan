@@ -7,11 +7,12 @@ mod auth;
 mod cache;
 mod config;
 mod converters;
+mod datadog;
 mod error;
 mod guardrails;
 mod http_client;
-mod mcp;
 mod log_capture;
+mod mcp;
 mod metrics;
 mod middleware;
 mod models;
@@ -40,13 +41,33 @@ async fn main() -> Result<()> {
     {
         use tracing_subscriber::prelude::*;
         let capture_layer = log_capture::LogCaptureLayer::new(Arc::clone(&log_buffer));
-        let fmt_layer = tracing_subscriber::fmt::layer()
-            .with_target(false)
-            .with_thread_ids(false);
+
+        // When Datadog is enabled, use structured JSON logs so the Agent can parse
+        // and correlate them with APM traces.  The `Layer for Option<L>` blanket
+        // impl makes the inactive branch a zero-cost no-op.
+        let dd_configured = datadog::dd_agent_configured();
+        let json_fmt = dd_configured.then(|| {
+            tracing_subscriber::fmt::layer()
+                .json()
+                .with_target(true)
+                .with_thread_ids(false)
+                .with_current_span(true)
+        });
+        let text_fmt = (!dd_configured).then(|| {
+            tracing_subscriber::fmt::layer()
+                .with_target(false)
+                .with_thread_ids(false)
+        });
+
+        // Datadog APM layer — Some(layer) when DD_AGENT_HOST is set, None otherwise.
+        let dd_layer = datadog::init_datadog();
+
         tracing_subscriber::registry()
             .with(env_filter)
             .with(capture_layer)
-            .with(fmt_layer)
+            .with(json_fmt)
+            .with(text_fmt)
+            .with(dd_layer)
             .init();
     }
 
@@ -105,7 +126,8 @@ async fn main() -> Result<()> {
 
     tracing::info!(
         "Server configured: {}:{}",
-                    config.server_host, config.server_port
+        config.server_host,
+        config.server_port
     );
     tracing::debug!("Debug mode: {:?}", config.debug_mode);
 
@@ -114,9 +136,9 @@ async fn main() -> Result<()> {
         let am = auth::AuthManager::new_from_env(&config)
             .context("Failed to create auth manager from env vars")?;
         tracing::info!("Bootstrapping proxy-only credentials...");
-        am.bootstrap_proxy_credentials()
-            .await
-            .context("Failed to bootstrap proxy credentials. Check KIRO_REFRESH_TOKEN and KIRO_SSO_REGION.")?;
+        am.bootstrap_proxy_credentials().await.context(
+            "Failed to bootstrap proxy credentials. Check KIRO_REFRESH_TOKEN and KIRO_SSO_REGION.",
+        )?;
         am
     } else if setup_complete_flag {
         init_app_auth_from_config_db(&config, &config_db).await?
@@ -175,7 +197,14 @@ async fn main() -> Result<()> {
         resolver::ModelResolver::new(model_cache.clone(), std::collections::HashMap::new());
     tracing::info!("Model resolver initialized");
 
-    let metrics = Arc::new(metrics::MetricsCollector::new());
+    // Initialise Datadog OTLP metrics pipeline (no-op when DD_AGENT_HOST is unset)
+    let otel_metrics_provider = datadog::init_otel_metrics();
+    let metrics = Arc::new(if otel_metrics_provider.is_some() {
+        let meter = opentelemetry::global::meter("kiro-gateway");
+        metrics::MetricsCollector::with_otel(meter)
+    } else {
+        metrics::MetricsCollector::new()
+    });
     tracing::info!("Metrics collector initialized");
 
     let mut app_state = routes::AppState {
@@ -200,8 +229,11 @@ async fn main() -> Result<()> {
     if !is_proxy_only {
         if let Some(ref db) = app_state.config_db {
             let guardrails_db = guardrails::db::GuardrailsDb::new(db.pool().clone());
-            match guardrails::engine::GuardrailsEngine::new(&guardrails_db, config.guardrails_enabled)
-                .await
+            match guardrails::engine::GuardrailsEngine::new(
+                &guardrails_db,
+                config.guardrails_enabled,
+            )
+            .await
             {
                 Ok(engine) => {
                     app_state.guardrails_engine = Some(Arc::new(engine));
@@ -279,6 +311,9 @@ async fn main() -> Result<()> {
     if let Some(ref mcp) = mcp_manager_ref {
         mcp.shutdown().await;
     }
+
+    // Flush and shut down Datadog APM tracer and OTLP metrics (no-op when DD_AGENT_HOST is unset)
+    datadog::shutdown(otel_metrics_provider.as_ref());
 
     tracing::info!("Server shutdown complete");
 
@@ -475,6 +510,7 @@ fn build_app(state: routes::AppState) -> axum::Router {
             state.clone(),
             middleware::debug_middleware,
         ))
+        .layer(tower_http::trace::TraceLayer::new_for_http())
 }
 
 /// Print startup banner

@@ -84,8 +84,7 @@ impl CelEvaluator {
         if expression.trim().is_empty() {
             return Ok(());
         }
-        Program::compile(expression)
-            .map_err(|e| anyhow::anyhow!("CEL compile error: {:?}", e))?;
+        Program::compile(expression).map_err(|e| anyhow::anyhow!("CEL compile error: {:?}", e))?;
         Ok(())
     }
 }
@@ -101,10 +100,7 @@ impl CelEvaluator {
 /// - `request.content_length` (int)
 fn build_cel_context(ctx: &RequestContext) -> cel_interpreter::Context<'static> {
     let mut request_map: HashMap<Key, Value> = HashMap::new();
-    request_map.insert(
-        Key::from("model"),
-        Value::String(ctx.model.clone().into()),
-    );
+    request_map.insert(Key::from("model"), Value::String(ctx.model.clone().into()));
     request_map.insert(
         Key::from("api_format"),
         Value::String(ctx.api_format.clone().into()),
@@ -254,9 +250,7 @@ mod tests {
     #[test]
     fn test_compile_and_cache() {
         let evaluator = CelEvaluator::new();
-        assert!(evaluator
-            .compile("request.model == \"test\"")
-            .is_ok());
+        assert!(evaluator.compile("request.model == \"test\"").is_ok());
 
         // Second call should use cache
         let ctx = test_context();

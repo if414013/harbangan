@@ -291,9 +291,7 @@ async fn run_input_guardrail_check(
         return Ok(());
     }
     match engine.validate_input(content, ctx).await {
-        Ok(Some(result))
-            if result.action == crate::guardrails::GuardrailAction::Intervened =>
-        {
+        Ok(Some(result)) if result.action == crate::guardrails::GuardrailAction::Intervened => {
             Err(ApiError::GuardrailBlocked {
                 violations: result.results,
                 processing_time_ms: result.total_processing_time_ms,
@@ -323,17 +321,13 @@ async fn run_output_guardrail_check(
         return Ok(());
     }
     match engine.validate_output(content, ctx).await {
-        Ok(Some(result))
-            if result.action == crate::guardrails::GuardrailAction::Intervened =>
-        {
+        Ok(Some(result)) if result.action == crate::guardrails::GuardrailAction::Intervened => {
             Err(ApiError::GuardrailBlocked {
                 violations: result.results,
                 processing_time_ms: result.total_processing_time_ms,
             })
         }
-        Ok(Some(result))
-            if result.action == crate::guardrails::GuardrailAction::Redacted =>
-        {
+        Ok(Some(result)) if result.action == crate::guardrails::GuardrailAction::Redacted => {
             Err(ApiError::GuardrailWarning {
                 violations: result.results,
                 processing_time_ms: result.total_processing_time_ms,
@@ -453,6 +447,7 @@ async fn get_models_handler(State(state): State<AppState>) -> Result<Json<ModelL
 ///
 /// Handles both streaming and non-streaming chat completion requests.
 /// Converts OpenAI format to Kiro format, makes the request, and converts back.
+#[tracing::instrument(skip_all, name = "chat_completions")]
 async fn chat_completions_handler(
     State(state): State<AppState>,
     raw_request: axum::http::Request<Body>,
@@ -733,6 +728,7 @@ async fn chat_completions_handler(
 ///
 /// Handles both streaming and non-streaming message requests in Anthropic format.
 /// Converts Anthropic format to Kiro format, makes the request, and converts back.
+#[tracing::instrument(skip_all, name = "anthropic_messages")]
 async fn anthropic_messages_handler(
     State(state): State<AppState>,
     raw_request: axum::http::Request<Body>,

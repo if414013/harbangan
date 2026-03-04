@@ -25,12 +25,21 @@ fn validate_region(region: &str) -> Result<()> {
     // Must match pattern: xx-xxxx-N (e.g. us-east-1)
     let parts: Vec<&str> = region.split('-').collect();
     if parts.len() < 3 {
-        anyhow::bail!("Invalid AWS region format: '{}' (expected e.g. us-east-1)", region);
+        anyhow::bail!(
+            "Invalid AWS region format: '{}' (expected e.g. us-east-1)",
+            region
+        );
     }
 
     // Last part must end with a digit
-    if !parts.last().is_some_and(|p| p.chars().last().is_some_and(|c| c.is_ascii_digit())) {
-        anyhow::bail!("Invalid AWS region format: '{}' (expected trailing number)", region);
+    if !parts
+        .last()
+        .is_some_and(|p| p.chars().last().is_some_and(|c| c.is_ascii_digit()))
+    {
+        anyhow::bail!(
+            "Invalid AWS region format: '{}' (expected trailing number)",
+            region
+        );
     }
 
     Ok(())
@@ -94,8 +103,13 @@ impl BedrockGuardrailClient {
         );
 
         // Build SigV4 signing params
-        let credentials =
-            Credentials::new(&profile.access_key, &profile.secret_key, None, None, "guardrails");
+        let credentials = Credentials::new(
+            &profile.access_key,
+            &profile.secret_key,
+            None,
+            None,
+            "guardrails",
+        );
         let identity = credentials.into();
         let mut settings = SigningSettings::default();
         settings.signature_location = SignatureLocation::Headers;
@@ -174,10 +188,7 @@ impl BedrockGuardrailClient {
                             };
                             violations.push(GuardrailViolation {
                                 violation_type: "content_policy".to_string(),
-                                category: filter["type"]
-                                    .as_str()
-                                    .unwrap_or("unknown")
-                                    .to_string(),
+                                category: filter["type"].as_str().unwrap_or("unknown").to_string(),
                                 severity: filter["confidence"]
                                     .as_str()
                                     .unwrap_or("NONE")
@@ -202,10 +213,7 @@ impl BedrockGuardrailClient {
                             };
                             violations.push(GuardrailViolation {
                                 violation_type: "topic_policy".to_string(),
-                                category: topic["name"]
-                                    .as_str()
-                                    .unwrap_or("unknown")
-                                    .to_string(),
+                                category: topic["name"].as_str().unwrap_or("unknown").to_string(),
                                 severity: "HIGH".to_string(),
                                 action: topic_action,
                                 message: format!(
@@ -246,10 +254,7 @@ impl BedrockGuardrailClient {
                             };
                             violations.push(GuardrailViolation {
                                 violation_type: "sensitive_info".to_string(),
-                                category: entity["type"]
-                                    .as_str()
-                                    .unwrap_or("unknown")
-                                    .to_string(),
+                                category: entity["type"].as_str().unwrap_or("unknown").to_string(),
                                 severity: "MEDIUM".to_string(),
                                 action: pii_action,
                                 message: format!(
