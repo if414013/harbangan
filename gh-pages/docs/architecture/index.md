@@ -342,6 +342,7 @@ flowchart TD
 | CEL Engine | [cel-interpreter](https://github.com/clarkmcc/cel-rust) | Common Expression Language for guardrail rule conditions |
 | TLS Termination | [nginx](https://nginx.org/) | Reverse proxy with Let's Encrypt TLS via certbot |
 | Frontend | React 19 + Vite 7 + TypeScript 5.9 | Browser-based admin dashboard served by nginx |
+| APM / Observability | [Datadog](https://www.datadoghq.com/) + OpenTelemetry | Optional distributed tracing, metrics, log correlation, and frontend RUM |
 
 ---
 
@@ -376,6 +377,10 @@ In Proxy-Only Mode, a single `PROXY_API_KEY` is used for all requests, and a sin
 ### 7. Pipeline Extensibility (Guardrails + MCP)
 
 Input guardrails run before format conversion, output guardrails run after response collection (non-streaming only). MCP tools are injected into the request's tool list before conversion. Both features are optional (disabled by default) and fail-open to avoid blocking requests on infrastructure errors.
+
+### 8. Opt-In Observability (Datadog APM)
+
+Datadog APM is zero-overhead when not configured. When `DD_AGENT_HOST` is set, the backend adds a Datadog layer to the `tracing_subscriber` registry — no code runs otherwise. The Datadog Agent runs as an optional Docker Compose profile (`--profile datadog`), keeping the default deployment simple. Frontend RUM is similarly opt-in via build-time `VITE_DD_*` environment variables.
 
 ---
 

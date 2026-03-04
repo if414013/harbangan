@@ -6,6 +6,7 @@ This guide covers both deployment modes for the Kiro Gateway.
 |------|-------------|----------|----------|
 | **Proxy-Only Mode** | `docker-compose.gateway.yml` | 1 (gateway) | Single-user, no DB/SSO needed |
 | **Full Deployment** | `docker-compose.yml` | 4 (db, backend, frontend, certbot) | Multi-user with Web UI, Google SSO, TLS |
+| **+ Datadog APM** | either + `--profile datadog` | +1 (datadog-agent) | Optional observability sidecar |
 
 ---
 
@@ -180,6 +181,72 @@ open https://your-domain/_ui/
 ### Token Refresh Workflow
 
 The gateway stores per-user Kiro refresh tokens in PostgreSQL and automatically refreshes access tokens before expiry. If a refresh token eventually expires, the user can update it via the Web UI profile page at `/_ui/profile`.
+
+---
+
+## Datadog APM (Optional)
+
+Both deployment modes support an optional Datadog Agent sidecar for distributed tracing, metrics, log forwarding, and frontend RUM. The integration is zero-overhead when not configured.
+
+### 1. Configure environment variables
+
+Add to your `.env` (full deployment) or `.env.proxy` (proxy-only):
+
+```env
+DD_API_KEY=your-datadog-api-key
+DD_SITE=datadoghq.com   # or datadoghq.eu, us3.datadoghq.com, etc.
+DD_ENV=production
+```
+
+For frontend Real User Monitoring (RUM), set these **before building** the frontend image:
+
+```env
+VITE_DD_CLIENT_TOKEN=your-rum-client-token
+VITE_DD_APPLICATION_ID=your-rum-application-id
+VITE_DD_ENV=production
+```
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DD_API_KEY` | Yes | | Datadog API key |
+| `DD_SITE` | No | `datadoghq.com` | Datadog intake site |
+| `DD_ENV` | No | | Environment tag (e.g. `production`, `staging`) |
+| `VITE_DD_CLIENT_TOKEN` | No | | RUM client token (baked into frontend bundle) |
+| `VITE_DD_APPLICATION_ID` | No | | RUM application ID (baked into frontend bundle) |
+
+### 2. Start with Datadog Agent
+
+Add `--profile datadog` to your compose command:
+
+```bash
+# Full deployment
+docker compose --profile datadog up -d
+
+# Proxy-only
+docker compose -f docker-compose.gateway.yml --profile datadog --env-file .env.proxy up -d
+```
+
+The `datadog-agent` service starts alongside the gateway and receives traces via OTLP on port 4317. `DD_AGENT_HOST` is set automatically by docker-compose.
+
+### 3. Verify
+
+After startup, check that traces are flowing:
+
+```bash
+# Check agent is running
+docker compose ps datadog-agent
+
+# Check agent logs for connectivity
+docker compose logs datadog-agent | grep -i "connected\|error"
+```
+
+Then open your Datadog APM dashboard — traces should appear within ~30 seconds of the first request.
+
+**What you'll see in Datadog:**
+- Distributed traces for every `/v1/*` request with model, user, and latency breakdown
+- Metrics: request rate, error rate, latency percentiles, token usage (per model and user)
+- Logs correlated to traces via injected `dd.trace_id` / `dd.span_id` fields
+- Frontend RUM sessions linked to backend traces (if `VITE_DD_*` vars are set)
 
 ---
 

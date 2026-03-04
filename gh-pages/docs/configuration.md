@@ -244,6 +244,58 @@ GOOGLE_CALLBACK_URL=https://gateway.example.com/_ui/api/auth/google/callback
 
 ---
 
+## Datadog APM Environment Variables
+
+Datadog APM is opt-in and zero-overhead when not configured. Set these in your `.env` (Full Deployment) or `.env.proxy` (Proxy-Only) to enable observability.
+
+The Datadog Agent runs as an optional Docker Compose service. Start it with `--profile datadog`:
+
+```bash
+docker compose --profile datadog up -d
+```
+
+### Backend APM Variables
+
+| Variable | Required | Default | Description |
+|:---|:---|:---|:---|
+| `DD_API_KEY` | Yes (for agent) | | Datadog API key. Required to activate the agent. |
+| `DD_SITE` | No | `datadoghq.com` | Datadog intake site. Other options: `datadoghq.eu`, `us3.datadoghq.com`, `us5.datadoghq.com`. |
+| `DD_ENV` | No | | Environment tag applied to all traces and metrics (e.g. `production`, `staging`). |
+| `DD_AGENT_HOST` | Auto | | Set automatically by docker-compose to `datadog-agent`. Do not set manually. |
+
+When `DD_AGENT_HOST` is set, the backend adds a Datadog tracing layer to the `tracing_subscriber` registry and exports spans via OTLP. When unset, no Datadog code runs.
+
+### Frontend RUM Variables
+
+These are **build-time** variables baked into the JavaScript bundle. They must be set before running `docker compose build frontend` (or `docker compose up --build`).
+
+| Variable | Required | Default | Description |
+|:---|:---|:---|:---|
+| `VITE_DD_CLIENT_TOKEN` | Yes (for RUM) | | Browser RUM client token from Datadog. |
+| `VITE_DD_APPLICATION_ID` | Yes (for RUM) | | Browser RUM application ID from Datadog. |
+| `VITE_DD_ENV` | No | | RUM environment tag (e.g. `production`). |
+| `VITE_DD_SERVICE` | No | `rkgw-frontend` | RUM service name. |
+
+If `VITE_DD_CLIENT_TOKEN` or `VITE_DD_APPLICATION_ID` are empty at build time, the RUM SDK is not initialized and no browser data is sent.
+
+### Example `.env` with Datadog
+
+```bash
+# ... existing required variables ...
+
+# Datadog APM (optional)
+DD_API_KEY=your-datadog-api-key
+DD_SITE=datadoghq.com
+DD_ENV=production
+
+# Datadog RUM — set before building frontend
+VITE_DD_CLIENT_TOKEN=your-rum-client-token
+VITE_DD_APPLICATION_ID=your-rum-application-id
+VITE_DD_ENV=production
+```
+
+---
+
 ## Next Steps
 
 - [Getting Started](getting-started.html) — Full setup walkthrough for both modes

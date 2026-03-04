@@ -501,6 +501,72 @@ INFO kiro_gateway::routes: Request to /v1/chat/completions: model=claude-sonnet-
 
 ---
 
+## Datadog APM (Optional)
+
+Both deployment modes support an optional Datadog Agent sidecar for distributed tracing, metrics, log forwarding, and frontend RUM. The integration is zero-overhead when not configured — when `DD_AGENT_HOST` is unset, no Datadog code runs.
+
+### Step 1: Configure Datadog environment variables
+
+Add to your `.env` (Full Deployment) or `.env.proxy` (Proxy-Only):
+
+```bash
+DD_API_KEY=your-datadog-api-key
+DD_SITE=datadoghq.com   # or datadoghq.eu, us3.datadoghq.com, etc.
+DD_ENV=production
+```
+
+For frontend Real User Monitoring (RUM), set these **before building** the frontend image:
+
+```bash
+VITE_DD_CLIENT_TOKEN=your-rum-client-token
+VITE_DD_APPLICATION_ID=your-rum-application-id
+VITE_DD_ENV=production
+```
+
+| Variable | Required | Default | Description |
+|:---|:---|:---|:---|
+| `DD_API_KEY` | Yes | | Datadog API key |
+| `DD_SITE` | No | `datadoghq.com` | Datadog intake site |
+| `DD_ENV` | No | | Environment tag (e.g. `production`, `staging`) |
+| `VITE_DD_CLIENT_TOKEN` | No | | RUM client token (baked into frontend bundle at build time) |
+| `VITE_DD_APPLICATION_ID` | No | | RUM application ID (baked into frontend bundle at build time) |
+
+### Step 2: Start with the Datadog profile
+
+Add `--profile datadog` to your compose command:
+
+```bash
+# Full Deployment
+docker compose --profile datadog up -d
+
+# Proxy-Only
+docker compose -f docker-compose.gateway.yml --profile datadog --env-file .env.proxy up -d
+```
+
+The `datadog-agent` service starts alongside the gateway and receives traces via OTLP on port 4317. `DD_AGENT_HOST` is set automatically by docker-compose.
+
+### Step 3: Verify
+
+```bash
+# Check agent is running
+docker compose ps datadog-agent
+
+# Check agent logs for connectivity
+docker compose logs datadog-agent | grep -i "connected\|error"
+```
+
+Traces appear in your Datadog APM dashboard within ~30 seconds of the first request.
+
+**What you'll see in Datadog:**
+- Distributed traces for every `/v1/*` request with model, user, and latency breakdown
+- Metrics: request rate, error rate, latency percentiles, token usage (per model and user)
+- Logs correlated to traces via injected `dd.trace_id` / `dd.span_id` fields
+- Frontend RUM sessions linked to backend traces (if `VITE_DD_*` vars are set at build time)
+
+See the [Configuration Reference](configuration.html#datadog-apm-environment-variables) for all Datadog variables and the [Architecture docs](../architecture/#observability-datadog-apm) for implementation details.
+
+---
+
 ## Next Steps
 
 - [Configuration Reference](configuration.html) — Environment variables for both Proxy-Only Mode and Full Deployment

@@ -500,6 +500,66 @@ docker compose -f docker-compose.gateway.yml --env-file .env.proxy restart gatew
 
 ---
 
+## Datadog APM Issues
+
+### No traces appearing in Datadog
+
+**Possible causes:**
+
+1. **Agent not running:** Check the Datadog Agent container is up:
+   ```bash
+   docker compose ps datadog-agent
+   docker compose logs datadog-agent | tail -20
+   ```
+
+2. **Missing `DD_API_KEY`:** The agent won't forward data without a valid API key. Verify it's set in `.env` and the agent container has it:
+   ```bash
+   docker compose exec datadog-agent env | grep DD_API_KEY
+   ```
+
+3. **Wrong `DD_SITE`:** If your Datadog account is on a non-US site (e.g. EU), set `DD_SITE=datadoghq.eu`. The default is `datadoghq.com`.
+
+4. **`DD_AGENT_HOST` not set:** The backend only activates tracing when `DD_AGENT_HOST` is set. In docker-compose this is set automatically when using `--profile datadog`. If running outside docker-compose, set it manually to the agent's hostname.
+
+5. **Profile not activated:** Ensure you started with `--profile datadog`:
+   ```bash
+   docker compose --profile datadog up -d
+   ```
+
+### No frontend RUM data
+
+**Cause:** The `VITE_DD_*` variables are build-time — they must be set before building the frontend image.
+
+**Solutions:**
+- Set `VITE_DD_CLIENT_TOKEN` and `VITE_DD_APPLICATION_ID` in `.env` before building
+- Rebuild the frontend image: `docker compose build frontend`
+- Verify the variables were baked in: check the browser console for Datadog RUM initialization messages
+- If the variables are empty at build time, the RUM SDK is not initialized and no data is sent
+
+### Log correlation not working (no `dd.trace_id` in logs)
+
+**Cause:** JSON log formatting with trace ID injection is only active when `DD_AGENT_HOST` is set.
+
+**Solutions:**
+- Verify `DD_AGENT_HOST` is set in the backend container's environment
+- Check that the Datadog Agent is running and reachable
+- Confirm you're looking at backend logs (not nginx logs) — only the Rust backend injects trace IDs
+
+### Datadog Agent exits immediately
+
+**Cause:** Usually a missing or invalid `DD_API_KEY`.
+
+**Solution:** Check the agent logs for the specific error:
+```bash
+docker compose logs datadog-agent
+```
+
+Common messages:
+- `API key is missing` — set `DD_API_KEY` in `.env`
+- `API key is invalid` — verify the key is correct in your Datadog account settings
+
+---
+
 ## Log Analysis Tips
 
 ### Enable Debug Logging

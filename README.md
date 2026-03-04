@@ -53,6 +53,7 @@ This project is a Rust rewrite of the original [kiro-gateway](https://github.com
 | **Web UI Dashboard**          | Real-time metrics, logs, configuration, and user management                              |
 | **Let's Encrypt TLS**         | Automated HTTPS via certbot with auto-renewal                                            |
 | **Proxy-Only Mode**           | Single API key, no DB/SSO — just a pure proxy (`docker-compose.gateway.yml`)             |
+| **Datadog APM**               | Optional observability: distributed tracing, metrics, log correlation, and frontend RUM  |
 
 ---
 
@@ -223,6 +224,16 @@ Set in `.env` (see `.env.example`):
 | `GOOGLE_CALLBACK_URL`  | Yes      | OAuth callback URL                 |
 
 Auto-set by docker-compose: `DATABASE_URL`, `SERVER_HOST` (0.0.0.0), `SERVER_PORT` (8000).
+
+### Datadog APM (Optional)
+
+Both deployment modes support optional Datadog observability via a sidecar agent. Set `DD_API_KEY` and `DD_SITE` in your `.env`, then start with `--profile datadog`:
+
+```bash
+docker compose --profile datadog up -d
+```
+
+See [docs/docker-deploy.md](docs/docker-deploy.md#datadog-apm-optional) for full setup instructions and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#observability-datadog-apm) for the architecture details.
 
 ### Runtime Configuration
 

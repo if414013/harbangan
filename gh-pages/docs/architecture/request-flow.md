@@ -388,3 +388,40 @@ Each request is wrapped in a `RequestGuard` (defined in `backend/src/routes/mod.
 3. Decrements `active_connections` on drop (even if the request panics or is cancelled)
 
 For streaming requests, a `StreamingMetricsTracker` is used instead, which tracks output tokens incrementally as they flow through the stream and records metrics when the tracker is dropped.
+
+---
+
+## Distributed Tracing (Datadog APM)
+
+When Datadog APM is enabled (via `DD_AGENT_HOST`), every request through the pipeline is instrumented with OpenTelemetry spans.
+
+### Span creation points
+
+| Location | Span | Description |
+|:---|:---|:---|
+| `tower-http TraceLayer` | `HTTP {method} {path}` | Root span for every HTTP request, auto-created by middleware |
+| `chat_completions_handler` | `chat_completions` | OpenAI endpoint handler span |
+| `anthropic_messages_handler` | `anthropic_messages` | Anthropic endpoint handler span |
+| `KiroHttpClient::request_with_retry` | `kiro_api_request` | Upstream Kiro API call span |
+| `GuardrailsEngine::validate_input` | `guardrails_input` | Input validation span (when enabled) |
+| `GuardrailsEngine::validate_output` | `guardrails_output` | Output validation span (when enabled) |
+
+### Trace context propagation
+
+The `tower-http TraceLayer` injects W3C `traceparent` headers into outbound requests to Kiro. The frontend RUM SDK (`@datadog/browser-rum-react`) propagates trace context via HTTP headers on API calls, connecting browser sessions to backend traces.
+
+### Metrics collection points
+
+OTLP metrics are exported alongside traces. Key collection points:
+
+| Metric | Collected at | Dimensions |
+|:---|:---|:---|
+| `rkgw.requests.total` | `RequestGuard` drop | `model`, `user`, `status` |
+| `rkgw.request.duration_ms` | `RequestGuard` drop | `model`, `user` |
+| `rkgw.errors.total` | `MetricsCollector::record_error` | `model`, `error_type` |
+| `rkgw.tokens.input` | After token counting (Step 9) | `model`, `user` |
+| `rkgw.tokens.output` | `StreamingMetricsTracker` drop | `model`, `user` |
+
+### Log correlation
+
+When Datadog is active, logs are formatted as JSON with `dd.trace_id` and `dd.span_id` fields injected by the tracing layer. This connects log entries to their parent trace in the Datadog UI. The existing web UI SSE log streaming continues to work alongside JSON log output.

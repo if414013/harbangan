@@ -22,6 +22,7 @@ This document provides detailed architecture documentation for rkgw (Rust Kiro G
   - [Converters](#12-converters)
   - [Data Models](#13-data-models)
   - [Middleware](#14-middleware)
+- [Observability (Datadog APM)](#observability-datadog-apm)
 - [Quick Reference](#quick-reference)
 
 ---
@@ -1159,6 +1160,91 @@ flowchart TD
 - Accepts `Authorization: Bearer {PROXY_API_KEY}` or `x-api-key: {PROXY_API_KEY}`
 - Constant-time comparison against `PROXY_API_KEY`
 - Uses shared AuthManager credentials (no per-user lookup)
+
+---
+
+## Observability (Datadog APM)
+
+Datadog APM is an optional, zero-overhead integration. When `DD_AGENT_HOST` is unset, no Datadog code runs. When set, the backend adds a Datadog layer to the existing `tracing_subscriber` registry.
+
+### Architecture
+
+```
+backend ──OTLP──► datadog-agent:4317 ──► Datadog
+frontend ──RUM──► Datadog (browser SDK, direct)
+backend logs ──► datadog-agent (log forwarding)
+```
+
+The Datadog Agent runs as an optional Docker Compose service activated via `--profile datadog`.
+
+### Backend Tracing (`backend/src/datadog.rs`)
+
+Uses `datadog-opentelemetry` + OpenTelemetry SDK. Initialized conditionally at startup:
+
+```rust
+// Only active when DD_AGENT_HOST is set
+if let Some(agent_host) = config.dd_agent_host {
+    let dd_layer = init_datadog_tracer(&agent_host)?;
+    registry.with(dd_layer).init();
+}
+```
+
+Spans are generated automatically for all HTTP requests via `tower-http` middleware, and key functions are instrumented with `#[tracing::instrument]`.
+
+**Metrics exported via OTLP:**
+
+| Metric | Dimensions | Description |
+|--------|-----------|-------------|
+| `rkgw.requests.total` | model, user, status | Request count |
+| `rkgw.request.duration_ms` | model, user | Latency histogram |
+| `rkgw.errors.total` | model, error_type | Error count |
+| `rkgw.tokens.input` | model, user | Input token usage |
+| `rkgw.tokens.output` | model, user | Output token usage |
+
+### Log Correlation
+
+Logs are formatted as JSON with Datadog trace/span IDs injected:
+
+```json
+{"timestamp":"...","level":"INFO","message":"Request completed","dd.trace_id":"...","dd.span_id":"...","model":"claude-sonnet-4-6","tokens":1234}
+```
+
+This connects logs to traces in the Datadog UI. The existing web UI SSE log streaming continues to work alongside JSON log output.
+
+### Frontend RUM (`frontend/src/`)
+
+Uses `@datadog/browser-rum-react` with react-router-dom v7 integration. Configured via build-time `VITE_DD_*` environment variables baked into the JS bundle.
+
+Captures: page loads, route changes, user interactions, JS errors, and HTTP requests. Trace context is propagated via HTTP headers to connect frontend sessions to backend traces.
+
+### Docker Compose Integration
+
+The Datadog Agent is defined as an optional service in both `docker-compose.yml` and `docker-compose.gateway.yml`:
+
+```yaml
+datadog-agent:
+  image: gcr.io/datadoghq/agent:7
+  profiles: ["datadog"]
+  environment:
+    - DD_API_KEY=${DD_API_KEY}
+    - DD_SITE=${DD_SITE:-datadoghq.com}
+    - DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT=0.0.0.0:4317
+    - DD_LOGS_ENABLED=true
+```
+
+Start with Datadog: `docker compose --profile datadog up -d`
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DD_API_KEY` | Yes (for agent) | Datadog API key |
+| `DD_SITE` | No | Datadog site (default: `datadoghq.com`) |
+| `DD_ENV` | No | Environment tag (e.g. `production`) |
+| `DD_AGENT_HOST` | Auto | Set by docker-compose to `datadog-agent` |
+| `VITE_DD_CLIENT_TOKEN` | Yes (for RUM) | Browser RUM client token |
+| `VITE_DD_APPLICATION_ID` | Yes (for RUM) | Browser RUM application ID |
+| `VITE_DD_ENV` | No | RUM environment tag |
 
 ---
 
