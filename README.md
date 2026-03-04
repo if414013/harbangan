@@ -90,6 +90,8 @@ On first boot, the container runs a device code flow — check the logs for a UR
 ╚═══════════════════════════════════════════════════════════╝
 ```
 
+Credentials are cached in a Docker volume — you only need to authorize once. On subsequent restarts, the gateway reuses the cached tokens automatically.
+
 That's it — the gateway starts on port 8000 and authenticates requests with `PROXY_API_KEY`:
 
 ```bash

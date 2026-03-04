@@ -33,9 +33,15 @@ services:
       KIRO_SSO_URL: "${KIRO_SSO_URL:-}"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       DEBUG_MODE: "${DEBUG_MODE:-off}"
+    volumes:
+      - gateway-data:/data
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:${SERVER_PORT:-8000}/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
+
+
+volumes:
+  gateway-data:
