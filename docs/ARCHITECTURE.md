@@ -4,6 +4,7 @@ This document provides detailed architecture documentation for rkgw (Rust Kiro G
 
 ## Table of Contents
 
+- [Deployment Modes](#deployment-modes)
 - [High-Level Architecture](#high-level-architecture)
 - [Request Flow](#request-flow)
 - [Component Deep Dives](#component-deep-dives)
@@ -25,7 +26,81 @@ This document provides detailed architecture documentation for rkgw (Rust Kiro G
 
 ---
 
+## Deployment Modes
+
+The gateway supports two deployment modes, selected by which Docker Compose file you use.
+
+### Full Deployment (`docker-compose.yml`)
+
+Multi-user deployment with 4 services:
+
+```
+Internet → nginx (frontend, :443/:80)
+              ├── /_ui/*           → React SPA static files
+              ├── /_ui/api/*       → proxy → backend:8000
+              ├── /v1/*            → proxy → backend:8000 (SSE streaming)
+              └── /.well-known/    → certbot webroot
+           certbot   → Let's Encrypt cert auto-renewal (12h cycle)
+           backend   → Rust API server (plain HTTP, internal only)
+           db        → PostgreSQL 16
+```
+
+| Service | Image | Description |
+|---------|-------|-------------|
+| **db** | `postgres:16-alpine` | Config, users, API keys, guardrails rules, MCP client state |
+| **backend** | `kiro-gateway-backend` | Rust API server (Axum 0.7 + Tokio) |
+| **frontend** | `kiro-gateway-frontend` | nginx serving React SPA + reverse proxy to backend |
+| **certbot** | `certbot/certbot` | Let's Encrypt certificate provisioning and renewal |
+
+**Authentication:** Google SSO for the Web UI + per-user API keys for proxy endpoints. Each user has their own Kiro credentials stored in PostgreSQL.
+
+### Proxy-Only Mode (`docker-compose.gateway.yml`)
+
+Single-container deployment — no database, no Web UI, no Google SSO:
+
+```
+Client → gateway:8000
+           ├── /v1/*    → proxy to Kiro API
+           ├── /health  → health check
+           └── /        → status
+```
+
+| Service | Image | Description |
+|---------|-------|-------------|
+| **gateway** | `kiro-gateway-backend` | Rust API server with entrypoint.sh for device code auth |
+
+**Authentication:** Single `PROXY_API_KEY` shared by all clients. Kiro credentials obtained via device code flow on first boot and cached in a Docker volume.
+
+**How proxy-only mode is detected:** `Config::is_proxy_only()` returns `true` when `PROXY_API_KEY` is set (via `proxy_api_key.is_some()`). When true, the backend skips database initialization, Google SSO, Web UI routes, guardrails, and MCP.
+
+### Device Code Flow (Proxy-Only)
+
+The `backend/entrypoint.sh` script orchestrates credential acquisition:
+
+```mermaid
+flowchart TD
+    START[Container starts] --> CHECK_ENV{KIRO_REFRESH_TOKEN<br/>set in env?}
+    CHECK_ENV -->|Yes| LAUNCH[Launch gateway]
+    CHECK_ENV -->|No| CACHE{Cached tokens<br/>in /data/tokens.json?}
+    CACHE -->|Yes| VALIDATE[Validate via test refresh]
+    VALIDATE -->|Valid| LAUNCH
+    VALIDATE -->|Expired| DEVICE_FLOW
+    CACHE -->|No| DEVICE_FLOW[Device code flow]
+
+    DEVICE_FLOW --> REGISTER[1. Register OIDC client]
+    REGISTER --> AUTHORIZE[2. Start device authorization]
+    AUTHORIZE --> DISPLAY["3. Display URL + user code<br/>(check docker logs)"]
+    DISPLAY --> POLL[4. Poll for token]
+    POLL -->|Authorized| SAVE[Save to /data/tokens.json]
+    SAVE --> LAUNCH
+    POLL -->|Timeout| FAIL[Exit with error]
+```
+
+---
+
 ## High-Level Architecture
+
+### Full Deployment
 
 ```mermaid
 flowchart TB
@@ -45,6 +120,8 @@ flowchart TB
             HEALTH[Health Routes]
             OPENAI[OpenAI Routes]
             ANTHRO[Anthropic Routes]
+            WEBUI[Web UI Routes]
+            MCP_RT[MCP Routes]
         end
 
         subgraph Core
@@ -52,6 +129,96 @@ flowchart TB
             CACHE[Model Cache]
             RESOLVER[Model Resolver]
             AUTHMGR[Auth Manager]
+            HTTP[HTTP Client]
+            METRICS[Metrics Collector]
+        end
+
+        subgraph Converters
+            O2K[OpenAI to Kiro]
+            A2K[Anthropic to Kiro]
+            K2O[Kiro to OpenAI]
+            K2A[Kiro to Anthropic]
+        end
+
+        subgraph Streaming
+            PARSER[AWS Event Stream Parser]
+            THINK[Thinking Parser]
+            SSE[SSE Formatter]
+        end
+
+        subgraph Features
+            GUARD[Guardrails Engine]
+            MCP_MGR[MCP Manager]
+        end
+    end
+
+    subgraph External
+        KIRO[Kiro/CodeWhisperer API]
+        PG[(PostgreSQL DB)]
+        SSOOIDC[AWS SSO OIDC]
+        GOOGLE[Google OAuth]
+        BEDROCK[AWS Bedrock]
+    end
+
+    OAI --> CORS
+    ANT --> CORS
+    CORS --> AUTH
+    AUTH --> DEBUG
+    DEBUG --> OPENAI
+    DEBUG --> ANTHRO
+    DEBUG --> HEALTH
+    DEBUG --> WEBUI
+    DEBUG --> MCP_RT
+
+    OPENAI --> O2K
+    ANTHRO --> A2K
+    O2K --> HTTP
+    A2K --> HTTP
+    HTTP --> KIRO
+
+    KIRO --> PARSER
+    PARSER --> THINK
+    THINK --> K2O
+    THINK --> K2A
+    K2O --> SSE
+    K2A --> SSE
+
+    AUTHMGR --> PG
+    AUTHMGR --> SSOOIDC
+    HTTP --> AUTHMGR
+    RESOLVER --> CACHE
+    WEBUI --> GOOGLE
+    GUARD --> BEDROCK
+    MCP_MGR --> PG
+```
+
+### Proxy-Only Mode
+
+```mermaid
+flowchart TB
+    subgraph Clients
+        OAI[OpenAI Client]
+        ANT[Anthropic Client]
+    end
+
+    subgraph Gateway["rkgw Gateway (proxy-only)"]
+        subgraph Middleware
+            CORS[CORS Layer]
+            AUTH["Auth Middleware<br/>(PROXY_API_KEY)"]
+            DEBUG[Debug Middleware]
+        end
+
+        subgraph Routes
+            HEALTH[Health Routes]
+            OPENAI[OpenAI Routes]
+            ANTHRO[Anthropic Routes]
+        end
+
+        subgraph Core
+            CONFIG[Config]
+            CACHE[Model Cache]
+            RESOLVER[Model Resolver]
+            AUTHMGR["Auth Manager<br/>(shared credentials)"]
             HTTP[HTTP Client]
         end
 
@@ -71,8 +238,8 @@ flowchart TB
 
     subgraph External
         KIRO[Kiro/CodeWhisperer API]
-        PG[(PostgreSQL DB)]
         SSOOIDC[AWS SSO OIDC]
+        VOL[("Docker Volume<br/>tokens.json")]
     end
 
     OAI --> CORS
@@ -96,8 +263,8 @@ flowchart TB
     K2O --> SSE
     K2A --> SSE
 
-    AUTHMGR --> PG
     AUTHMGR --> SSOOIDC
+    AUTHMGR --> VOL
     HTTP --> AUTHMGR
     RESOLVER --> CACHE
 ```
@@ -163,22 +330,36 @@ sequenceDiagram
 
 **Source:** `src/main.rs`
 
-**Overview:** Entry point that orchestrates startup, initializes all components, and runs the Axum HTTP server.
+**Overview:** Entry point that orchestrates startup, initializes all components, and runs the Axum HTTP server. Startup behavior differs based on deployment mode.
 
 ```mermaid
 flowchart TD
     START[main()] --> LOAD[Load Config]
     LOAD --> VALIDATE[Validate Config]
     VALIDATE --> LOG[Initialize Logging]
-    LOG --> AUTH[Create AuthManager]
-    AUTH --> TOKEN[Test Authentication]
+    LOG --> MODE{is_proxy_only?}
+
+    MODE -->|Yes| AUTH_ENV[Create AuthManager from env]
+    MODE -->|No| DB[Connect PostgreSQL]
+    DB --> LOAD_CFG[Load config from DB]
+    LOAD_CFG --> AUTH_DB[Create AuthManager from DB]
+
+    AUTH_ENV --> TOKEN[Test Authentication]
+    AUTH_DB --> TOKEN
     TOKEN --> HTTP[Create HTTP Client]
     HTTP --> CACHE[Initialize Model Cache]
     CACHE --> MODELS[Load Models from Kiro API]
     MODELS --> HIDDEN[Add Hidden Models]
     HIDDEN --> RESOLVER[Create Model Resolver]
     RESOLVER --> STATE[Build AppState]
-    STATE --> APP[Build Axum App]
+
+    STATE --> FEATURES{is_proxy_only?}
+    FEATURES -->|No| GUARD[Init Guardrails]
+    GUARD --> MCP_INIT[Init MCP Manager]
+    MCP_INIT --> TASKS[Spawn background tasks]
+    FEATURES -->|Yes| APP
+
+    TASKS --> APP[Build Axum App]
     APP --> BIND[Bind to Address]
     BIND --> SERVE[Start Server]
     SERVE --> SHUTDOWN[Graceful Shutdown Handler]
@@ -217,6 +398,7 @@ flowchart LR
         HTTP[HTTP Client]
         DEBUG[Debug Settings]
         CONVERTER[Converter Settings]
+        PROXY[Proxy-Only Settings]
     end
 
     CLI --> |Priority 1| Config
@@ -239,12 +421,27 @@ flowchart LR
 |-------|------|---------|-------------|
 | `server_host` | String | `0.0.0.0` | Server bind address |
 | `server_port` | u16 | `8000` | Server port |
-| `proxy_api_key` | String | Required | API key for client auth |
 | `database_url` | Option<String> | None | PostgreSQL connection string |
 | `kiro_region` | String | `us-east-1` | AWS region |
 | `token_refresh_threshold` | u64 | `300` | Seconds before expiry to refresh |
 | `http_max_retries` | u32 | `3` | Max retry attempts |
 | `fake_reasoning_enabled` | bool | `true` | Enable extended thinking |
+| `proxy_api_key` | Option<String> | None | API key for proxy-only mode |
+| `kiro_refresh_token` | Option<String> | None | Refresh token (proxy-only, from entrypoint.sh) |
+| `kiro_client_id` | Option<String> | None | OIDC client ID (proxy-only) |
+| `kiro_client_secret` | Option<String> | None | OIDC client secret (proxy-only) |
+| `kiro_sso_url` | Option<String> | None | Identity Center URL (proxy-only) |
+| `kiro_sso_region` | Option<String> | None | SSO OIDC region (proxy-only) |
+
+**Mode Detection:**
+
+```rust
+pub fn is_proxy_only(&self) -> bool {
+    self.proxy_api_key.is_some()
+}
+```
+
+When `is_proxy_only()` returns `true`, the backend skips: database connection, Google SSO routes, Web UI API routes, guardrails initialization, and MCP manager initialization.
 
 ---
 
@@ -386,32 +583,59 @@ pub struct ModelResolution {
 
 **Source:** `src/auth/`
 
-**Overview:** Manages OAuth token lifecycle with automatic refresh, reading credentials from the PostgreSQL config database.
+**Overview:** Manages OAuth token lifecycle with automatic refresh. Behavior differs by deployment mode.
+
+#### Full Deployment
+
+Per-user Kiro credentials stored in PostgreSQL, loaded on demand:
 
 ```mermaid
 sequenceDiagram
     participant Client
+    participant AuthMiddleware
+    participant DB[(PostgreSQL)]
     participant AuthManager
-    participant PostgreSQL
     participant SSOOIDC[AWS SSO OIDC]
 
-    Client->>AuthManager: get_access_token()
-    AuthManager->>AuthManager: is_token_expiring_soon()?
+    Client->>AuthMiddleware: Authorization: Bearer <api-key>
+    AuthMiddleware->>AuthMiddleware: SHA-256 hash key
+    AuthMiddleware->>DB: Lookup user by key hash
+    DB-->>AuthMiddleware: user_id, Kiro credentials
+    AuthMiddleware->>AuthManager: get_access_token(user_creds)
+    AuthManager->>AuthManager: Check token expiry
 
     alt Token valid
         AuthManager-->>Client: Return cached token
     else Token expiring
-        AuthManager->>AuthManager: refresh_token()
-
-        alt AWS SSO OIDC
-            AuthManager->>SSOOIDC: POST /token (refresh_token grant)
-            SSOOIDC-->>AuthManager: New access_token, refresh_token
-        end
-
-        AuthManager->>AuthManager: Update cached tokens
+        AuthManager->>SSOOIDC: POST /token (refresh_token grant)
+        SSOOIDC-->>AuthManager: New access_token, refresh_token
+        AuthManager->>DB: Update stored tokens
         AuthManager-->>Client: Return new token
-    else Refresh failed, token not expired
-        AuthManager-->>Client: Return existing token (graceful degradation)
+    end
+```
+
+#### Proxy-Only Mode
+
+Single shared credential set, obtained by `entrypoint.sh` and passed via environment variables:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant AuthMiddleware
+    participant AuthManager
+    participant SSOOIDC[AWS SSO OIDC]
+
+    Client->>AuthMiddleware: Authorization: Bearer <PROXY_API_KEY>
+    AuthMiddleware->>AuthMiddleware: Constant-time compare
+    AuthMiddleware->>AuthManager: get_access_token()
+    AuthManager->>AuthManager: Check token expiry
+
+    alt Token valid
+        AuthManager-->>Client: Return cached token
+    else Token expiring
+        AuthManager->>SSOOIDC: POST /token (refresh_token grant)
+        SSOOIDC-->>AuthManager: New access_token, refresh_token
+        AuthManager-->>Client: Return new token
     end
 ```
 
@@ -518,6 +742,9 @@ flowchart LR
         MODELS["GET /v1/models"]
         CHAT["POST /v1/chat/completions"]
         MESSAGES["POST /v1/messages"]
+        MCP_EXEC["POST /v1/mcp/tool/execute"]
+        MCP_RPC["POST /mcp"]
+        MCP_SSE["GET /mcp"]
     end
 
     subgraph Auth
@@ -530,30 +757,58 @@ flowchart LR
     MODELS --> AUTHREQ
     CHAT --> AUTHREQ
     MESSAGES --> AUTHREQ
+    MCP_EXEC --> AUTHREQ
+    MCP_RPC --> AUTHREQ
+    MCP_SSE --> AUTHREQ
 ```
 
 **AppState:**
 
 ```rust
 pub struct AppState {
-    pub proxy_api_key: String,
+    // Core services
     pub model_cache: ModelCache,
-    pub auth_manager: Arc<AuthManager>,
+    pub auth_manager: Arc<tokio::sync::RwLock<AuthManager>>,
     pub http_client: Arc<KiroHttpClient>,
     pub resolver: ModelResolver,
-    pub config: Arc<Config>,
+    pub config: Arc<RwLock<Config>>,
+    pub setup_complete: Arc<AtomicBool>,
+    pub metrics: Arc<MetricsCollector>,
+    pub log_buffer: Arc<Mutex<VecDeque<LogEntry>>>,
+    pub config_db: Option<Arc<ConfigDb>>,
+    // In-memory caches
+    pub session_cache: Arc<DashMap<Uuid, SessionInfo>>,
+    pub api_key_cache: Arc<DashMap<String, (Uuid, Uuid)>>,
+    pub kiro_token_cache: Arc<DashMap<Uuid, (String, String, Instant)>>,
+    pub oauth_pending: Arc<DashMap<String, OAuthPendingState>>,
+    // Feature subsystems (None in proxy-only mode)
+    pub guardrails_engine: Option<Arc<GuardrailsEngine>>,
+    pub mcp_manager: Option<Arc<McpManager>>,
 }
 ```
 
-**Endpoints:**
+**Proxy Endpoints:**
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/` | GET | No | Simple health check |
+| `/` | GET | No | Simple status check |
 | `/health` | GET | No | Detailed health with timestamp |
 | `/v1/models` | GET | Yes | List available models (OpenAI format) |
 | `/v1/chat/completions` | POST | Yes | OpenAI Chat Completions API |
 | `/v1/messages` | POST | Yes | Anthropic Messages API |
+| `/v1/mcp/tool/execute` | POST | Yes | Execute MCP tool |
+| `POST /mcp` | POST | Yes | JSON-RPC 2.0 MCP server protocol |
+| `GET /mcp` | GET | Yes | MCP SSE stream |
+
+**Web UI Endpoints (Full Deployment only):**
+
+| Endpoint Group | Auth | Description |
+|---------------|------|-------------|
+| `/_ui/api/status` | Public | Gateway status |
+| `/_ui/api/auth/*` | Public/Session | Google SSO flow, session management |
+| `/_ui/api/metrics`, `/logs`, `/config`, `/models` | Session | Dashboard data |
+| `/_ui/api/stream/*` | Session | SSE streams for real-time metrics/logs |
+| `/_ui/api/admin/*` | Admin + CSRF | User management, MCP clients, guardrails |
 
 ---
 
@@ -854,7 +1109,7 @@ pub struct AnthropicMessage {
 
 **Source:** `src/middleware/`
 
-**Overview:** Request processing layers for authentication, CORS, and debug logging.
+**Overview:** Request processing layers for authentication, CORS, and debug logging. Auth behavior differs by deployment mode.
 
 ```mermaid
 flowchart TD
@@ -865,12 +1120,18 @@ flowchart TD
     AUTH --> |Valid| HANDLER[Route Handler]
     AUTH --> |Invalid| REJECT[401 Unauthorized]
 
-    subgraph Auth Check
+    subgraph "Full Deployment Auth"
         AUTH --> BEARER{Bearer token?}
-        BEARER --> |Match| VALID[Valid]
-        BEARER --> |No match| XAPI{x-api-key?}
-        XAPI --> |Match| VALID
-        XAPI --> |No match| INVALID[Invalid]
+        BEARER --> HASH[SHA-256 hash]
+        HASH --> DB_LOOKUP[Lookup in DB/cache]
+        DB_LOOKUP --> |Found| INJECT[Inject per-user creds]
+        DB_LOOKUP --> |Not found| INVALID
+    end
+
+    subgraph "Proxy-Only Auth"
+        AUTH --> PROXY_KEY{Bearer matches PROXY_API_KEY?}
+        PROXY_KEY --> |Yes, constant-time| VALID[Valid]
+        PROXY_KEY --> |No| INVALID[Invalid]
     end
 ```
 
@@ -889,10 +1150,15 @@ flowchart TD
 | `cors_layer()` | Creates permissive CORS layer (allow all) |
 | `debug_middleware()` | Logs requests/responses based on debug mode |
 
-**Authentication:**
-- Accepts `Authorization: Bearer {PROXY_API_KEY}`
-- Accepts `x-api-key: {PROXY_API_KEY}`
-- Returns 401 if neither matches
+**Authentication (Full Deployment):**
+- Accepts `Authorization: Bearer {api-key}` or `x-api-key: {api-key}`
+- SHA-256 hashes the key, looks up user in cache/DB
+- Injects per-user Kiro credentials (`UserKiroCreds`) into request extensions
+
+**Authentication (Proxy-Only):**
+- Accepts `Authorization: Bearer {PROXY_API_KEY}` or `x-api-key: {PROXY_API_KEY}`
+- Constant-time comparison against `PROXY_API_KEY`
+- Uses shared AuthManager credentials (no per-user lookup)
 
 ---
 
@@ -914,30 +1180,55 @@ flowchart TD
 | `src/thinking_parser.rs` | ~645 | Thinking block extraction |
 | `src/tokenizer.rs` | ~695 | Token counting |
 | `src/middleware/mod.rs` | ~400 | Auth and CORS |
+| `backend/entrypoint.sh` | ~197 | Device code flow (proxy-only) |
 
 ### Environment Variables
 
+#### Full Deployment
+
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `PROXY_API_KEY` | Yes | - | Client authentication key |
-| `DATABASE_URL` | Yes | - | PostgreSQL connection string |
+| `DATABASE_URL` | Yes | | PostgreSQL connection string (set by docker-compose) |
+| `GOOGLE_CLIENT_ID` | Yes | | Google OAuth Client ID |
+| `GOOGLE_CLIENT_SECRET` | Yes | | Google OAuth Client Secret |
+| `GOOGLE_CALLBACK_URL` | Yes | | OAuth callback URL |
+| `DOMAIN` | Yes | | Domain for Let's Encrypt TLS |
+| `EMAIL` | Yes | | Let's Encrypt notification email |
+| `POSTGRES_PASSWORD` | Yes | | PostgreSQL password |
+| `SERVER_HOST` | No | `0.0.0.0` | Bind address (set by docker-compose) |
+| `SERVER_PORT` | No | `8000` | Bind port (set by docker-compose) |
 | `KIRO_REGION` | No | `us-east-1` | AWS region |
-| `SERVER_HOST` | No | `0.0.0.0` | Bind address |
+| `LOG_LEVEL` | No | `info` | Log level |
+| `DEBUG_MODE` | No | `off` | Debug mode (off/errors/all) |
+
+#### Proxy-Only Mode
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PROXY_API_KEY` | Yes | | Client authentication key |
+| `KIRO_REGION` | No | `us-east-1` | AWS region |
+| `KIRO_SSO_URL` | No | | Identity Center URL (omit for Builder ID) |
+| `KIRO_SSO_REGION` | No | same as `KIRO_REGION` | SSO OIDC region |
+| `KIRO_REFRESH_TOKEN` | No | | Skip device code flow (set by entrypoint.sh) |
+| `KIRO_CLIENT_ID` | No | | OIDC client ID (set by entrypoint.sh) |
+| `KIRO_CLIENT_SECRET` | No | | OIDC client secret (set by entrypoint.sh) |
 | `SERVER_PORT` | No | `8000` | Bind port |
 | `LOG_LEVEL` | No | `info` | Log level |
 | `DEBUG_MODE` | No | `off` | Debug mode (off/errors/all) |
-| `FAKE_REASONING` | No | `true` | Enable extended thinking |
-| `HTTP_MAX_RETRIES` | No | `3` | Max retry attempts |
 
 ### API Endpoints
 
-| Endpoint | Method | Auth | Format |
-|----------|--------|------|--------|
-| `/` | GET | No | JSON |
-| `/health` | GET | No | JSON |
-| `/v1/models` | GET | Yes | OpenAI |
-| `/v1/chat/completions` | POST | Yes | OpenAI |
-| `/v1/messages` | POST | Yes | Anthropic |
+| Endpoint | Method | Auth | Format | Mode |
+|----------|--------|------|--------|------|
+| `/` | GET | No | JSON | Both |
+| `/health` | GET | No | JSON | Both |
+| `/v1/models` | GET | Yes | OpenAI | Both |
+| `/v1/chat/completions` | POST | Yes | OpenAI | Both |
+| `/v1/messages` | POST | Yes | Anthropic | Both |
+| `/v1/mcp/tool/execute` | POST | Yes | JSON | Both |
+| `POST /mcp` | POST | Yes | JSON-RPC | Both |
+| `GET /mcp` | GET | Yes | SSE | Both |
+| `/_ui/api/*` | Various | Session | JSON | Full only |
 
 ### External Dependencies
 
@@ -945,4 +1236,6 @@ flowchart TD
 |---------|-------------|---------|
 | Kiro API | `codewhisperer.{region}.amazonaws.com` | LLM inference |
 | Q API | `q.{region}.amazonaws.com` | Model listing |
-| AWS SSO OIDC | `oidc.{region}.amazonaws.com` | Token refresh |
+| AWS SSO OIDC | `oidc.{region}.amazonaws.com` | Token refresh + device code flow |
+| Google OAuth | `accounts.google.com` | Web UI SSO (Full Deployment only) |
+| AWS Bedrock | `bedrock-runtime.{region}.amazonaws.com` | Guardrails (Full Deployment only) |

@@ -52,7 +52,7 @@ This project is a Rust rewrite of the original [kiro-gateway](https://github.com
 | **Content Guardrails**        | AWS Bedrock-powered input/output content validation with CEL rule engine                 |
 | **Web UI Dashboard**          | Real-time metrics, logs, configuration, and user management                              |
 | **Let's Encrypt TLS**         | Automated HTTPS via certbot with auto-renewal                                            |
-| **Proxy-only mode**           | Single API key, no DB/SSO — just a pure proxy (`docker-compose.gateway.yml`)             |
+| **Proxy-Only Mode**           | Single API key, no DB/SSO — just a pure proxy (`docker-compose.gateway.yml`)             |
 
 ---
 

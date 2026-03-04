@@ -21,7 +21,14 @@ Common issues, error messages, and their solutions when running Kiro Gateway.
 
 ## Quick Diagnostic Checklist
 
-Before diving into specific issues, run through this checklist:
+### Proxy-Only Mode
+
+1. **Is the gateway running?** — `docker compose -f docker-compose.gateway.yml ps` (expect: gateway)
+2. **Is the gateway healthy?** — `curl http://localhost:8000/health` (expect: `{"status":"ok"}`)
+3. **Check the logs** — `docker compose -f docker-compose.gateway.yml logs -f gateway`
+4. **Was device code flow completed?** — Look for "Authorization successful!" or "Cached credentials valid" in logs
+
+### Full Deployment
 
 1. **Are all services running?** — `docker compose ps` (expect: db, backend, frontend, certbot)
 2. **Is the backend healthy?** — `docker compose logs backend` (look for startup messages)
@@ -414,6 +421,85 @@ ss -tlnp | grep -E ':(80|443)\s'
 
 ---
 
+## Proxy-Only Mode Issues
+
+### "ERROR: PROXY_API_KEY is required"
+
+**Cause:** The `PROXY_API_KEY` environment variable is not set.
+
+**Solution:** Set `PROXY_API_KEY` in your `.env.proxy` file and pass it via `--env-file`:
+
+```bash
+docker compose -f docker-compose.gateway.yml --env-file .env.proxy up
+```
+
+### Device code flow URL not appearing
+
+**Cause:** The container may have cached credentials from a previous run.
+
+**Solutions:**
+- Check logs for "Cached credentials valid" — if present, the gateway is reusing existing credentials and no device code flow is needed
+- If credentials are stale, clear them: `docker volume rm rkgw_gateway-data`
+- Then restart: `docker compose -f docker-compose.gateway.yml --env-file .env.proxy up`
+
+### "OIDC client registration failed"
+
+**Cause:** The AWS SSO OIDC endpoint is unreachable or returned an error.
+
+**Solutions:**
+- Check that the container has internet access
+- Verify `KIRO_REGION` is a valid AWS region (default: `us-east-1`)
+- If using Identity Center (pro), verify `KIRO_SSO_URL` is correct
+- Check `KIRO_SSO_REGION` if your SSO endpoint is in a different region than `KIRO_REGION`
+
+### "Device authorization timed out"
+
+**Cause:** The device code flow expired before you authorized in the browser (default expiry is ~600 seconds).
+
+**Solution:** Restart the container and complete the browser authorization promptly:
+
+```bash
+docker compose -f docker-compose.gateway.yml --env-file .env.proxy restart gateway
+```
+
+### Cached credentials expired
+
+**Cause:** The refresh token in the cached credentials has expired (typically after extended inactivity).
+
+**Solutions:**
+1. Clear the credential cache:
+   ```bash
+   docker volume rm rkgw_gateway-data
+   ```
+2. Restart the gateway to trigger a fresh device code flow:
+   ```bash
+   docker compose -f docker-compose.gateway.yml --env-file .env.proxy up
+   ```
+
+### "Invalid or missing API Key" (401) in Proxy-Only Mode
+
+**Cause:** The `Authorization: Bearer` or `x-api-key` value doesn't match `PROXY_API_KEY`.
+
+**Solutions:**
+- Verify the key in your `.env.proxy` file matches what you're sending in the request
+- The `Authorization` header must include the `Bearer ` prefix (with a space)
+- Both `Authorization: Bearer {key}` and `x-api-key: {key}` headers are supported
+
+### Wrong SSO mode (Builder ID vs Identity Center)
+
+**Cause:** You're trying to use Identity Center but `KIRO_SSO_URL` is not set, or vice versa.
+
+**Solutions:**
+- **Builder ID (free):** Leave `KIRO_SSO_URL` unset in `.env.proxy`
+- **Identity Center (pro):** Set `KIRO_SSO_URL=https://your-org.awsapps.com/start`
+- After changing, clear credentials and restart:
+  ```bash
+  docker volume rm rkgw_gateway-data
+  docker compose -f docker-compose.gateway.yml --env-file .env.proxy up
+  ```
+
+---
+
 ## Log Analysis Tips
 
 ### Enable Debug Logging
@@ -431,13 +517,16 @@ Debug mode options:
 ### Viewing Logs
 
 ```bash
-# All services
+# Proxy-Only Mode
+docker compose -f docker-compose.gateway.yml logs -f gateway
+
+# Full Deployment — all services
 docker compose logs -f
 
-# Backend only
+# Full Deployment — backend only
 docker compose logs -f backend
 
-# Nginx (frontend) only
+# Full Deployment — nginx (frontend) only
 docker compose logs -f frontend
 
 # Filter by level
@@ -446,7 +535,7 @@ docker compose logs backend 2>&1 | grep -i error
 # Last 100 lines with timestamps
 docker compose logs -f --timestamps --tail=100 backend
 
-# Web UI: use the log viewer at /_ui/ (requires login)
+# Web UI: use the log viewer at /_ui/ (Full Deployment only, requires login)
 ```
 
 ### Key Log Messages to Watch For
@@ -469,16 +558,14 @@ If you can't resolve an issue:
 1. Check the [GitHub Issues](https://github.com/if414013/rkgw/issues) for known problems
 2. Collect diagnostic information:
    ```bash
-   # Service status
+   # Proxy-Only Mode
+   docker compose -f docker-compose.gateway.yml ps
+   docker compose -f docker-compose.gateway.yml logs --tail=100 gateway
+
+   # Full Deployment
    docker compose ps
-
-   # Recent backend logs
    docker compose logs --tail=100 backend
-
-   # Recent nginx logs
    docker compose logs --tail=100 frontend
-
-   # Certificate status
    docker compose exec frontend ls -la /etc/letsencrypt/live/
 
    # System info

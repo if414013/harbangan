@@ -7,7 +7,7 @@ nav_order: 8
 # Deployment Guide
 {: .no_toc }
 
-Production deployment instructions for Kiro Gateway using Docker Compose with automated TLS via Let's Encrypt.
+Production deployment instructions for Kiro Gateway. Covers both Proxy-Only Mode (single container) and Full Deployment (multi-user with TLS).
 {: .fs-6 .fw-300 }
 
 <details open markdown="block">
@@ -19,9 +19,127 @@ Production deployment instructions for Kiro Gateway using Docker Compose with au
 
 ---
 
-## Deployment Architecture
+## Deployment Modes
 
-Kiro Gateway runs exclusively via Docker Compose with four services:
+Kiro Gateway supports two deployment modes:
+
+- **Proxy-Only Mode** — A single backend container with no database, web UI, or TLS. Uses `docker-compose.gateway.yml`. Best for personal use or quick evaluation.
+- **Full Deployment** — Four containers (backend, PostgreSQL, nginx, certbot) with Google SSO, per-user API keys, web dashboard, and automated TLS. Uses `docker-compose.yml`. Best for teams and production.
+
+---
+
+## Proxy-Only Mode Deployment
+
+### Architecture
+
+```
+Client → gateway container (:8000, plain HTTP)
+            └── Kiro API (AWS CodeWhisperer)
+```
+
+A single container running the Rust backend. No database, no nginx, no certbot. Authentication uses a single `PROXY_API_KEY` environment variable. Kiro credentials are obtained via an AWS SSO device code flow on first boot and cached to a Docker volume.
+
+| Service | Image | Purpose |
+|:---|:---|:---|
+| `gateway` | `kiro-gateway-backend:latest` (built locally) | Rust API server on configurable port (default 8000) |
+
+### Prerequisites
+
+- Docker Engine 20.10+ and Docker Compose v2
+- An AWS **Builder ID** (free) or **Identity Center** (pro) account
+
+### Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/if414013/rkgw.git
+cd rkgw
+```
+
+### Step 2: Configure Environment Variables
+
+Create `.env.proxy`:
+
+```bash
+PROXY_API_KEY=your-secret-api-key
+KIRO_REGION=us-east-1
+# For Identity Center (pro): set your SSO URL
+# KIRO_SSO_URL=https://your-org.awsapps.com/start
+# KIRO_SSO_REGION=us-east-1
+```
+
+See the [Configuration Reference](configuration.html#proxy-only-mode-environment-variables) for all available variables.
+
+### Step 3: Start the Gateway
+
+```bash
+docker compose -f docker-compose.gateway.yml --env-file .env.proxy up -d
+```
+
+On first boot, the container runs an AWS SSO device code flow. Check the logs:
+
+```bash
+docker compose -f docker-compose.gateway.yml logs -f gateway
+```
+
+You'll see a URL and user code to authorize in your browser. After authorization, credentials are cached in the `gateway-data` Docker volume and reused on subsequent restarts.
+
+### Step 4: Verify
+
+```bash
+curl http://localhost:8000/health
+# Expected: {"status":"ok"}
+
+curl http://localhost:8000/v1/chat/completions \
+  -H "Authorization: Bearer your-secret-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"Hello!"}],"max_tokens":50}'
+```
+
+### Proxy-Only Mode Operations
+
+```bash
+# View logs
+docker compose -f docker-compose.gateway.yml logs -f gateway
+
+# Stop the gateway
+docker compose -f docker-compose.gateway.yml down
+
+# Restart (reuses cached credentials)
+docker compose -f docker-compose.gateway.yml --env-file .env.proxy up -d
+
+# Rebuild after code changes
+docker compose -f docker-compose.gateway.yml --env-file .env.proxy up -d --build
+
+# Re-authorize (clear cached credentials)
+docker volume rm rkgw_gateway-data
+docker compose -f docker-compose.gateway.yml --env-file .env.proxy up
+```
+
+### Proxy-Only Volume Layout
+
+| Volume | Type | Purpose |
+|:---|:---|:---|
+| `gateway-data` | Named volume | Cached Kiro credentials (`/data/tokens.json`) |
+
+### Adding TLS to Proxy-Only Mode
+
+Proxy-Only Mode serves plain HTTP. To add HTTPS, place a reverse proxy in front of the gateway. For example, with [Caddy](https://caddyserver.com/):
+
+```
+your-domain.com {
+    reverse_proxy localhost:8000
+}
+```
+
+Or with nginx, use your existing TLS setup and proxy to `http://localhost:8000`.
+
+---
+
+## Full Deployment
+
+### Architecture
+
+The Full Deployment runs via Docker Compose with four services:
 
 ```mermaid
 graph LR
@@ -385,5 +503,5 @@ INFO kiro_gateway::routes: Request to /v1/chat/completions: model=claude-sonnet-
 
 ## Next Steps
 
-- [Configuration Reference](configuration.html) — Environment variables and runtime settings
-- [Getting Started](getting-started.html) — Full setup walkthrough with Google OAuth and SDK examples
+- [Configuration Reference](configuration.html) — Environment variables for both Proxy-Only Mode and Full Deployment
+- [Getting Started](getting-started.html) — Full setup walkthrough with both deployment modes

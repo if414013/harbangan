@@ -9,7 +9,12 @@ permalink: /architecture/
 # Architecture Overview
 {: .no_toc }
 
-Kiro Gateway is a Rust proxy that exposes OpenAI and Anthropic-compatible APIs, translating requests to the Kiro API (AWS CodeWhisperer) backend. It runs exclusively via docker-compose with four services: a PostgreSQL database, a Rust backend (plain HTTP), an nginx frontend (TLS termination + static SPA), and certbot for automated Let's Encrypt certificate management.
+Kiro Gateway is a Rust proxy that exposes OpenAI and Anthropic-compatible APIs, translating requests to the Kiro API (AWS CodeWhisperer) backend. It supports two deployment modes:
+
+- **Proxy-Only Mode** (`docker-compose.gateway.yml`) — A single backend container with no database, web UI, or TLS. Uses a single `PROXY_API_KEY` for authentication and an AWS SSO device code flow for Kiro credentials. Best for personal use.
+- **Full Deployment** (`docker-compose.yml`) — Four docker-compose services: PostgreSQL database, Rust backend (plain HTTP), nginx frontend (TLS termination + static SPA), and certbot for automated Let's Encrypt certificate management. Supports multi-user with Google SSO and per-user API keys. Best for teams.
+
+Both modes share the same Rust backend binary — the deployment mode determines which features are active.
 
 ## Table of Contents
 {: .no_toc .text-delta }
@@ -22,6 +27,8 @@ Kiro Gateway is a Rust proxy that exposes OpenAI and Anthropic-compatible APIs, 
 ## High-Level System Diagram
 
 The gateway sits between AI clients (any tool that speaks the OpenAI or Anthropic protocol) and the Kiro/CodeWhisperer backend on AWS. It handles authentication, format translation, streaming, and extended thinking extraction transparently.
+
+### Full Deployment
 
 ```mermaid
 flowchart TB
@@ -137,9 +144,27 @@ flowchart TB
 
 ---
 
+### Proxy-Only Mode
+
+In Proxy-Only Mode, the architecture is a single container:
+
+```
+Client → gateway container (:8000, plain HTTP)
+            ├── Auth: PROXY_API_KEY validation
+            ├── Format conversion (OpenAI/Anthropic → Kiro)
+            ├── Streaming pipeline (AWS Event Stream → SSE)
+            └── Kiro API (codewhisperer.{region}.amazonaws.com)
+```
+
+No database, no nginx, no certbot. Kiro credentials are obtained once via a device code flow and cached to a Docker volume (`gateway-data:/data/tokens.json`).
+
+---
+
 ## Docker Services
 
-The gateway runs as four docker-compose services:
+### Full Deployment Services
+
+The Full Deployment runs as four docker-compose services:
 
 | Service | Image | Purpose |
 |---------|-------|---------|
@@ -342,9 +367,11 @@ The auth system implements graceful degradation: if a token refresh fails but th
 
 On first run (no admin user in DB), the gateway blocks `/v1/*` proxy endpoints with 503 and only serves the web UI. The first user to complete Google SSO setup is assigned the admin role. Once setup is complete, the gateway transitions to full operation without a restart.
 
-### 6. Per-User Isolation
+### 6. Per-User Isolation (Full Deployment)
 
-Each user has their own API keys and Kiro credentials. The middleware identifies users by SHA-256 hashing the provided API key, looking up the user in cache/DB, and injecting per-user Kiro credentials into the request context. This replaces the old global `PROXY_API_KEY` model.
+In Full Deployment, each user has their own API keys and Kiro credentials. The middleware identifies users by SHA-256 hashing the provided API key, looking up the user in cache/DB, and injecting per-user Kiro credentials into the request context.
+
+In Proxy-Only Mode, a single `PROXY_API_KEY` is used for all requests, and a single set of Kiro credentials (obtained via device code flow) serves all traffic.
 
 ### 7. Pipeline Extensibility (Guardrails + MCP)
 

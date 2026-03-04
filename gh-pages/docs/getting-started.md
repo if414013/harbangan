@@ -20,13 +20,14 @@ This guide walks you through setting up Kiro Gateway for the first time. By the 
 
 ## What is Kiro Gateway?
 
-Kiro Gateway is a multi-user proxy server that exposes industry-standard OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`) endpoints, translating every request into the Kiro API format used by AWS CodeWhisperer. Any tool or library that speaks the OpenAI or Anthropic protocol can use Kiro models without modification.
+Kiro Gateway is a proxy server that exposes industry-standard OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`) endpoints, translating every request into the Kiro API format used by AWS CodeWhisperer. Any tool or library that speaks the OpenAI or Anthropic protocol can use Kiro models without modification.
 
 Key capabilities:
 
 - Bidirectional format translation (OpenAI/Anthropic to Kiro and back)
 - Streaming responses via Server-Sent Events (SSE)
-- Multi-user support with Google SSO and per-user API keys
+- Two deployment modes: **Proxy-Only Mode** (single user) and **Full Deployment** (multi-user)
+- Multi-user support with Google SSO and per-user API keys (Full Deployment)
 - Role-based access control (Admin / User)
 - Automatic TLS via Let's Encrypt (certbot + nginx)
 - Web dashboard for configuration, monitoring, and log streaming
@@ -35,7 +36,102 @@ Key capabilities:
 
 ---
 
-## Prerequisites
+## Choose Your Deployment Mode
+
+Kiro Gateway supports two deployment modes:
+
+| | Proxy-Only Mode | Full Deployment |
+|:---|:---|:---|
+| **Docker Compose file** | `docker-compose.gateway.yml` | `docker-compose.yml` |
+| **Containers** | 1 (backend only) | 4 (backend, db, nginx, certbot) |
+| **Authentication** | Single `PROXY_API_KEY` | Per-user API keys + Google SSO |
+| **Kiro credentials** | Device code flow on first boot | Per-user via Web UI |
+| **Database** | None | PostgreSQL |
+| **Web UI** | No | Yes |
+| **TLS** | Not included (add your own reverse proxy) | Automated via Let's Encrypt |
+| **Best for** | Personal use, quick evaluation | Teams, production |
+
+---
+
+## Proxy-Only Mode
+
+The fastest way to get started. Runs a single backend container with no database, web UI, or TLS.
+
+### Prerequisites
+
+| Requirement | Minimum version | How to check |
+|:---|:---|:---|
+| Docker | 20.10+ | `docker --version` |
+| Docker Compose | 2.0+ (V2 plugin) | `docker compose version` |
+
+You also need an **AWS Builder ID** (free) or **Identity Center** (pro) account for Kiro API access.
+
+### Step 1: Clone the repository
+
+```bash
+git clone https://github.com/if414013/rkgw.git
+cd rkgw
+```
+
+### Step 2: Configure environment variables
+
+Create `.env.proxy`:
+
+```bash
+PROXY_API_KEY=your-secret-api-key
+KIRO_REGION=us-east-1
+# For Identity Center (pro): set your SSO URL
+# KIRO_SSO_URL=https://your-org.awsapps.com/start
+# KIRO_SSO_REGION=us-east-1
+```
+
+### Step 3: Start the gateway
+
+```bash
+docker compose -f docker-compose.gateway.yml --env-file .env.proxy up
+```
+
+On first boot, the container runs an AWS SSO device code flow. Check the logs for a URL to open in your browser:
+
+```
+╔═══════════════════════════════════════════════════════════╗
+║  Open this URL in your browser to authorize:             ║
+║  https://device.sso.us-east-1.amazonaws.com/?user_code=… ║
+╚═══════════════════════════════════════════════════════════╝
+```
+
+Open the URL, sign in with your Builder ID (free) or Identity Center (pro) account, and authorize the gateway. Credentials are cached in a Docker volume (`gateway-data`) — you only need to authorize once. On subsequent restarts, the gateway reuses the cached tokens automatically.
+
+### Step 4: Verify it works
+
+```bash
+# Health check
+curl http://localhost:8000/health
+# → {"status":"ok"}
+
+# Test a chat completion
+curl http://localhost:8000/v1/chat/completions \
+  -H "Authorization: Bearer your-secret-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "stream": true
+  }'
+```
+
+You should see a streaming SSE response with the model's reply.
+
+{: .note }
+> Proxy-Only Mode uses `http://localhost:8000` by default. For HTTPS, place a reverse proxy (nginx, Caddy, etc.) in front of the gateway.
+
+---
+
+## Full Deployment
+
+Multi-user mode with PostgreSQL, Google SSO, per-user API keys, web dashboard, and automated TLS.
+
+### Prerequisites
 
 | Requirement | Minimum version | How to check |
 |:---|:---|:---|
@@ -47,11 +143,9 @@ You also need:
 - **A domain name** pointing to your server (for Let's Encrypt TLS certificates)
 - **Google OAuth credentials** (Client ID + Client Secret) from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). Create an OAuth 2.0 Client ID with the authorized redirect URI set to `https://YOUR_DOMAIN/_ui/api/auth/google/callback`.
 
----
+### Installation
 
-## Installation
-
-Kiro Gateway runs exclusively via docker-compose with four services: PostgreSQL, Rust backend, nginx frontend (TLS termination), and certbot (certificate automation).
+The Full Deployment runs via docker-compose with four services: PostgreSQL, Rust backend, nginx frontend (TLS termination), and certbot (certificate automation).
 
 ### Step 1: Clone the repository
 
@@ -307,5 +401,5 @@ print(message.content[0].text)
 ## Next Steps
 
 - [Quickstart](quickstart.html) — Get running in under 5 minutes with Docker
-- [Configuration Reference](configuration.html) — Environment variables and runtime settings
-- [Deployment Guide](deployment.html) — Production deployment, backups, and monitoring
+- [Configuration Reference](configuration.html) — Environment variables and runtime settings for both modes
+- [Deployment Guide](deployment.html) — Production deployment for Proxy-Only Mode and Full Deployment

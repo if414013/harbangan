@@ -9,7 +9,10 @@ permalink: /architecture/authentication/
 # Authentication System
 {: .no_toc }
 
-Kiro Gateway uses a dual authentication model: per-user API keys protect the proxy endpoints (`/v1/*`), while Google SSO with PKCE authenticates users for the web UI (`/_ui/api/*`). The backend then uses per-user Kiro credentials (stored in PostgreSQL) to authenticate against the AWS Kiro API.
+Kiro Gateway's authentication model depends on the deployment mode:
+
+- **Full Deployment** uses per-user API keys for proxy endpoints (`/v1/*`), Google SSO with PKCE for the web UI (`/_ui/api/*`), and per-user Kiro credentials stored in PostgreSQL.
+- **Proxy-Only Mode** uses a single `PROXY_API_KEY` for all requests and a single set of Kiro credentials obtained via an AWS SSO device code flow on first boot.
 
 ## Table of Contents
 {: .no_toc .text-delta }
@@ -19,7 +22,85 @@ Kiro Gateway uses a dual authentication model: per-user API keys protect the pro
 
 ---
 
-## Authentication Architecture Overview
+## Proxy-Only Mode Authentication
+
+In Proxy-Only Mode (`docker-compose.gateway.yml`), authentication is simplified to a single API key and a single set of Kiro credentials.
+
+### PROXY_API_KEY Validation
+
+All requests to `/v1/*` endpoints must include the `PROXY_API_KEY` value:
+
+```bash
+# Via Authorization header
+curl -H "Authorization: Bearer YOUR_PROXY_API_KEY" http://localhost:8000/v1/models
+
+# Via x-api-key header
+curl -H "x-api-key: YOUR_PROXY_API_KEY" http://localhost:8000/v1/models
+```
+
+The key is set via the `PROXY_API_KEY` environment variable. There is no per-user key management, no database lookup, and no web UI authentication.
+
+### Device Code Flow (First Boot)
+
+On first boot, the `backend/entrypoint.sh` script runs an AWS SSO OIDC device code flow to obtain Kiro credentials:
+
+```mermaid
+sequenceDiagram
+    participant Container as Gateway Container
+    participant OIDC as AWS SSO OIDC
+    participant User as User (Browser)
+
+    Container->>OIDC: Register OIDC client
+    OIDC-->>Container: client_id, client_secret
+
+    Container->>OIDC: Start device authorization
+    OIDC-->>Container: device_code, user_code, verification_url
+
+    Note over Container: Prints URL + user code to logs
+    Container-->>User: "Open this URL in your browser"
+
+    User->>OIDC: Open URL, enter user code, authorize
+    OIDC-->>User: Authorization granted
+
+    loop Poll for token (every N seconds)
+        Container->>OIDC: POST /token (device_code grant)
+        OIDC-->>Container: authorization_pending / access_token
+    end
+
+    Container->>Container: Save refresh_token to /data/tokens.json
+    Note over Container: Start gateway binary
+```
+
+The flow supports two SSO modes:
+
+- **Builder ID (free):** Default when `KIRO_SSO_URL` is not set. Uses `https://view.awsapps.com/start` as the start URL.
+- **Identity Center (pro):** Set `KIRO_SSO_URL` to your organization's SSO URL. The device flow uses your Identity Center for authorization.
+
+### Credential Caching
+
+Credentials are cached to `/data/tokens.json` inside the `gateway-data` Docker volume:
+
+```json
+{"refresh_token":"...","client_id":"...","client_secret":"..."}
+```
+
+On subsequent restarts:
+1. The entrypoint loads cached credentials from the volume
+2. Validates them with a test token refresh
+3. If valid, starts the gateway immediately (no user interaction needed)
+4. If expired or invalid, clears the cache and re-runs the device code flow
+
+To force re-authorization, remove the Docker volume:
+
+```bash
+docker volume rm rkgw_gateway-data
+```
+
+---
+
+## Full Deployment Authentication
+
+### Authentication Architecture Overview
 
 ```mermaid
 flowchart TB

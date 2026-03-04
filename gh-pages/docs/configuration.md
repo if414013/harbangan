@@ -7,7 +7,7 @@ nav_order: 4
 # Configuration Reference
 {: .no_toc }
 
-Complete reference for all Kiro Gateway configuration options. The gateway uses a two-tier configuration model: bootstrap settings via environment variables and runtime settings via the Web UI.
+Complete reference for all Kiro Gateway configuration options. Configuration varies by deployment mode.
 
 <details open markdown="block">
   <summary>Table of contents</summary>
@@ -20,15 +20,59 @@ Complete reference for all Kiro Gateway configuration options. The gateway uses 
 
 ## Configuration Model
 
-Kiro Gateway separates configuration into two tiers:
+Kiro Gateway has two deployment modes with different configuration models:
 
-1. **Bootstrap configuration** — Environment variables in `.env`, read at container startup. These control infrastructure (domain, database, Google OAuth) and cannot be changed at runtime.
-
-2. **Runtime configuration** — Managed through the Web UI at `/_ui/` and persisted in PostgreSQL. These control gateway behavior (region, timeouts, debug mode) and can be changed without restarting.
+- **Proxy-Only Mode** (`docker-compose.gateway.yml`) — All configuration via environment variables in `.env.proxy`. No database or Web UI.
+- **Full Deployment** (`docker-compose.yml`) — Two-tier model: bootstrap settings via environment variables in `.env`, plus runtime settings via the Web UI (persisted in PostgreSQL).
 
 ---
 
-## Bootstrap Environment Variables
+## Proxy-Only Mode Environment Variables
+
+Set these in `.env.proxy` and pass via `--env-file .env.proxy` when running `docker compose -f docker-compose.gateway.yml`.
+
+### Required
+
+| Variable | Description | Example |
+|:---|:---|:---|
+| `PROXY_API_KEY` | API key that clients use to authenticate all requests. | `my-secret-key` |
+
+### Optional
+
+| Variable | Default | Description |
+|:---|:---|:---|
+| `KIRO_REGION` | `us-east-1` | AWS region for the Kiro API endpoint. |
+| `KIRO_SSO_URL` | _(omit for Builder ID)_ | Identity Center SSO issuer URL. Omit this to use Builder ID (free). |
+| `KIRO_SSO_REGION` | same as `KIRO_REGION` | AWS region for the SSO OIDC endpoint. Only needed if different from `KIRO_REGION`. |
+| `SERVER_PORT` | `8000` | Port the gateway listens on. |
+| `LOG_LEVEL` | `info` | Log verbosity: `debug`, `info`, `warn`, `error`. |
+| `DEBUG_MODE` | `off` | Debug logging: `off`, `errors`, `all`. |
+
+### Builder ID vs Identity Center
+
+- **Builder ID (free):** Leave `KIRO_SSO_URL` unset. The device code flow will prompt you to sign in with your personal AWS Builder ID.
+- **Identity Center (pro):** Set `KIRO_SSO_URL` to your organization's SSO start URL (e.g., `https://your-org.awsapps.com/start`). The device code flow will prompt you to sign in with your corporate Identity Center account.
+
+### Example `.env.proxy`
+
+```bash
+# Proxy-Only Mode — Kiro Gateway
+PROXY_API_KEY=your-secret-api-key
+KIRO_REGION=us-east-1
+
+# Uncomment for Identity Center (pro):
+# KIRO_SSO_URL=https://your-org.awsapps.com/start
+# KIRO_SSO_REGION=us-east-1
+
+# Optional overrides:
+# SERVER_PORT=8000
+# LOG_LEVEL=info
+# DEBUG_MODE=off
+```
+
+---
+
+## Full Deployment Environment Variables
 
 Set these in your `.env` file before running `docker compose up`. They are read at startup by docker-compose and the backend container.
 
@@ -177,10 +221,10 @@ Every configuration change is logged with:
 
 ---
 
-## Example `.env` File
+## Example `.env` File (Full Deployment)
 
 ```bash
-# Kiro Gateway — Docker Compose Configuration
+# Kiro Gateway — Full Deployment Configuration
 # Copy to .env and fill in your values.
 
 # Domain for TLS certificates (Let's Encrypt via certbot)
@@ -202,5 +246,5 @@ GOOGLE_CALLBACK_URL=https://gateway.example.com/_ui/api/auth/google/callback
 
 ## Next Steps
 
-- [Getting Started](getting-started.html) — Full setup walkthrough
-- [Deployment Guide](deployment.html) — Production deployment, backups, and monitoring
+- [Getting Started](getting-started.html) — Full setup walkthrough for both modes
+- [Deployment Guide](deployment.html) — Production deployment for Proxy-Only Mode and Full Deployment
