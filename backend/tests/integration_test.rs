@@ -80,11 +80,23 @@ fn create_test_app_state() -> AppState {
         fake_reasoning_enabled: true,
         fake_reasoning_max_tokens: 4000,
         fake_reasoning_handling: kiro_gateway::config::FakeReasoningHandling::AsReasoningContent,
+        truncation_recovery: true,
+        guardrails_enabled: false,
+        mcp_enabled: false,
+        mcp_tool_execution_timeout: 30,
+        mcp_health_check_interval: 10,
+        mcp_tool_sync_interval: 600,
+        mcp_max_consecutive_failures: 5,
         database_url: None,
+        proxy_api_key: None,
+        kiro_refresh_token: None,
+        kiro_client_id: None,
+        kiro_client_secret: None,
+        kiro_sso_url: None,
+        kiro_sso_region: None,
         google_client_id: String::new(),
         google_client_secret: String::new(),
         google_callback_url: String::new(),
-        truncation_recovery: true,
     };
 
     let metrics = Arc::new(MetricsCollector::new());
@@ -125,6 +137,8 @@ fn create_test_app_state() -> AppState {
         api_key_cache,
         kiro_token_cache,
         oauth_pending: Arc::new(dashmap::DashMap::new()),
+        guardrails_engine: None,
+        mcp_manager: None,
     }
 }
 
