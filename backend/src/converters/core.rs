@@ -968,6 +968,12 @@ pub fn merge_adjacent_messages(messages: Vec<UnifiedMessage>) -> Vec<UnifiedMess
 // Kiro History Building
 // ==================================================================================================
 
+/// Wraps a text string into the Kiro ContentBlock array format:
+/// `[{"type": "text", "text": "..."}]`
+pub fn kiro_text_content(text: &str) -> Value {
+    json!([{"type": "text", "text": text}])
+}
+
 /// Builds history array for Kiro API from unified messages.
 ///
 /// Kiro API expects history as paired turns: each entry must have both
@@ -1008,7 +1014,7 @@ fn build_kiro_user_input(msg: &UnifiedMessage, model_id: &str) -> Value {
     }
 
     let mut user_input = json!({
-        "content": content,
+        "content": kiro_text_content(&content),
         "modelId": model_id,
         "origin": "AI_EDITOR",
     });
@@ -1066,7 +1072,7 @@ fn build_kiro_assistant_response(msg: &UnifiedMessage) -> Value {
         content = "(empty)".to_string();
     }
 
-    let mut assistant_response = json!({"content": content});
+    let mut assistant_response = json!({"content": kiro_text_content(&content)});
 
     let tool_uses = extract_tool_uses_from_message(&msg.content, &msg.tool_calls);
     if !tool_uses.is_empty() {
@@ -1079,7 +1085,7 @@ fn build_kiro_assistant_response(msg: &UnifiedMessage) -> Value {
 /// Creates a synthetic user input for pairing with orphaned assistant messages.
 pub fn synthetic_user_input(model_id: &str) -> Value {
     json!({
-        "content": "(continued)",
+        "content": kiro_text_content("(continued)"),
         "modelId": model_id,
         "origin": "AI_EDITOR",
     })
@@ -1087,7 +1093,7 @@ pub fn synthetic_user_input(model_id: &str) -> Value {
 
 /// Creates a synthetic assistant response for pairing with trailing user messages.
 fn synthetic_assistant_response() -> Value {
-    json!({"content": "(continued)"})
+    json!({"content": kiro_text_content("(continued)")})
 }
 
 /// Pairs history entries into Kiro Turn objects.
@@ -1764,8 +1770,8 @@ mod tests {
         assert_eq!(history.len(), 1);
         assert!(history[0]["userInputMessage"].is_object());
         assert!(history[0]["assistantResponseMessage"].is_object());
-        assert_eq!(history[0]["userInputMessage"]["content"], "Hello");
-        assert_eq!(history[0]["assistantResponseMessage"]["content"], "Hi there");
+        assert_eq!(history[0]["userInputMessage"]["content"][0]["text"], "Hello");
+        assert_eq!(history[0]["assistantResponseMessage"]["content"][0]["text"], "Hi there");
     }
 
     #[test]
@@ -1778,10 +1784,10 @@ mod tests {
         ];
         let history = build_kiro_history(&messages, "claude-sonnet-4");
         assert_eq!(history.len(), 2);
-        assert_eq!(history[0]["userInputMessage"]["content"], "Q1");
-        assert_eq!(history[0]["assistantResponseMessage"]["content"], "A1");
-        assert_eq!(history[1]["userInputMessage"]["content"], "Q2");
-        assert_eq!(history[1]["assistantResponseMessage"]["content"], "A2");
+        assert_eq!(history[0]["userInputMessage"]["content"][0]["text"], "Q1");
+        assert_eq!(history[0]["assistantResponseMessage"]["content"][0]["text"], "A1");
+        assert_eq!(history[1]["userInputMessage"]["content"][0]["text"], "Q2");
+        assert_eq!(history[1]["assistantResponseMessage"]["content"][0]["text"], "A2");
     }
 
     #[test]
@@ -1795,11 +1801,11 @@ mod tests {
         let history = build_kiro_history(&messages, "claude-sonnet-4");
         assert_eq!(history.len(), 2);
         // First turn: synthetic user + orphaned assistant
-        assert_eq!(history[0]["userInputMessage"]["content"], "(continued)");
-        assert_eq!(history[0]["assistantResponseMessage"]["content"], "Session started");
+        assert_eq!(history[0]["userInputMessage"]["content"][0]["text"], "(continued)");
+        assert_eq!(history[0]["assistantResponseMessage"]["content"][0]["text"], "Session started");
         // Second turn: normal pair
-        assert_eq!(history[1]["userInputMessage"]["content"], "Hi");
-        assert_eq!(history[1]["assistantResponseMessage"]["content"], "Hello");
+        assert_eq!(history[1]["userInputMessage"]["content"][0]["text"], "Hi");
+        assert_eq!(history[1]["assistantResponseMessage"]["content"][0]["text"], "Hello");
     }
 
     #[test]
@@ -1812,10 +1818,10 @@ mod tests {
         ];
         let history = build_kiro_history(&messages, "claude-sonnet-4");
         assert_eq!(history.len(), 2);
-        assert_eq!(history[0]["userInputMessage"]["content"], "Hello");
-        assert_eq!(history[0]["assistantResponseMessage"]["content"], "Hi");
-        assert_eq!(history[1]["userInputMessage"]["content"], "Follow up");
-        assert_eq!(history[1]["assistantResponseMessage"]["content"], "(continued)");
+        assert_eq!(history[0]["userInputMessage"]["content"][0]["text"], "Hello");
+        assert_eq!(history[0]["assistantResponseMessage"]["content"][0]["text"], "Hi");
+        assert_eq!(history[1]["userInputMessage"]["content"][0]["text"], "Follow up");
+        assert_eq!(history[1]["assistantResponseMessage"]["content"][0]["text"], "(continued)");
     }
 
     #[test]
@@ -1830,8 +1836,8 @@ mod tests {
         let messages = vec![make_user_msg("Hello")];
         let history = build_kiro_history(&messages, "claude-sonnet-4");
         assert_eq!(history.len(), 1);
-        assert_eq!(history[0]["userInputMessage"]["content"], "Hello");
-        assert_eq!(history[0]["assistantResponseMessage"]["content"], "(continued)");
+        assert_eq!(history[0]["userInputMessage"]["content"][0]["text"], "Hello");
+        assert_eq!(history[0]["assistantResponseMessage"]["content"][0]["text"], "(continued)");
     }
 
     #[test]
@@ -1839,8 +1845,8 @@ mod tests {
         let messages = vec![make_assistant_msg("I'm here")];
         let history = build_kiro_history(&messages, "claude-sonnet-4");
         assert_eq!(history.len(), 1);
-        assert_eq!(history[0]["userInputMessage"]["content"], "(continued)");
-        assert_eq!(history[0]["assistantResponseMessage"]["content"], "I'm here");
+        assert_eq!(history[0]["userInputMessage"]["content"][0]["text"], "(continued)");
+        assert_eq!(history[0]["assistantResponseMessage"]["content"][0]["text"], "I'm here");
     }
 
     #[test]

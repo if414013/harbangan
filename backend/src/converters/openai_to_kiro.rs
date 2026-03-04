@@ -15,10 +15,10 @@ use super::core::{
     build_kiro_history, convert_images_to_kiro_format, convert_tool_results_to_kiro_format,
     convert_tools_to_kiro_format, ensure_assistant_before_tool_results,
     extract_images_from_content, extract_text_content, extract_tool_results_from_content,
-    get_thinking_system_prompt_addition, inject_thinking_tags, merge_adjacent_messages,
-    process_tools_with_long_descriptions, strip_all_tool_content, synthetic_user_input,
-    ContentBlock, KiroPayloadResult, MessageContent, ToolCall, ToolFunction, ToolResult,
-    UnifiedMessage, UnifiedTool,
+    get_thinking_system_prompt_addition, inject_thinking_tags, kiro_text_content,
+    merge_adjacent_messages, process_tools_with_long_descriptions, strip_all_tool_content,
+    synthetic_user_input, ContentBlock, KiroPayloadResult, MessageContent, ToolCall,
+    ToolFunction, ToolResult, UnifiedMessage, UnifiedTool,
 };
 
 // ==================================================================================================
@@ -458,7 +458,7 @@ pub fn build_kiro_payload_core(
         final_history.push(json!({
             "userInputMessage": synthetic_user_input(model_id),
             "assistantResponseMessage": {
-                "content": current_content
+                "content": kiro_text_content(&current_content)
             }
         }));
         current_content = "Continue".to_string();
@@ -513,7 +513,7 @@ pub fn build_kiro_payload_core(
 
     // Build userInputMessage
     let mut user_input_message = json!({
-        "content": current_content,
+        "content": kiro_text_content(&current_content),
         "modelId": model_id,
         "origin": "AI_EDITOR",
     });
@@ -798,7 +798,7 @@ mod tests {
             .is_some());
         assert!(
             payload["conversationState"]["currentMessage"]["userInputMessage"]["content"]
-                .as_str()
+                .as_array()
                 .is_some()
         );
     }
@@ -850,11 +850,11 @@ mod tests {
         let payload_result = result.unwrap();
         let payload = payload_result.payload;
 
-        // System prompt should be included in the content
-        let content = payload["conversationState"]["currentMessage"]["userInputMessage"]["content"]
+        // System prompt should be included in the content (now array of ContentBlocks)
+        let content_text = payload["conversationState"]["currentMessage"]["userInputMessage"]["content"][0]["text"]
             .as_str()
             .unwrap();
-        assert!(content.contains("You are helpful"));
+        assert!(content_text.contains("You are helpful"));
     }
 
     #[test]
@@ -1045,9 +1045,14 @@ mod tests {
         let mut found_tool_text = false;
         for msg in history_arr {
             if let Some(assistant_msg) = msg.get("assistantResponseMessage") {
-                let content = assistant_msg["content"].as_str().unwrap_or("");
-                if content.contains("[Tool: Read") {
-                    found_tool_text = true;
+                // Content is now an array of ContentBlocks
+                if let Some(blocks) = assistant_msg["content"].as_array() {
+                    for block in blocks {
+                        let text = block["text"].as_str().unwrap_or("");
+                        if text.contains("[Tool: Read") {
+                            found_tool_text = true;
+                        }
+                    }
                 }
             }
         }
