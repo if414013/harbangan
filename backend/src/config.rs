@@ -48,6 +48,11 @@ pub struct Config {
     // Database
     pub database_url: Option<String>,
 
+    // Proxy-only mode (no DB, no SSO, single API key)
+    pub proxy_api_key: Option<String>,
+    pub kiro_sso_url: Option<String>,
+    pub kiro_sso_region: Option<String>,
+
     // Google SSO (bootstrap from env vars)
     pub google_client_id: String,
     pub google_client_secret: String,
@@ -101,6 +106,9 @@ impl Config {
             mcp_tool_sync_interval: 600,
             mcp_max_consecutive_failures: 5,
             database_url: None,
+            proxy_api_key: None,
+            kiro_sso_url: None,
+            kiro_sso_region: None,
             google_client_id: String::new(),
             google_client_secret: String::new(),
             google_callback_url: String::new(),
@@ -127,6 +135,20 @@ impl Config {
         // Database
         config.database_url = std::env::var("DATABASE_URL").ok();
 
+        // Proxy-only mode
+        config.proxy_api_key = std::env::var("PROXY_API_KEY").ok();
+        config.kiro_sso_url = std::env::var("KIRO_SSO_URL").ok();
+        config.kiro_sso_region = std::env::var("KIRO_SSO_REGION").ok();
+        if let Ok(v) = std::env::var("KIRO_REGION") {
+            config.kiro_region = v;
+        }
+        if let Ok(v) = std::env::var("LOG_LEVEL") {
+            config.log_level = v;
+        }
+        if let Ok(v) = std::env::var("DEBUG_MODE") {
+            config.debug_mode = parse_debug_mode(&v);
+        }
+
         // Google SSO
         config.google_client_id = std::env::var("GOOGLE_CLIENT_ID").unwrap_or_default();
         config.google_client_secret = std::env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default();
@@ -137,11 +159,17 @@ impl Config {
 
     /// Validate configuration.
     pub fn validate(&self) -> Result<()> {
+        // Proxy-only mode: skip Google SSO validation
+        if self.proxy_api_key.is_some() {
+            return Ok(());
+        }
+
         // Google SSO is the only auth path — required for the web UI
         if self.google_client_id.is_empty() {
             anyhow::bail!(
                 "GOOGLE_CLIENT_ID is required. \
-                 Google SSO is the only auth path — the gateway is unusable without it."
+                 Google SSO is the only auth path — the gateway is unusable without it. \
+                 Set PROXY_API_KEY for proxy-only mode without SSO."
             );
         }
         if self.google_callback_url.is_empty() {
@@ -156,6 +184,12 @@ impl Config {
 
         Ok(())
     }
+
+    /// Returns true if running in proxy-only mode (no DB, no SSO).
+    pub fn is_proxy_only(&self) -> bool {
+        self.proxy_api_key.is_some()
+    }
+
 }
 
 /// Parse debug mode from string
