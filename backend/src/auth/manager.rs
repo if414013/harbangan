@@ -136,30 +136,9 @@ impl AuthManager {
     }
     /// Bootstrap credentials for proxy-only mode.
     ///
-    /// If client_id/client_secret are already set (from entrypoint), uses them directly.
-    /// Otherwise registers a new OIDC client. Then performs initial token refresh.
+    /// Performs initial token refresh using credentials from entrypoint.sh.
     pub async fn bootstrap_proxy_credentials(&self) -> Result<()> {
-        let creds = self.credentials.read().await;
-        let has_client_creds = creds.client_id.is_some() && creds.client_secret.is_some();
-        let sso_region = creds.sso_region.clone().unwrap_or_else(|| creds.region.clone());
-        drop(creds);
-        if !has_client_creds {
-            // Register OIDC client (fallback if entrypoint didn't provide client creds)
-            let sso_url = self.credentials.read().await.sso_region.clone();
-            let reg = super::oauth::register_client(
-                &self.client,
-                &sso_region,
-                "device",
-                None,
-                sso_url.as_deref(),
-            )
-            .await
-            .context("Failed to register OIDC client")?;
-            let mut creds = self.credentials.write().await;
-            creds.client_id = Some(reg.client_id);
-            creds.client_secret = Some(reg.client_secret);
-        }
-        // Perform initial token refresh
+        // Perform initial token refresh (entrypoint.sh already provided client creds)
         let creds = self.credentials.read().await;
         let token_data = super::refresh::refresh_aws_sso_oidc(&self.client, &creds).await?;
         drop(creds);
