@@ -5,10 +5,13 @@ COPY . .
 RUN cargo build --release --bin kiro-gateway
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates curl jq && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates curl jq && rm -rf /var/lib/apt/lists/* \
+    && adduser --disabled-password --gecos '' appuser
 WORKDIR /app
 COPY --from=builder /build/target/release/kiro-gateway /app/kiro-gateway
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh \
+    && mkdir -p /data && chown appuser:appuser /data
+USER appuser
 EXPOSE 8000
 CMD ["/app/kiro-gateway"]
