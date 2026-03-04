@@ -53,7 +53,48 @@ pub async fn auth_middleware(
         ApiError::AuthError("Invalid or missing API Key".to_string())
     })?;
 
-    // SHA-256 hash the key
+    // Proxy-only mode: compare raw key against PROXY_API_KEY, use global auth
+    let is_proxy_only = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .is_proxy_only();
+
+    if is_proxy_only {
+        let expected_key = state
+            .config
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .proxy_api_key
+            .clone()
+            .unwrap_or_default();
+
+        // Constant-time comparison
+        use subtle::ConstantTimeEq;
+        let keys_match = raw_key.as_bytes().ct_eq(expected_key.as_bytes());
+        if !bool::from(keys_match) {
+            return Err(ApiError::AuthError("Invalid API key".to_string()));
+        }
+
+        // Use global auth manager for token
+        let auth = state.auth_manager.read().await;
+        let access_token = auth.get_access_token().await.map_err(|e| {
+            ApiError::AuthError(format!("Failed to get access token: {}", e))
+        })?;
+        let region = auth.get_region().await;
+        drop(auth);
+
+        let creds = UserKiroCreds {
+            user_id: Uuid::nil(),
+            access_token,
+            refresh_token: String::new(),
+            region,
+        };
+        request.extensions_mut().insert(creds);
+        return Ok(next.run(request).await);
+    }
+
+    // Multi-user mode: SHA-256 hash lookup in cache/DB
     let key_hash = hex::encode(Sha256::digest(raw_key.as_bytes()));
 
     // Look up in cache first, using constant-time comparison for the hash
