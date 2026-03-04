@@ -50,6 +50,9 @@ pub struct Config {
 
     // Proxy-only mode (no DB, no SSO, single API key)
     pub proxy_api_key: Option<String>,
+    pub kiro_refresh_token: Option<String>,
+    pub kiro_client_id: Option<String>,
+    pub kiro_client_secret: Option<String>,
     pub kiro_sso_url: Option<String>,
     pub kiro_sso_region: Option<String>,
 
@@ -107,6 +110,9 @@ impl Config {
             mcp_max_consecutive_failures: 5,
             database_url: None,
             proxy_api_key: None,
+            kiro_refresh_token: None,
+            kiro_client_id: None,
+            kiro_client_secret: None,
             kiro_sso_url: None,
             kiro_sso_region: None,
             google_client_id: String::new(),
@@ -137,6 +143,9 @@ impl Config {
 
         // Proxy-only mode
         config.proxy_api_key = std::env::var("PROXY_API_KEY").ok();
+        config.kiro_refresh_token = std::env::var("KIRO_REFRESH_TOKEN").ok();
+        config.kiro_client_id = std::env::var("KIRO_CLIENT_ID").ok();
+        config.kiro_client_secret = std::env::var("KIRO_CLIENT_SECRET").ok();
         config.kiro_sso_url = std::env::var("KIRO_SSO_URL").ok();
         config.kiro_sso_region = std::env::var("KIRO_SSO_REGION").ok();
         if let Ok(v) = std::env::var("KIRO_REGION") {

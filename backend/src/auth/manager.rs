@@ -100,18 +100,24 @@ impl AuthManager {
     }
 
     /// Create an AuthManager for proxy-only mode (no DB).
-    /// Credentials will be bootstrapped via device code flow at startup.
+    ///
+    /// Expects KIRO_REFRESH_TOKEN (and optionally KIRO_CLIENT_ID/KIRO_CLIENT_SECRET)
+    /// to be set by the entrypoint script after device code flow.
     pub fn new_from_env(config: &crate::config::Config) -> Result<Self> {
+        let refresh_token = config
+            .kiro_refresh_token
+            .clone()
+            .context("KIRO_REFRESH_TOKEN is required for proxy-only mode (set by entrypoint.sh)")?;
         let sso_region = config.kiro_sso_region.clone();
         let region = config.kiro_region.clone();
         let credentials = Credentials {
-            refresh_token: String::new(),
+            refresh_token,
             access_token: None,
             expires_at: None,
             profile_arn: None,
             region,
-            client_id: None,
-            client_secret: None,
+            client_id: config.kiro_client_id.clone(),
+            client_secret: config.kiro_client_secret.clone(),
             sso_region,
             scopes: None,
         };
@@ -128,101 +134,37 @@ impl AuthManager {
             refresh_threshold: config.token_refresh_threshold as i64,
         })
     }
-    /// Bootstrap credentials for proxy-only mode via device code flow.
+    /// Bootstrap credentials for proxy-only mode.
     ///
-    /// Registers an OIDC client, runs the device code flow (prints a URL
-    /// to the logs for the user to authorize), then stores the tokens.
-    pub async fn bootstrap_proxy_credentials(
-        &self,
-        sso_url: Option<&str>,
-    ) -> Result<()> {
+    /// If client_id/client_secret are already set (from entrypoint), uses them directly.
+    /// Otherwise registers a new OIDC client. Then performs initial token refresh.
+    pub async fn bootstrap_proxy_credentials(&self) -> Result<()> {
         let creds = self.credentials.read().await;
+        let has_client_creds = creds.client_id.is_some() && creds.client_secret.is_some();
         let sso_region = creds.sso_region.clone().unwrap_or_else(|| creds.region.clone());
         drop(creds);
-        // Step 1: Register OIDC client
-        let reg = super::oauth::register_client(
-            &self.client,
-            &sso_region,
-            "device",
-            None,
-            sso_url,
-        )
-        .await
-        .context("Failed to register OIDC client")?;
-        tracing::info!(
-            "OIDC client registered (client_id: {}...)",
-            &reg.client_id[..8.min(reg.client_id.len())]
-        );
-        // Store client creds
-        {
-            let mut creds = self.credentials.write().await;
-            creds.client_id = Some(reg.client_id.clone());
-            creds.client_secret = Some(reg.client_secret.clone());
-        }
-        // Step 2: Device code flow
-        let start_url = sso_url.unwrap_or("https://view.awsapps.com/start");
-        tracing::info!("Starting device code login flow...");
-        let device_auth = super::oauth::start_device_authorization(
-            &self.client,
-            &sso_region,
-            &reg.client_id,
-            &reg.client_secret,
-            start_url,
-        )
-        .await
-        .context("Failed to start device authorization")?;
-        // Print the URL prominently so the user sees it in docker logs
-        tracing::info!("\n");
-        tracing::info!("╔═══════════════════════════════════════════════════════════╗");
-        tracing::info!("║  Open this URL in your browser to authorize:             ║");
-        tracing::info!("║  {}", device_auth.verification_uri_complete);
-        tracing::info!("║                                                           ║");
-        tracing::info!("║  User code: {}", device_auth.user_code);
-        tracing::info!("╚═══════════════════════════════════════════════════════════╝");
-        tracing::info!("\n");
-        tracing::info!("Waiting for authorization (expires in {}s)...", device_auth.expires_in);
-        // Poll until authorized
-        let mut interval = device_auth.interval;
-        let deadline = std::time::Instant::now()
-            + std::time::Duration::from_secs(device_auth.expires_in);
-        loop {
-            if std::time::Instant::now() > deadline {
-                anyhow::bail!("Device authorization timed out. Please restart and try again.");
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
-            match super::oauth::poll_device_token(
+        if !has_client_creds {
+            // Register OIDC client (fallback if entrypoint didn't provide client creds)
+            let sso_url = self.credentials.read().await.sso_region.clone();
+            let reg = super::oauth::register_client(
                 &self.client,
                 &sso_region,
-                &reg.client_id,
-                &reg.client_secret,
-                &device_auth.device_code,
+                "device",
+                None,
+                sso_url.as_deref(),
             )
-            .await?
-            {
-                super::types::PollResult::Success(token_response) => {
-                    tracing::info!("Authorization successful!");
-                    // Store refresh token
-                    if let Some(ref rt) = token_response.refresh_token {
-                        let mut creds = self.credentials.write().await;
-                        creds.refresh_token = rt.clone();
-                    }
-                    // Now do a proper token refresh to get a full access token
-                    let creds = self.credentials.read().await;
-            let token_data = super::refresh::refresh_aws_sso_oidc(&self.client, &creds).await?;
-                    drop(creds);
-                    self.store_token_data(&token_data).await;
-                    tracing::info!("Proxy-only auth bootstrapped successfully");
-                    break;
-                }
-                super::types::PollResult::SlowDown => {
-                    interval += 1;
-                    tracing::debug!("Polling too fast, slowing down to {}s", interval);
-                }
-                super::types::PollResult::Pending => {
-                    tracing::debug!("Waiting for user authorization...");
-                }
-            }
+            .await
+            .context("Failed to register OIDC client")?;
+            let mut creds = self.credentials.write().await;
+            creds.client_id = Some(reg.client_id);
+            creds.client_secret = Some(reg.client_secret);
         }
+        // Perform initial token refresh
+        let creds = self.credentials.read().await;
+        let token_data = super::refresh::refresh_aws_sso_oidc(&self.client, &creds).await?;
+        drop(creds);
+        self.store_token_data(&token_data).await;
+        tracing::info!("Proxy-only auth bootstrapped successfully");
         Ok(())
     }
 

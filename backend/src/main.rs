@@ -110,7 +110,7 @@ async fn main() -> Result<()> {
         let am = auth::AuthManager::new_from_env(&config)
             .context("Failed to create auth manager from env vars")?;
         tracing::info!("Bootstrapping proxy-only credentials...");
-        am.bootstrap_proxy_credentials(config.kiro_sso_url.as_deref())
+        am.bootstrap_proxy_credentials()
             .await
             .context("Failed to bootstrap proxy credentials. Check KIRO_REFRESH_TOKEN and KIRO_SSO_REGION.")?;
         am
