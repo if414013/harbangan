@@ -969,85 +969,175 @@ pub fn merge_adjacent_messages(messages: Vec<UnifiedMessage>) -> Vec<UnifiedMess
 // ==================================================================================================
 
 /// Builds history array for Kiro API from unified messages.
+///
+/// Kiro API expects history as paired turns: each entry must have both
+/// `userInputMessage` and `assistantResponseMessage`. This function pairs
+/// adjacent user/assistant messages into proper turn objects.
+///
+/// Edge cases:
+/// - Leading assistant message (no preceding user): prepend synthetic user message
+/// - Unpaired trailing user message: dropped (it becomes the current message upstream)
+/// - Consecutive same-role messages: should already be merged by merge_adjacent_messages
 pub fn build_kiro_history(messages: &[UnifiedMessage], model_id: &str) -> Vec<Value> {
-    let mut history = Vec::new();
+    // First, build individual entries as before
+    let mut entries: Vec<(String, Value)> = Vec::new(); // (role, json_value)
 
     for msg in messages {
         match msg.role.as_str() {
             "user" => {
-                let mut content = extract_text_content(&msg.content);
-                if content.is_empty() {
-                    content = "(empty)".to_string();
-                }
-
-                let mut user_input = json!({
-                    "content": content,
-                    "modelId": model_id,
-                    "origin": "AI_EDITOR",
-                });
-
-                // Process images
-                let images_to_convert = if let Some(imgs) = &msg.images {
-                    Some(imgs.clone())
-                } else {
-                    let extracted = extract_images_from_content(&msg.content);
-                    if extracted.is_empty() {
-                        None
-                    } else {
-                        Some(extracted)
-                    }
-                };
-
-                if let Some(imgs) = images_to_convert {
-                    let kiro_images = convert_images_to_kiro_format(&Some(imgs));
-                    if !kiro_images.is_empty() {
-                        user_input["images"] = Value::Array(kiro_images);
-                    }
-                }
-
-                // Build userInputMessageContext for toolResults only
-                let mut user_input_context = json!({});
-
-                // Process tool_results - convert to Kiro format if present
-                if let Some(tool_results) = &msg.tool_results {
-                    let kiro_tool_results = convert_tool_results_to_kiro_format(tool_results);
-                    if !kiro_tool_results.is_empty() {
-                        user_input_context["toolResults"] = Value::Array(kiro_tool_results);
-                    }
-                } else {
-                    // Try to extract from content (already in Kiro format)
-                    let tool_results = extract_tool_results_from_content(&msg.content);
-                    if !tool_results.is_empty() {
-                        user_input_context["toolResults"] = Value::Array(tool_results);
-                    }
-                }
-
-                if user_input_context
-                    .as_object()
-                    .is_some_and(|o| !o.is_empty())
-                {
-                    user_input["userInputMessageContext"] = user_input_context;
-                }
-
-                history.push(json!({"userInputMessage": user_input}));
+                let user_input = build_kiro_user_input(msg, model_id);
+                entries.push(("user".to_string(), user_input));
             }
             "assistant" => {
-                let mut content = extract_text_content(&msg.content);
-                if content.is_empty() {
-                    content = "(empty)".to_string();
-                }
-
-                let mut assistant_response = json!({"content": content});
-
-                let tool_uses = extract_tool_uses_from_message(&msg.content, &msg.tool_calls);
-                if !tool_uses.is_empty() {
-                    assistant_response["toolUses"] = Value::Array(tool_uses);
-                }
-
-                history.push(json!({"assistantResponseMessage": assistant_response}));
+                let assistant_response = build_kiro_assistant_response(msg);
+                entries.push(("assistant".to_string(), assistant_response));
             }
             _ => {}
         }
+    }
+
+    // Now pair them into turns
+    pair_history_entries(entries, model_id)
+}
+
+/// Builds a Kiro userInputMessage JSON value from a unified message.
+fn build_kiro_user_input(msg: &UnifiedMessage, model_id: &str) -> Value {
+    let mut content = extract_text_content(&msg.content);
+    if content.is_empty() {
+        content = "(empty)".to_string();
+    }
+
+    let mut user_input = json!({
+        "content": content,
+        "modelId": model_id,
+        "origin": "AI_EDITOR",
+    });
+
+    // Process images
+    let images_to_convert = if let Some(imgs) = &msg.images {
+        Some(imgs.clone())
+    } else {
+        let extracted = extract_images_from_content(&msg.content);
+        if extracted.is_empty() {
+            None
+        } else {
+            Some(extracted)
+        }
+    };
+
+    if let Some(imgs) = images_to_convert {
+        let kiro_images = convert_images_to_kiro_format(&Some(imgs));
+        if !kiro_images.is_empty() {
+            user_input["images"] = Value::Array(kiro_images);
+        }
+    }
+
+    // Build userInputMessageContext for toolResults only
+    let mut user_input_context = json!({});
+
+    // Process tool_results - convert to Kiro format if present
+    if let Some(tool_results) = &msg.tool_results {
+        let kiro_tool_results = convert_tool_results_to_kiro_format(tool_results);
+        if !kiro_tool_results.is_empty() {
+            user_input_context["toolResults"] = Value::Array(kiro_tool_results);
+        }
+    } else {
+        // Try to extract from content (already in Kiro format)
+        let tool_results = extract_tool_results_from_content(&msg.content);
+        if !tool_results.is_empty() {
+            user_input_context["toolResults"] = Value::Array(tool_results);
+        }
+    }
+
+    if user_input_context
+        .as_object()
+        .is_some_and(|o| !o.is_empty())
+    {
+        user_input["userInputMessageContext"] = user_input_context;
+    }
+
+    user_input
+}
+
+/// Builds a Kiro assistantResponseMessage JSON value from a unified message.
+fn build_kiro_assistant_response(msg: &UnifiedMessage) -> Value {
+    let mut content = extract_text_content(&msg.content);
+    if content.is_empty() {
+        content = "(empty)".to_string();
+    }
+
+    let mut assistant_response = json!({"content": content});
+
+    let tool_uses = extract_tool_uses_from_message(&msg.content, &msg.tool_calls);
+    if !tool_uses.is_empty() {
+        assistant_response["toolUses"] = Value::Array(tool_uses);
+    }
+
+    assistant_response
+}
+
+/// Creates a synthetic user input for pairing with orphaned assistant messages.
+pub fn synthetic_user_input(model_id: &str) -> Value {
+    json!({
+        "content": "(continued)",
+        "modelId": model_id,
+        "origin": "AI_EDITOR",
+    })
+}
+
+/// Creates a synthetic assistant response for pairing with trailing user messages.
+fn synthetic_assistant_response() -> Value {
+    json!({"content": "(continued)"})
+}
+
+/// Pairs history entries into Kiro Turn objects.
+///
+/// Each turn must have both userInputMessage and assistantResponseMessage.
+/// Handles mismatches by inserting synthetic messages where needed.
+fn pair_history_entries(entries: Vec<(String, Value)>, model_id: &str) -> Vec<Value> {
+    let mut history = Vec::new();
+    let mut i = 0;
+
+    while i < entries.len() {
+        let (role, value) = &entries[i];
+
+        match role.as_str() {
+            "user" => {
+                // Check if next entry is assistant
+                if i + 1 < entries.len() && entries[i + 1].0 == "assistant" {
+                    // Perfect pair
+                    history.push(json!({
+                        "userInputMessage": value,
+                        "assistantResponseMessage": entries[i + 1].1
+                    }));
+                    i += 2;
+                } else {
+                    // Trailing user without assistant — pair with synthetic assistant
+                    debug!("History: trailing user message without assistant, adding synthetic assistant response");
+                    history.push(json!({
+                        "userInputMessage": value,
+                        "assistantResponseMessage": synthetic_assistant_response()
+                    }));
+                    i += 1;
+                }
+            }
+            "assistant" => {
+                // Leading/orphaned assistant without preceding user
+                debug!("History: orphaned assistant message without preceding user, adding synthetic user input");
+                history.push(json!({
+                    "userInputMessage": synthetic_user_input(model_id),
+                    "assistantResponseMessage": value
+                }));
+                i += 1;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+
+    if !history.is_empty() {
+        debug!("Built {} history turn(s) from {} entries", history.len(), entries.len());
     }
 
     history
@@ -1638,5 +1728,142 @@ mod tests {
         assert_eq!(result.len(), 1);
         // Should keep the one with more content
         assert!(result[0]["input"]["content"].is_string());
+    }
+
+    // ==================================================================================================
+    // build_kiro_history / pair_history_entries tests
+    // ==================================================================================================
+
+    fn make_user_msg(text: &str) -> UnifiedMessage {
+        UnifiedMessage {
+            role: "user".to_string(),
+            content: MessageContent::Text(text.to_string()),
+            tool_calls: None,
+            tool_results: None,
+            images: None,
+        }
+    }
+
+    fn make_assistant_msg(text: &str) -> UnifiedMessage {
+        UnifiedMessage {
+            role: "assistant".to_string(),
+            content: MessageContent::Text(text.to_string()),
+            tool_calls: None,
+            tool_results: None,
+            images: None,
+        }
+    }
+
+    #[test]
+    fn test_build_kiro_history_normal_pairing() {
+        let messages = vec![
+            make_user_msg("Hello"),
+            make_assistant_msg("Hi there"),
+        ];
+        let history = build_kiro_history(&messages, "claude-sonnet-4");
+        assert_eq!(history.len(), 1);
+        assert!(history[0]["userInputMessage"].is_object());
+        assert!(history[0]["assistantResponseMessage"].is_object());
+        assert_eq!(history[0]["userInputMessage"]["content"], "Hello");
+        assert_eq!(history[0]["assistantResponseMessage"]["content"], "Hi there");
+    }
+
+    #[test]
+    fn test_build_kiro_history_multiple_turns() {
+        let messages = vec![
+            make_user_msg("Q1"),
+            make_assistant_msg("A1"),
+            make_user_msg("Q2"),
+            make_assistant_msg("A2"),
+        ];
+        let history = build_kiro_history(&messages, "claude-sonnet-4");
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0]["userInputMessage"]["content"], "Q1");
+        assert_eq!(history[0]["assistantResponseMessage"]["content"], "A1");
+        assert_eq!(history[1]["userInputMessage"]["content"], "Q2");
+        assert_eq!(history[1]["assistantResponseMessage"]["content"], "A2");
+    }
+
+    #[test]
+    fn test_build_kiro_history_leading_assistant() {
+        // This is the exact bug scenario: history starts with assistant message
+        let messages = vec![
+            make_assistant_msg("Session started"),
+            make_user_msg("Hi"),
+            make_assistant_msg("Hello"),
+        ];
+        let history = build_kiro_history(&messages, "claude-sonnet-4");
+        assert_eq!(history.len(), 2);
+        // First turn: synthetic user + orphaned assistant
+        assert_eq!(history[0]["userInputMessage"]["content"], "(continued)");
+        assert_eq!(history[0]["assistantResponseMessage"]["content"], "Session started");
+        // Second turn: normal pair
+        assert_eq!(history[1]["userInputMessage"]["content"], "Hi");
+        assert_eq!(history[1]["assistantResponseMessage"]["content"], "Hello");
+    }
+
+    #[test]
+    fn test_build_kiro_history_trailing_user() {
+        // Trailing user message without assistant gets synthetic assistant
+        let messages = vec![
+            make_user_msg("Hello"),
+            make_assistant_msg("Hi"),
+            make_user_msg("Follow up"),
+        ];
+        let history = build_kiro_history(&messages, "claude-sonnet-4");
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0]["userInputMessage"]["content"], "Hello");
+        assert_eq!(history[0]["assistantResponseMessage"]["content"], "Hi");
+        assert_eq!(history[1]["userInputMessage"]["content"], "Follow up");
+        assert_eq!(history[1]["assistantResponseMessage"]["content"], "(continued)");
+    }
+
+    #[test]
+    fn test_build_kiro_history_empty() {
+        let messages: Vec<UnifiedMessage> = vec![];
+        let history = build_kiro_history(&messages, "claude-sonnet-4");
+        assert!(history.is_empty());
+    }
+
+    #[test]
+    fn test_build_kiro_history_single_user() {
+        let messages = vec![make_user_msg("Hello")];
+        let history = build_kiro_history(&messages, "claude-sonnet-4");
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0]["userInputMessage"]["content"], "Hello");
+        assert_eq!(history[0]["assistantResponseMessage"]["content"], "(continued)");
+    }
+
+    #[test]
+    fn test_build_kiro_history_single_assistant() {
+        let messages = vec![make_assistant_msg("I'm here")];
+        let history = build_kiro_history(&messages, "claude-sonnet-4");
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0]["userInputMessage"]["content"], "(continued)");
+        assert_eq!(history[0]["assistantResponseMessage"]["content"], "I'm here");
+    }
+
+    #[test]
+    fn test_build_kiro_history_all_turns_have_both_fields() {
+        // Ensure every turn always has both required fields regardless of input
+        let messages = vec![
+            make_assistant_msg("orphan"),
+            make_user_msg("Q1"),
+            make_assistant_msg("A1"),
+            make_user_msg("trailing"),
+        ];
+        let history = build_kiro_history(&messages, "claude-sonnet-4");
+        for (i, turn) in history.iter().enumerate() {
+            assert!(
+                turn["userInputMessage"].is_object(),
+                "Turn {} missing userInputMessage",
+                i
+            );
+            assert!(
+                turn["assistantResponseMessage"].is_object(),
+                "Turn {} missing assistantResponseMessage",
+                i
+            );
+        }
     }
 }

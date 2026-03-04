@@ -16,8 +16,9 @@ use super::core::{
     convert_tools_to_kiro_format, ensure_assistant_before_tool_results,
     extract_images_from_content, extract_text_content, extract_tool_results_from_content,
     get_thinking_system_prompt_addition, inject_thinking_tags, merge_adjacent_messages,
-    process_tools_with_long_descriptions, strip_all_tool_content, ContentBlock, KiroPayloadResult,
-    MessageContent, ToolCall, ToolFunction, ToolResult, UnifiedMessage, UnifiedTool,
+    process_tools_with_long_descriptions, strip_all_tool_content, synthetic_user_input,
+    ContentBlock, KiroPayloadResult, MessageContent, ToolCall, ToolFunction, ToolResult,
+    UnifiedMessage, UnifiedTool,
 };
 
 // ==================================================================================================
@@ -404,21 +405,21 @@ pub fn build_kiro_payload_core(
         history_messages_vec.len(),
         history_messages_vec.first().map(|m| &m.role)
     );
+    let mut system_prompt_injected = false;
     if !full_system_prompt.is_empty() && !history_messages_vec.is_empty() {
-        if history_messages_vec[0].role == "user" {
-            let original_content = extract_text_content(&history_messages_vec[0].content);
+        // Find the first user message in history (may not be index 0 if history starts with assistant)
+        if let Some(first_user_idx) = history_messages_vec.iter().position(|m| m.role == "user") {
+            let original_content = extract_text_content(&history_messages_vec[first_user_idx].content);
             debug!(
-                "Adding system prompt to first history message (original content: {} chars)",
+                "Adding system prompt to first user history message at index {} (original content: {} chars)",
+                first_user_idx,
                 original_content.len()
             );
-            history_messages_vec[0].content =
+            history_messages_vec[first_user_idx].content =
                 MessageContent::Text(format!("{}\n\n{}", full_system_prompt, original_content));
-            debug!(
-                "First history message now has {} chars",
-                extract_text_content(&history_messages_vec[0].content).len()
-            );
+            system_prompt_injected = true;
         } else {
-            debug!("First history message is not user role, skipping system prompt injection to history");
+            debug!("No user message found in history, will inject system prompt into current message");
         }
     }
 
@@ -432,13 +433,13 @@ pub fn build_kiro_payload_core(
         current_content.len()
     );
 
-    // If system prompt exists but history is empty - add to current message
+    // If system prompt wasn't injected into history, add to current message
     debug!(
-        "Checking system prompt injection: full_system_prompt.is_empty()={}, history.is_empty()={}",
-        full_system_prompt.is_empty(),
-        history.is_empty()
+        "Checking system prompt injection: system_prompt_injected={}, full_system_prompt.is_empty()={}",
+        system_prompt_injected,
+        full_system_prompt.is_empty()
     );
-    if !full_system_prompt.is_empty() && history.is_empty() {
+    if !full_system_prompt.is_empty() && !system_prompt_injected {
         debug!(
             "Adding system prompt ({} chars) to current message",
             full_system_prompt.len()
@@ -453,7 +454,9 @@ pub fn build_kiro_payload_core(
     // If current message is assistant, add it to history and create "Continue" message
     let mut final_history = history;
     if current_message.role == "assistant" {
+        // Must be a proper paired turn for Kiro API
         final_history.push(json!({
+            "userInputMessage": synthetic_user_input(model_id),
             "assistantResponseMessage": {
                 "content": current_content
             }
