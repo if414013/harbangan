@@ -4,6 +4,11 @@ WORKDIR /build
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+ARG VITE_DD_CLIENT_TOKEN
+ARG VITE_DD_APPLICATION_ID
+ARG VITE_DD_ENV=production
+ARG VITE_DD_SERVICE=rkgw-frontend
+ARG VITE_DD_SITE=datadoghq.com
 RUN npm run build
 
 # Runtime stage

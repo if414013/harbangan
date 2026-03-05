@@ -510,7 +510,27 @@ fn build_app(state: routes::AppState) -> axum::Router {
             state.clone(),
             middleware::debug_middleware,
         ))
-        .layer(tower_http::trace::TraceLayer::new_for_http())
+        .layer(
+            tower_http::trace::TraceLayer::new_for_http().make_span_with(
+                |request: &axum::http::Request<axum::body::Body>| {
+                    let path = request.uri().path();
+                    if path == "/health" || path == "/" {
+                        // Debug level: filtered out in production by env_filter, no OTel span exported
+                        tracing::debug_span!(
+                            "http_request",
+                            method = %request.method(),
+                            path = %path
+                        )
+                    } else {
+                        tracing::info_span!(
+                            "http_request",
+                            method = %request.method(),
+                            path = %path
+                        )
+                    }
+                },
+            ),
+        )
 }
 
 /// Print startup banner

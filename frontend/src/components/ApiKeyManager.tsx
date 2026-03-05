@@ -73,8 +73,14 @@ export function ApiKeyManager() {
         <div className="key-new-banner">
           <div className="key-new-label">New API key created — copy it now, it won't be shown again:</div>
           <div className="key-new-row">
-            <code className="key-new-value">{newKey}</code>
-            <button className="btn-reveal" type="button" onClick={() => handleCopy(newKey)} aria-live="polite">
+            <code className="key-new-value" data-dd-privacy="mask">{newKey}</code>
+            <button
+              className="btn-reveal"
+              type="button"
+              onClick={() => handleCopy(newKey)}
+              aria-live="polite"
+              data-dd-action-name="copy-api-key"
+            >
               {copied ? '[copied]' : '[copy]'}
             </button>
           </div>

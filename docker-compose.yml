@@ -27,7 +27,6 @@ services:
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "8000"
       DATABASE_URL: postgres://kiro:${POSTGRES_PASSWORD:-kiro_secret}@db:5432/kiro_gateway
-      DD_AGENT_HOST: datadog-agent
     labels:
       com.datadoghq.ad.logs: '[{"source": "rust", "service": "rkgw-backend"}]'
       com.datadoghq.tags.env: "${DD_ENV:-production}"
@@ -51,6 +50,7 @@ services:
         VITE_DD_APPLICATION_ID: ${VITE_DD_APPLICATION_ID:-}
         VITE_DD_ENV: ${VITE_DD_ENV:-production}
         VITE_DD_SERVICE: ${VITE_DD_SERVICE:-rkgw-frontend}
+        VITE_DD_SITE: ${VITE_DD_SITE:-datadoghq.com}
     image: kiro-gateway-frontend:latest
     restart: unless-stopped
     ports:
@@ -94,12 +94,11 @@ services:
       DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT: "0.0.0.0:4317"
       DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT: "0.0.0.0:4318"
       DD_LOGS_ENABLED: "true"
-      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
+      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "false"
+      DD_CONTAINER_INCLUDE_LABELS: "com.datadoghq.tags.service"
       DD_CONTAINER_EXCLUDE: "name:datadog-agent"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /proc/:/host/proc/:ro
-      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
 
 volumes:
   pgdata:
