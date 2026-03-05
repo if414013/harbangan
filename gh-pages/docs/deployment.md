@@ -33,11 +33,13 @@ Kiro Gateway supports two deployment modes:
 ### Architecture
 
 ```
-Client → gateway container (:8000, plain HTTP)
-            └── Kiro API (AWS CodeWhisperer)
+Client (localhost) → gateway container (127.0.0.1:8000, plain HTTP)
+                         └── Kiro API (AWS CodeWhisperer)
 ```
 
-A single container running the Rust backend. No database, no nginx, no certbot. Authentication uses a single `PROXY_API_KEY` environment variable. Kiro credentials are obtained via an AWS SSO device code flow on first boot and cached to a Docker volume.
+A single container running the Rust backend. No database, no nginx, no certbot. Authentication uses a single `PROXY_API_KEY` environment variable. Kiro credentials are obtained via an AWS SSO device code flow on first boot and cached to a Docker volume. The port binds to `127.0.0.1` only — not accessible from external networks. The container runs as a non-root user (`appuser`) with a 512MB memory limit.
+
+> **Security warning:** If you override the port binding to `0.0.0.0:8000` (e.g. by editing the `ports` entry in `docker-compose.gateway.yml`), the gateway is directly reachable from any network interface with no TLS. Anyone who can reach the host on that port and knows `PROXY_API_KEY` can make API calls. Only do this behind a firewall with strict ingress rules, and use a strong randomly-generated key. The recommended approach for external access is to place a TLS-terminating reverse proxy (nginx, Caddy) in front.
 
 | Service | Image | Purpose |
 |:---|:---|:---|

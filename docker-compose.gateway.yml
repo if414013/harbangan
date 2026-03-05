@@ -12,7 +12,7 @@
 #   KIRO_REGION          — Kiro API region (default: us-east-1)
 #
 # Usage:
-#   docker compose -f docker-compose.gateway.yml up -d
+#   docker compose -f docker-compose.gateway.yml --env-file .env.proxy up -d
 
 services:
   gateway:
@@ -23,7 +23,7 @@ services:
     restart: on-failure:5
     entrypoint: ["/app/entrypoint.sh"]
     ports:
-      - "${SERVER_PORT:-8000}:${SERVER_PORT:-8000}"
+      - "127.0.0.1:${SERVER_PORT:-8000}:${SERVER_PORT:-8000}"
     environment:
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "${SERVER_PORT:-8000}"
@@ -39,13 +39,17 @@ services:
       com.datadoghq.tags.service: "rkgw-gateway"
     volumes:
       - gateway-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     healthcheck:
-      test: ["CMD", "curl", "-fs", "http://localhost:${SERVER_PORT:-8000}/health"]
+      test:
+        ["CMD", "curl", "-fs", "http://localhost:${SERVER_PORT:-8000}/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
-
 
   datadog-agent:
     image: datadog/agent:latest

@@ -12,7 +12,9 @@ This guide covers both deployment modes for the Kiro Gateway.
 
 ## Proxy-Only Mode
 
-A lightweight single-container deployment. No PostgreSQL, no nginx, no Google SSO — just the gateway proxying requests to Kiro with a shared API key.
+A lightweight single-container deployment. No PostgreSQL, no nginx, no Google SSO — just the gateway proxying requests to Kiro with a shared API key. The container binds to `127.0.0.1` (localhost only) and runs as a non-root user (`appuser`) with a 512MB memory limit.
+
+> **Security warning:** If you override the port binding to `0.0.0.0:8000` (e.g. by editing the `ports` entry in `docker-compose.gateway.yml`), the gateway is directly reachable from any network interface with no TLS. Anyone who can reach the host on that port and knows `PROXY_API_KEY` can make API calls. Only do this behind a firewall with strict ingress rules, and use a strong randomly-generated key. The recommended approach for external access is to place a TLS-terminating reverse proxy (nginx, Caddy) in front.
 
 ### Prerequisites
 

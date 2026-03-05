@@ -93,7 +93,9 @@ On first boot, the container runs a device code flow — check the logs for a UR
 
 Credentials are cached in a Docker volume — you only need to authorize once. On subsequent restarts, the gateway reuses the cached tokens automatically.
 
-That's it — the gateway starts on port 8000 and authenticates requests with `PROXY_API_KEY`:
+The gateway binds to `127.0.0.1:8000` (localhost only) and authenticates requests with `PROXY_API_KEY`. To expose it externally, place a reverse proxy (nginx, Caddy, etc.) in front — this is the recommended approach as it adds TLS termination.
+
+> **Security warning:** If you override the binding to `0.0.0.0:8000` (e.g. by editing the `ports` entry in `docker-compose.gateway.yml`), the gateway is directly reachable from any network interface with no TLS and no authentication beyond `PROXY_API_KEY`. Anyone who can reach the host on that port and knows the key can make API calls. Only do this behind a firewall with strict ingress rules, and use a strong randomly-generated key.
 
 ```bash
 curl http://localhost:8000/v1/chat/completions \
