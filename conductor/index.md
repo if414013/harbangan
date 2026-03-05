@@ -14,6 +14,8 @@ Navigation hub for project context.
 
 ## Active Tracks
 
-- [x] [Datadog APM Integration](./tracks/datadog-apm_20260304/index.md) — Full-stack Datadog APM: backend tracing, metrics, log forwarding, frontend RUM, DD Agent sidecar
-
 <!-- Auto-populated by /conductor:new-track -->
+
+## Archived Tracks
+
+- [Datadog APM Integration](./tracks/_archive/datadog-apm_20260304/index.md) — Completed 2026-03-05
