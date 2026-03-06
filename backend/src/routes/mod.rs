@@ -15,10 +15,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use std::collections::VecDeque;
-use std::sync::Mutex;
 use std::sync::RwLock;
-use std::time::Instant;
 
 use crate::auth::AuthManager;
 use crate::cache::ModelCache;
@@ -27,8 +24,6 @@ use crate::converters::anthropic_to_kiro::build_kiro_payload as build_kiro_paylo
 use crate::converters::openai_to_kiro::build_kiro_payload;
 use crate::error::ApiError;
 use crate::http_client::KiroHttpClient;
-use crate::log_capture::LogEntry;
-use crate::metrics::MetricsCollector;
 use crate::middleware;
 use crate::middleware::DEBUG_LOGGER;
 use crate::models::anthropic::AnthropicMessagesRequest;
@@ -80,8 +75,6 @@ pub struct AppState {
     pub resolver: ModelResolver,
     pub config: Arc<RwLock<Config>>,
     pub setup_complete: Arc<AtomicBool>,
-    pub metrics: Arc<MetricsCollector>,
-    pub log_buffer: Arc<Mutex<VecDeque<LogEntry>>>,
     pub config_db: Option<Arc<ConfigDb>>,
     // In-memory caches
     /// session_id → SessionInfo
@@ -115,71 +108,6 @@ impl AppState {
         self.session_cache.retain(|_, info| info.user_id != user_id);
         self.api_key_cache.retain(|_, (uid, _)| *uid != user_id);
         self.kiro_token_cache.remove(&user_id);
-    }
-}
-
-/// Guard to ensure active connections are decremented on drop
-struct RequestGuard {
-    metrics: Arc<MetricsCollector>,
-    start_time: Instant,
-    model: String,
-    completed: bool,
-}
-
-impl RequestGuard {
-    fn new(metrics: Arc<MetricsCollector>, model: String) -> Self {
-        metrics.record_request_start();
-        Self {
-            metrics,
-            start_time: Instant::now(),
-            model,
-            completed: false,
-        }
-    }
-
-    fn complete(&mut self, input_tokens: u64, output_tokens: u64) {
-        if !self.completed {
-            let latency_ms = self.start_time.elapsed().as_secs_f64() * 1000.0;
-            self.metrics
-                .record_request_end(latency_ms, &self.model, input_tokens, output_tokens);
-            self.completed = true;
-        }
-    }
-}
-
-impl Drop for RequestGuard {
-    fn drop(&mut self) {
-        if !self.completed {
-            // Request failed or was cancelled - just decrement active connections
-            self.metrics
-                .active_connections
-                .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        }
-    }
-}
-
-fn error_type_from_api_error(err: &ApiError) -> &'static str {
-    match err {
-        ApiError::AuthError(_) => "auth",
-        ApiError::ValidationError(_) => "validation",
-        ApiError::KiroApiError { .. } => "upstream",
-        ApiError::Internal(_) => "internal",
-        ApiError::InvalidModel(_) => "validation",
-        ApiError::ConfigError(_) => "config",
-        ApiError::Forbidden(_) => "auth",
-        ApiError::SessionExpired => "auth",
-        ApiError::DomainNotAllowed(_) => "auth",
-        ApiError::KiroTokenRequired => "auth",
-        ApiError::KiroTokenExpired => "auth",
-        ApiError::LastAdmin => "validation",
-        ApiError::GuardrailBlocked { .. } => "guardrail",
-        ApiError::GuardrailWarning { .. } => "guardrail",
-        ApiError::McpConnectionError(_) => "mcp",
-        ApiError::McpToolNotFound(_) => "mcp",
-        ApiError::McpToolExecutionError(_) => "mcp",
-        ApiError::McpClientNotFound(_) => "mcp",
-        ApiError::McpProtocolError(_) => "mcp",
-        ApiError::NotFound(_) => "not_found",
     }
 }
 
@@ -474,16 +402,14 @@ async fn chat_completions_handler(
 
     // Validate request
     if request.messages.is_empty() {
-        let err = ApiError::ValidationError("messages cannot be empty".to_string());
-        state.metrics.record_error(error_type_from_api_error(&err));
-        return Err(err);
+        return Err(ApiError::ValidationError(
+            "messages cannot be empty".to_string(),
+        ));
     }
 
     // Resolve model name
     let resolution = state.resolver.resolve(&request.model);
     let model_id = resolution.internal_id.clone();
-
-    let mut guard = RequestGuard::new(Arc::clone(&state.metrics), model_id.clone());
 
     tracing::debug!(
         "Model resolution: {} -> {} (source: {}, verified: {})",
@@ -543,11 +469,7 @@ async fn chat_completions_handler(
 
     // Convert OpenAI request to Kiro format
     let kiro_payload_result = build_kiro_payload(&request, &conversation_id, &profile_arn, &config)
-        .map_err(|e| {
-            let err = ApiError::ValidationError(e);
-            state.metrics.record_error(error_type_from_api_error(&err));
-            err
-        })?;
+        .map_err(|e| ApiError::ValidationError(e))?;
 
     let kiro_payload = kiro_payload_result.payload;
 
@@ -568,11 +490,10 @@ async fn chat_completions_handler(
         (creds.access_token.clone(), creds.region.clone())
     } else {
         let auth = state.auth_manager.read().await;
-        let token = auth.get_access_token().await.map_err(|e| {
-            let err = ApiError::AuthError(format!("Failed to get access token: {}", e));
-            state.metrics.record_error(error_type_from_api_error(&err));
-            err
-        })?;
+        let token = auth
+            .get_access_token()
+            .await
+            .map_err(|e| ApiError::AuthError(format!("Failed to get access token: {}", e)))?;
         let r = auth.get_region().await;
         (token, r)
     };
@@ -592,19 +513,9 @@ async fn chat_completions_handler(
         .header("Content-Type", "application/json")
         .json(&kiro_payload)
         .build()
-        .map_err(|e| {
-            let err = ApiError::Internal(anyhow::anyhow!("Failed to build request: {}", e));
-            state.metrics.record_error(error_type_from_api_error(&err));
-            err
-        })?;
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to build request: {}", e)))?;
 
-    let response = state
-        .http_client
-        .request_with_retry(req)
-        .await
-        .inspect_err(|e| {
-            state.metrics.record_error(error_type_from_api_error(e));
-        })?;
+    let response = state.http_client.request_with_retry(req).await?;
 
     let input_tokens = count_message_tokens(&request.messages, false)
         + count_tools_tokens(request.tools.as_ref(), false);
@@ -631,34 +542,21 @@ async fn chat_completions_handler(
         // Streaming response
         tracing::debug!("Handling streaming response");
 
-        use crate::metrics::collector::StreamingMetricsTracker;
-
-        let streaming_tracker = StreamingMetricsTracker::new(
-            Arc::clone(&state.metrics),
-            model_id.clone(),
-            input_tokens as u64,
-        );
-        let output_tokens_handle = streaming_tracker.output_tokens_handle();
-
         // Use proper streaming conversion from streaming module
         let openai_stream = crate::streaming::stream_kiro_to_openai(
             response,
             &request.model,
             15,
             input_tokens,
-            Some(output_tokens_handle),
+            None,
             include_usage,
             config.truncation_recovery,
         )
-        .await
-        .inspect_err(|e| {
-            state.metrics.record_error(error_type_from_api_error(e));
-        })?;
+        .await?;
 
         // Convert Result<String, ApiError> stream to bytes stream for SSE
         use bytes::Bytes;
-        let byte_stream = openai_stream.map(move |result| {
-            let _tracker = &streaming_tracker;
+        let byte_stream = openai_stream.map(|result| {
             result
                 .map(Bytes::from)
                 .map_err(|e| std::io::Error::other(e.to_string()))
@@ -671,13 +569,7 @@ async fn chat_completions_handler(
             .header("Cache-Control", "no-cache")
             .header("Connection", "keep-alive")
             .body(Body::from_stream(byte_stream))
-            .map_err(|e| {
-                let err = ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e));
-                state.metrics.record_error(error_type_from_api_error(&err));
-                err
-            })?;
-
-        std::mem::drop(guard);
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e)))?;
 
         DEBUG_LOGGER.discard_buffers().await;
 
@@ -696,18 +588,7 @@ async fn chat_completions_handler(
             input_tokens,
             config.truncation_recovery,
         )
-        .await
-        .inspect_err(|e| {
-            state.metrics.record_error(error_type_from_api_error(e));
-        })?;
-
-        let output_tokens = openai_response
-            .get("usage")
-            .and_then(|u| u.get("completion_tokens"))
-            .and_then(|t| t.as_u64())
-            .unwrap_or(0);
-
-        guard.complete(input_tokens as u64, output_tokens);
+        .await?;
 
         // OUTPUT GUARDRAIL CHECK (non-streaming only)
         if config.guardrails_enabled {
@@ -764,22 +645,20 @@ async fn anthropic_messages_handler(
 
     // Validate request
     if request.messages.is_empty() {
-        let err = ApiError::ValidationError("messages cannot be empty".to_string());
-        state.metrics.record_error(error_type_from_api_error(&err));
-        return Err(err);
+        return Err(ApiError::ValidationError(
+            "messages cannot be empty".to_string(),
+        ));
     }
 
     if request.max_tokens <= 0 {
-        let err = ApiError::ValidationError("max_tokens must be positive".to_string());
-        state.metrics.record_error(error_type_from_api_error(&err));
-        return Err(err);
+        return Err(ApiError::ValidationError(
+            "max_tokens must be positive".to_string(),
+        ));
     }
 
     // Resolve model name
     let resolution = state.resolver.resolve(&request.model);
     let model_id = resolution.internal_id.clone();
-
-    let mut guard = RequestGuard::new(Arc::clone(&state.metrics), model_id.clone());
 
     tracing::debug!(
         "Model resolution: {} -> {} (source: {}, verified: {})",
@@ -847,13 +726,8 @@ async fn anthropic_messages_handler(
 
     // Convert Anthropic request to Kiro format
     let kiro_payload_result =
-        build_kiro_payload_anthropic(&request, &conversation_id, &profile_arn, &config).map_err(
-            |e| {
-                let err = ApiError::ValidationError(e);
-                state.metrics.record_error(error_type_from_api_error(&err));
-                err
-            },
-        )?;
+        build_kiro_payload_anthropic(&request, &conversation_id, &profile_arn, &config)
+            .map_err(ApiError::ValidationError)?;
 
     let kiro_payload = kiro_payload_result.payload;
 
@@ -874,11 +748,10 @@ async fn anthropic_messages_handler(
         (creds.access_token.clone(), creds.region.clone())
     } else {
         let auth = state.auth_manager.read().await;
-        let token = auth.get_access_token().await.map_err(|e| {
-            let err = ApiError::AuthError(format!("Failed to get access token: {}", e));
-            state.metrics.record_error(error_type_from_api_error(&err));
-            err
-        })?;
+        let token = auth
+            .get_access_token()
+            .await
+            .map_err(|e| ApiError::AuthError(format!("Failed to get access token: {}", e)))?;
         let r = auth.get_region().await;
         (token, r)
     };
@@ -898,19 +771,9 @@ async fn anthropic_messages_handler(
         .header("Content-Type", "application/json")
         .json(&kiro_payload)
         .build()
-        .map_err(|e| {
-            let err = ApiError::Internal(anyhow::anyhow!("Failed to build request: {}", e));
-            state.metrics.record_error(error_type_from_api_error(&err));
-            err
-        })?;
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to build request: {}", e)))?;
 
-    let response = state
-        .http_client
-        .request_with_retry(req)
-        .await
-        .inspect_err(|e| {
-            state.metrics.record_error(error_type_from_api_error(e));
-        })?;
+    let response = state.http_client.request_with_retry(req).await?;
 
     let input_tokens = count_anthropic_message_tokens(
         &request.messages,
@@ -923,15 +786,6 @@ async fn anthropic_messages_handler(
         // Streaming response
         tracing::debug!("Handling streaming response");
 
-        use crate::metrics::collector::StreamingMetricsTracker;
-
-        let streaming_tracker = StreamingMetricsTracker::new(
-            Arc::clone(&state.metrics),
-            model_id.clone(),
-            input_tokens as u64,
-        );
-        let output_tokens_handle = streaming_tracker.output_tokens_handle();
-
         // Convert response to Anthropic SSE stream
         let first_token_timeout = config.first_token_timeout;
         let anthropic_stream = crate::streaming::stream_kiro_to_anthropic(
@@ -939,18 +793,14 @@ async fn anthropic_messages_handler(
             &request.model,
             first_token_timeout,
             input_tokens,
-            Some(output_tokens_handle),
+            None,
             config.truncation_recovery,
         )
-        .await
-        .inspect_err(|e| {
-            state.metrics.record_error(error_type_from_api_error(e));
-        })?;
+        .await?;
 
         // Convert to raw SSE response (stream already contains properly formatted SSE events)
         // Don't use Axum's Sse wrapper as it would double-wrap the events
-        let byte_stream = anthropic_stream.map(move |result| {
-            let _tracker = &streaming_tracker;
+        let byte_stream = anthropic_stream.map(|result| {
             result
                 .map(Bytes::from)
                 .map_err(|e| std::io::Error::other(e.to_string()))
@@ -962,13 +812,7 @@ async fn anthropic_messages_handler(
             .header("Cache-Control", "no-cache")
             .header("Connection", "keep-alive")
             .body(Body::from_stream(byte_stream))
-            .map_err(|e| {
-                let err = ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e));
-                state.metrics.record_error(error_type_from_api_error(&err));
-                err
-            })?;
-
-        std::mem::drop(guard);
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e)))?;
 
         DEBUG_LOGGER.discard_buffers().await;
 
@@ -987,18 +831,7 @@ async fn anthropic_messages_handler(
             input_tokens,
             config.truncation_recovery,
         )
-        .await
-        .inspect_err(|e| {
-            state.metrics.record_error(error_type_from_api_error(e));
-        })?;
-
-        let output_tokens = anthropic_response
-            .get("usage")
-            .and_then(|u| u.get("output_tokens"))
-            .and_then(|t| t.as_u64())
-            .unwrap_or(0);
-
-        guard.complete(input_tokens as u64, output_tokens);
+        .await?;
 
         // OUTPUT GUARDRAIL CHECK (non-streaming only)
         if config.guardrails_enabled {
@@ -1047,8 +880,6 @@ mod tests {
             ..Config::with_defaults()
         };
 
-        let metrics = Arc::new(crate::metrics::MetricsCollector::new());
-
         AppState {
             model_cache: cache,
             auth_manager,
@@ -1056,8 +887,6 @@ mod tests {
             resolver,
             config: Arc::new(RwLock::new(config)),
             setup_complete: Arc::new(AtomicBool::new(true)),
-            metrics,
-            log_buffer: Arc::new(Mutex::new(VecDeque::new())),
             config_db: None,
             session_cache: Arc::new(DashMap::new()),
             api_key_cache: Arc::new(DashMap::new()),

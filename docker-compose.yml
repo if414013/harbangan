@@ -45,40 +45,48 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        VITE_DD_CLIENT_TOKEN: ${VITE_DD_CLIENT_TOKEN:-}
-        VITE_DD_APPLICATION_ID: ${VITE_DD_APPLICATION_ID:-}
-        VITE_DD_ENV: ${VITE_DD_ENV:-production}
-        VITE_DD_SERVICE: ${VITE_DD_SERVICE:-rkgw-frontend}
-        VITE_DD_SITE: ${VITE_DD_SITE:-datadoghq.com}
     image: kiro-gateway-frontend:latest
+    restart: unless-stopped
+    environment:
+      VITE_DD_CLIENT_TOKEN: ${VITE_DD_CLIENT_TOKEN:-}
+      VITE_DD_APPLICATION_ID: ${VITE_DD_APPLICATION_ID:-}
+      VITE_DD_ENV: ${VITE_DD_ENV:-production}
+      VITE_DD_SERVICE: ${VITE_DD_SERVICE:-rkgw-frontend}
+      VITE_DD_SITE: ${VITE_DD_SITE:-datadoghq.com}
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    image: kiro-gateway-nginx:latest
     restart: unless-stopped
     ports:
       - "443:443"
       - "80:80"
     environment:
+      CERTBOT_EMAIL: ${EMAIL}
       DOMAIN: ${DOMAIN:-localhost}
+      USE_LOCAL_CA: ${USE_LOCAL_CA:-1}
+      STAGING: ${STAGING:-0}
     volumes:
-      - letsencrypt:/etc/letsencrypt:ro
-      - certbot-webroot:/var/www/certbot:ro
+      - letsencrypt:/etc/letsencrypt
     depends_on:
       backend:
         condition: service_healthy
+      frontend:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-fsk", "https://localhost/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
-
-  certbot:
-    image: certbot/certbot:latest
-    volumes:
-      - letsencrypt:/etc/letsencrypt
-      - certbot-webroot:/var/www/certbot
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done'"
-    depends_on:
-      - frontend
 
   datadog-agent:
     image: datadog/agent:latest
@@ -103,4 +111,3 @@ services:
 volumes:
   pgdata:
   letsencrypt:
-  certbot-webroot:

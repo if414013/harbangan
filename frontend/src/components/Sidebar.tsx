@@ -29,9 +29,6 @@ export function Sidebar({ connected, open, onClose }: SidebarProps) {
         <div className="version">gateway v1.0.8</div>
       </div>
       <div className="sidebar-nav">
-        <NavLink to="/" end className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={onClose}>
-          <span className="nav-cursor">{'>'}</span> dashboard
-        </NavLink>
         <NavLink to="/profile" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={onClose}>
           <span className="nav-cursor">{'>'}</span> profile
         </NavLink>

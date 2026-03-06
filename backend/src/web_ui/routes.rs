@@ -6,6 +6,7 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+
 use serde_json::{json, Value};
 use sysinfo::{Pid, ProcessesToUpdate, System};
 
@@ -15,11 +16,6 @@ use crate::routes::AppState;
 use crate::web_ui::config_api::{
     classify_config_change, get_config_field_descriptions, validate_config_field, ChangeType,
 };
-
-/// GET /ui/api/metrics - Current metrics snapshot
-pub async fn get_metrics(State(state): State<AppState>) -> Json<Value> {
-    Json(state.metrics.to_json_snapshot())
-}
 
 /// GET /ui/api/system - System info (CPU, memory, uptime)
 pub async fn get_system_info() -> Json<Value> {
@@ -46,54 +42,6 @@ pub async fn get_system_info() -> Json<Value> {
 pub async fn get_models(State(state): State<AppState>) -> Json<Value> {
     let model_ids = state.model_cache.get_all_model_ids();
     Json(json!({ "models": model_ids }))
-}
-
-#[derive(Deserialize)]
-pub struct LogsQuery {
-    pub search: Option<String>,
-    pub limit: Option<usize>,
-    pub offset: Option<usize>,
-}
-
-/// GET /ui/api/logs - Paginated log entries with optional search
-pub async fn get_logs(
-    State(state): State<AppState>,
-    Query(params): Query<LogsQuery>,
-) -> Json<Value> {
-    let limit = params.limit.unwrap_or(100);
-    let offset = params.offset.unwrap_or(0);
-
-    let (entries, total): (Vec<Value>, usize) = if let Ok(buffer) = state.log_buffer.lock() {
-        let filtered: Vec<Value> = buffer
-            .iter()
-            .filter(|entry| {
-                params
-                    .search
-                    .as_ref()
-                    .is_none_or(|s| entry.message.to_lowercase().contains(&s.to_lowercase()))
-            })
-            .skip(offset)
-            .take(limit)
-            .map(|entry| {
-                json!({
-                    "timestamp": entry.timestamp.to_rfc3339(),
-                    "level": entry.level.to_string(),
-                    "message": entry.message,
-                })
-            })
-            .collect();
-        let total = buffer.len();
-        (filtered, total)
-    } else {
-        (Vec::new(), 0)
-    };
-
-    Json(json!({
-        "logs": entries,
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-    }))
 }
 
 /// Mask a sensitive string: show first 4 and last 4 chars, or "****" if too short.
@@ -411,7 +359,6 @@ pub async fn get_config_history(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metrics::MetricsCollector;
 
     #[tokio::test]
     async fn test_get_system_info() {
@@ -420,30 +367,6 @@ mod tests {
         assert!(value["cpu_usage"].is_number());
         assert!(value["memory_bytes"].is_number());
         assert!(value["uptime_seconds"].is_number());
-    }
-
-    #[test]
-    fn test_metrics_to_json_snapshot() {
-        let collector = MetricsCollector::new();
-        collector.record_request_end(100.0, "test-model", 50, 100);
-
-        let snapshot = collector.to_json_snapshot();
-        assert!(snapshot["total_requests"].is_number());
-        assert!(snapshot["latency"]["p50"].is_number());
-        assert!(snapshot["models"].is_array());
-
-        let models = snapshot["models"].as_array().unwrap();
-        assert_eq!(models.len(), 1);
-        assert_eq!(models[0]["name"], "test-model");
-    }
-
-    #[test]
-    fn test_metrics_snapshot_empty() {
-        let collector = MetricsCollector::new();
-        let snapshot = collector.to_json_snapshot();
-        assert_eq!(snapshot["total_requests"], 0);
-        assert_eq!(snapshot["total_errors"], 0);
-        assert_eq!(snapshot["active_connections"], 0);
     }
 
     #[test]

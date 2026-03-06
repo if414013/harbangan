@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
-use std::collections::VecDeque;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 mod auth;
 mod cache;
@@ -11,9 +10,7 @@ mod datadog;
 mod error;
 mod guardrails;
 mod http_client;
-mod log_capture;
 mod mcp;
-mod metrics;
 mod middleware;
 mod models;
 mod resolver;
@@ -31,16 +28,13 @@ async fn main() -> Result<()> {
     let mut config = config::Config::load()?;
     config.validate()?;
 
-    let log_buffer = Arc::new(Mutex::new(VecDeque::new()));
-
-    // Set up logging with capture layer for web UI SSE log streaming
+    // Set up logging
     let log_level = config.log_level.to_lowercase();
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&log_level));
 
     {
         use tracing_subscriber::prelude::*;
-        let capture_layer = log_capture::LogCaptureLayer::new(Arc::clone(&log_buffer));
 
         // When Datadog is enabled, use structured JSON logs so the Agent can parse
         // and correlate them with APM traces.  The `Layer for Option<L>` blanket
@@ -64,7 +58,6 @@ async fn main() -> Result<()> {
 
         tracing_subscriber::registry()
             .with(env_filter)
-            .with(capture_layer)
             .with(json_fmt)
             .with(text_fmt)
             .with(dd_layer)
@@ -199,13 +192,6 @@ async fn main() -> Result<()> {
 
     // Initialise Datadog OTLP metrics pipeline (no-op when DD_AGENT_HOST is unset)
     let otel_metrics_provider = datadog::init_otel_metrics();
-    let metrics = Arc::new(if otel_metrics_provider.is_some() {
-        let meter = opentelemetry::global::meter("kiro-gateway");
-        metrics::MetricsCollector::with_otel(meter)
-    } else {
-        metrics::MetricsCollector::new()
-    });
-    tracing::info!("Metrics collector initialized");
 
     let mut app_state = routes::AppState {
         model_cache: model_cache.clone(),
@@ -214,8 +200,6 @@ async fn main() -> Result<()> {
         resolver,
         config: Arc::new(RwLock::new(config.clone())),
         setup_complete: Arc::clone(&setup_complete),
-        metrics: Arc::clone(&metrics),
-        log_buffer: Arc::clone(&log_buffer),
         config_db,
         session_cache: Arc::new(dashmap::DashMap::new()),
         api_key_cache: Arc::new(dashmap::DashMap::new()),
@@ -318,52 +302,6 @@ async fn main() -> Result<()> {
     tracing::info!("Server shutdown complete");
 
     Ok(())
-}
-
-/// Initialize AuthManager from config DB (Arc-wrapped, for the http_client).
-async fn init_auth_from_config_db(
-    config: &config::Config,
-    config_db: &Option<Arc<web_ui::config_db::ConfigDb>>,
-) -> Result<Arc<auth::AuthManager>> {
-    if let Some(ref db) = config_db {
-        tracing::info!("Initializing authentication from config database...");
-        match auth::AuthManager::new(Arc::clone(db), config.token_refresh_threshold).await {
-            Ok(am) => {
-                let am = Arc::new(am);
-                match am.get_access_token().await {
-                    Ok(token) => {
-                        tracing::info!("Authentication successful (token length: {})", token.len());
-                    }
-                    Err(e) => {
-                        tracing::error!("Authentication failed: {}", e);
-                        tracing::warn!(
-                            "Server will start but API requests will fail without valid credentials"
-                        );
-                    }
-                }
-                Ok(am)
-            }
-            Err(e) => {
-                tracing::error!("Failed to initialize auth manager: {}", e);
-                tracing::warn!("Starting with dummy auth — API requests will fail");
-                Ok(Arc::new(
-                    auth::AuthManager::new_placeholder(
-                        config.kiro_region.clone(),
-                        config.token_refresh_threshold,
-                    )
-                    .context("Failed to create fallback auth manager")?,
-                ))
-            }
-        }
-    } else {
-        Ok(Arc::new(
-            auth::AuthManager::new_placeholder(
-                config.kiro_region.clone(),
-                config.token_refresh_threshold,
-            )
-            .context("Failed to create fallback auth manager")?,
-        ))
-    }
 }
 
 /// Initialize AuthManager from config DB (unwrapped, for AppState).

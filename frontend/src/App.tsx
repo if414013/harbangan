@@ -1,9 +1,8 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { SessionGate } from './components/SessionGate'
 import { AdminGuard } from './components/AdminGuard'
 import { ToastProvider } from './components/Toast'
-import { Dashboard } from './pages/Dashboard'
 import { Config } from './pages/Config'
 import { Login } from './pages/Login'
 import { Profile } from './pages/Profile'
@@ -18,7 +17,7 @@ export default function App() {
         <Routes>
           <Route path="login" element={<Login />} />
           <Route element={<SessionGate><Layout /></SessionGate>}>
-            <Route index element={<Dashboard />} />
+            <Route index element={<Navigate to="profile" replace />} />
             <Route path="config" element={<AdminGuard><Config /></AdminGuard>} />
             <Route path="profile" element={<Profile />} />
             <Route path="guardrails" element={<AdminGuard><Guardrails /></AdminGuard>} />

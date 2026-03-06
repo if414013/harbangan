@@ -304,8 +304,6 @@ mod tests {
             ..Config::with_defaults()
         };
 
-        let metrics = Arc::new(crate::metrics::MetricsCollector::new());
-
         AppState {
             model_cache: cache,
             auth_manager,
@@ -313,8 +311,6 @@ mod tests {
             resolver,
             config: Arc::new(std::sync::RwLock::new(config)),
             setup_complete: Arc::new(std::sync::atomic::AtomicBool::new(true)),
-            metrics,
-            log_buffer: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
             config_db: None,
             session_cache: Arc::new(dashmap::DashMap::new()),
             api_key_cache: Arc::new(dashmap::DashMap::new()),

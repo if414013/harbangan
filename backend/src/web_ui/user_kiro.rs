@@ -129,6 +129,12 @@ async fn kiro_setup(
             .map_err(ApiError::Internal)?)
         .unwrap_or_default();
 
+    if start_url.is_empty() {
+        return Err(ApiError::ValidationError(
+            "start_url is required (your AWS IAM Identity Center start URL, e.g. https://d-xxxxxxxxxx.awsapps.com/start)".into(),
+        ));
+    }
+
     let http_client = reqwest::Client::new();
 
     let (client_id, client_secret) = match (client_id, client_secret) {

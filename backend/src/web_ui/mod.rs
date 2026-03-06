@@ -4,7 +4,6 @@ pub mod config_db;
 pub mod google_auth;
 pub mod routes;
 pub mod session;
-pub mod sse;
 pub mod user_kiro;
 pub mod users;
 
@@ -59,17 +58,12 @@ pub fn web_ui_routes(state: AppState) -> Router {
     // --- Session-authenticated API routes (+ CSRF on mutations) ---
     let session_api_routes = Router::new()
         // Read-only (GET)
-        .route("/metrics", get(routes::get_metrics))
         .route("/system", get(routes::get_system_info))
         .route("/models", get(routes::get_models))
-        .route("/logs", get(routes::get_logs))
         .route("/config", get(routes::get_config))
         .route("/config/schema", get(routes::get_config_schema))
         .route("/config/history", get(routes::get_config_history))
         .route("/auth/me", get(google_auth::auth_me))
-        // SSE streams (GET, authenticated via session cookie)
-        .route("/stream/metrics", get(sse::metrics_stream))
-        .route("/stream/logs", get(sse::logs_stream))
         // Mutating endpoints (need CSRF)
         .route("/auth/logout", post(google_auth::logout_with_session))
         // Stream 3: per-user Kiro token + API key routes

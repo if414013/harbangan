@@ -612,7 +612,7 @@ mod tests {
     use super::*;
     use crate::{
         auth::AuthManager, cache::ModelCache, config::Config, http_client::KiroHttpClient,
-        metrics::MetricsCollector, resolver::ModelResolver, routes::SessionInfo,
+        resolver::ModelResolver, routes::SessionInfo,
     };
     use axum::{
         body::Body,
@@ -622,7 +622,6 @@ mod tests {
         Router,
     };
     use std::collections::HashMap;
-    use std::collections::VecDeque;
     use std::sync::atomic::AtomicBool;
     use tower::util::ServiceExt;
 
@@ -639,8 +638,6 @@ mod tests {
             ..Config::with_defaults()
         };
 
-        let metrics = Arc::new(MetricsCollector::new());
-
         AppState {
             model_cache: cache,
             auth_manager,
@@ -648,8 +645,6 @@ mod tests {
             resolver,
             config: Arc::new(std::sync::RwLock::new(config)),
             setup_complete: Arc::new(AtomicBool::new(true)),
-            metrics,
-            log_buffer: Arc::new(std::sync::Mutex::new(VecDeque::new())),
             config_db: None,
             session_cache: Arc::new(dashmap::DashMap::new()),
             api_key_cache: Arc::new(dashmap::DashMap::new()),

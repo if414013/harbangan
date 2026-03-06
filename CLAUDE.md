@@ -7,10 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 rkgw/
 ├── backend/                    # Rust API server (Axum 0.7 + Tokio)
-├── frontend/                   # React 19 SPA (Vite 7 + TypeScript 5.9), served by nginx
-├── docker-compose.yml          # 4 services: db, backend, frontend (nginx), certbot
+├── frontend/                   # React 19 SPA (Vite 7 + TypeScript 5.9), served by jonasal/nginx-certbot
+├── docker-compose.yml          # 3 services: db, backend, frontend (nginx + auto-TLS)
 ├── docker-compose.gateway.yml  # Proxy-only: single backend container, no DB/SSO
-├── init-certs.sh               # First-time Let's Encrypt cert provisioning
 └── .env.example
 ```
 
@@ -69,12 +68,11 @@ All runtime config (region, timeouts, debug mode, etc.) is managed via the Web U
 ### Docker Services
 
 ```
-Internet → nginx (frontend, :443/:80)
+Internet → nginx-certbot (frontend, :443/:80)
               ├── /_ui/*           → React SPA static files
               ├── /_ui/api/*       → proxy → backend:8000
               ├── /v1/*            → proxy → backend:8000 (SSE streaming)
-              └── /.well-known/    → certbot webroot
-           certbot   → Let's Encrypt cert auto-renewal (12h cycle)
+              └── TLS auto-provisioned by jonasal/nginx-certbot
            backend   → Rust API server (plain HTTP, internal only)
            db        → PostgreSQL 16
 ```
