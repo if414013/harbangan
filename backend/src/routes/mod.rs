@@ -28,9 +28,15 @@ use crate::middleware;
 use crate::middleware::DEBUG_LOGGER;
 use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::{ChatCompletionRequest, ModelList, OpenAIModel};
+use crate::providers::anthropic::AnthropicProvider;
+use crate::providers::gemini::GeminiProvider;
+use crate::providers::openai::OpenAIProvider;
+use crate::providers::registry::ProviderRegistry;
+use crate::providers::types::{ProviderContext, ProviderCredentials, ProviderId};
 use crate::resolver::ModelResolver;
 use crate::tokenizer::{count_anthropic_message_tokens, count_message_tokens, count_tools_tokens};
 use crate::web_ui::config_db::ConfigDb;
+use crate::web_ui::provider_oauth::{ProviderOAuthPendingState, TokenExchanger};
 
 /// Application version from Cargo.toml
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -90,6 +96,20 @@ pub struct AppState {
     pub guardrails_engine: Option<Arc<crate::guardrails::engine::GuardrailsEngine>>,
     /// MCP Gateway manager (None when mcp_enabled=false or feature not yet initialized)
     pub mcp_manager: Option<Arc<crate::mcp::McpManager>>,
+    // Multi-provider support
+    /// Routes requests to the right provider based on user API keys
+    pub provider_registry: Arc<ProviderRegistry>,
+    /// Direct Anthropic API provider
+    pub anthropic_provider: Arc<AnthropicProvider>,
+    /// Direct OpenAI API provider
+    pub openai_provider: Arc<OpenAIProvider>,
+    /// Direct Gemini API provider
+    pub gemini_provider: Arc<GeminiProvider>,
+    // Provider OAuth relay
+    /// Pending provider OAuth relay states (separate from Google SSO oauth_pending)
+    pub provider_oauth_pending: Arc<DashMap<String, ProviderOAuthPendingState>>,
+    /// Token exchanger for provider OAuth (mockable for tests)
+    pub token_exchanger: Arc<dyn TokenExchanger>,
 }
 
 impl AppState {
@@ -294,6 +314,214 @@ async fn inject_mcp_tools<T: serde::de::DeserializeOwned>(
     Some(tools)
 }
 
+// ── Direct provider helpers ──────────────────────────────────────
+
+/// Convert an Anthropic API non-streaming response body → OpenAI chat completion JSON.
+fn anthropic_response_to_openai(model: &str, body: &Value) -> Value {
+    let text = body
+        .get("content")
+        .and_then(|c| c.as_array())
+        .and_then(|a| a.first())
+        .and_then(|b| b.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let finish_reason = body
+        .get("stop_reason")
+        .and_then(|r| r.as_str())
+        .map(|r| if r == "end_turn" { "stop" } else { r })
+        .unwrap_or("stop")
+        .to_string();
+
+    let prompt_tokens = body
+        .get("usage")
+        .and_then(|u| u.get("input_tokens"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as i32;
+    let completion_tokens = body
+        .get("usage")
+        .and_then(|u| u.get("output_tokens"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as i32;
+
+    json!({
+        "id": body.get("id").and_then(|v| v.as_str()).unwrap_or("chatcmpl-direct"),
+        "object": "chat.completion",
+        "created": Utc::now().timestamp(),
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": { "role": "assistant", "content": text },
+            "finish_reason": finish_reason,
+            "logprobs": null
+        }],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens
+        }
+    })
+}
+
+/// Convert an OpenAI API non-streaming response body → Anthropic messages response JSON.
+fn openai_response_to_anthropic(model: &str, body: &Value) -> Value {
+    let text = body
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let stop_reason = body
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("finish_reason"))
+        .and_then(|r| r.as_str())
+        .map(|r| if r == "stop" { "end_turn" } else { r })
+        .unwrap_or("end_turn")
+        .to_string();
+
+    let input_tokens = body
+        .get("usage")
+        .and_then(|u| u.get("prompt_tokens"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as i32;
+    let output_tokens = body
+        .get("usage")
+        .and_then(|u| u.get("completion_tokens"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as i32;
+
+    json!({
+        "id": body.get("id").and_then(|v| v.as_str()).unwrap_or("msg-direct"),
+        "type": "message",
+        "role": "assistant",
+        "model": model,
+        "content": [{ "type": "text", "text": text }],
+        "stop_reason": stop_reason,
+        "stop_sequence": null,
+        "usage": { "input_tokens": input_tokens, "output_tokens": output_tokens }
+    })
+}
+
+/// Handle a request via a direct provider (non-Kiro) for the OpenAI-format endpoint.
+async fn handle_direct_openai(
+    state: &AppState,
+    provider_id: ProviderId,
+    creds: ProviderCredentials,
+    req: &ChatCompletionRequest,
+) -> Result<Response, ApiError> {
+    use crate::providers::traits::Provider;
+    let ctx = ProviderContext {
+        credentials: &creds,
+        model: &req.model,
+    };
+
+    tracing::info!(
+        model = %req.model,
+        provider = ?provider_id,
+        stream = req.stream,
+        "Routing to direct provider (OpenAI endpoint)"
+    );
+
+    if req.stream {
+        let stream = match &provider_id {
+            ProviderId::OpenAI => state.openai_provider.stream_openai(&ctx, req).await?,
+            ProviderId::Anthropic => state.anthropic_provider.stream_openai(&ctx, req).await?,
+            ProviderId::Gemini => state.gemini_provider.stream_openai(&ctx, req).await?,
+            ProviderId::Kiro => unreachable!(),
+        };
+        let byte_stream = stream.map(|r| r.map_err(|e| std::io::Error::other(e.to_string())));
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "text/event-stream")
+            .header("Cache-Control", "no-cache")
+            .header("Connection", "keep-alive")
+            .body(Body::from_stream(byte_stream))
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e)))
+    } else {
+        let resp = match &provider_id {
+            ProviderId::OpenAI => state.openai_provider.execute_openai(&ctx, req).await?,
+            ProviderId::Anthropic => state.anthropic_provider.execute_openai(&ctx, req).await?,
+            ProviderId::Gemini => state.gemini_provider.execute_openai(&ctx, req).await?,
+            ProviderId::Kiro => unreachable!(),
+        };
+        let body = match provider_id {
+            ProviderId::OpenAI => resp.body,
+            ProviderId::Anthropic => anthropic_response_to_openai(&req.model, &resp.body),
+            ProviderId::Gemini => serde_json::to_value(
+                crate::converters::gemini_to_openai::gemini_to_openai(&req.model, &resp.body),
+            )
+            .unwrap_or_default(),
+            ProviderId::Kiro => unreachable!(),
+        };
+        Ok(Json(body).into_response())
+    }
+}
+
+/// Handle a request via a direct provider (non-Kiro) for the Anthropic-format endpoint.
+async fn handle_direct_anthropic(
+    state: &AppState,
+    provider_id: ProviderId,
+    creds: ProviderCredentials,
+    req: &AnthropicMessagesRequest,
+) -> Result<Response, ApiError> {
+    use crate::providers::traits::Provider;
+    let ctx = ProviderContext {
+        credentials: &creds,
+        model: &req.model,
+    };
+
+    tracing::info!(
+        model = %req.model,
+        provider = ?provider_id,
+        stream = req.stream,
+        "Routing to direct provider (Anthropic endpoint)"
+    );
+
+    if req.stream {
+        let stream = match &provider_id {
+            ProviderId::OpenAI => state.openai_provider.stream_anthropic(&ctx, req).await?,
+            ProviderId::Anthropic => state.anthropic_provider.stream_anthropic(&ctx, req).await?,
+            ProviderId::Gemini => state.gemini_provider.stream_anthropic(&ctx, req).await?,
+            ProviderId::Kiro => unreachable!(),
+        };
+        let byte_stream = stream.map(|r| r.map_err(|e| std::io::Error::other(e.to_string())));
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "text/event-stream")
+            .header("Cache-Control", "no-cache")
+            .header("Connection", "keep-alive")
+            .body(Body::from_stream(byte_stream))
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e)))
+    } else {
+        let resp = match &provider_id {
+            ProviderId::OpenAI => state.openai_provider.execute_anthropic(&ctx, req).await?,
+            ProviderId::Anthropic => {
+                state
+                    .anthropic_provider
+                    .execute_anthropic(&ctx, req)
+                    .await?
+            }
+            ProviderId::Gemini => state.gemini_provider.execute_anthropic(&ctx, req).await?,
+            ProviderId::Kiro => unreachable!(),
+        };
+        let body = match provider_id {
+            ProviderId::Anthropic => resp.body,
+            ProviderId::OpenAI => openai_response_to_anthropic(&req.model, &resp.body),
+            ProviderId::Gemini => serde_json::to_value(
+                crate::converters::gemini_to_anthropic::gemini_to_anthropic(&req.model, &resp.body),
+            )
+            .unwrap_or_default(),
+            ProviderId::Kiro => unreachable!(),
+        };
+        Ok(Json(body).into_response())
+    }
+}
+
 /// Health check routes (no authentication required)
 pub fn health_routes() -> Router {
     Router::new()
@@ -406,6 +634,28 @@ async fn chat_completions_handler(
             "messages cannot be empty".to_string(),
         ));
     }
+
+    // ── Direct provider routing ──────────────────────────────────────
+    // Check if this user has an API key for the model's native provider.
+    // If so, route directly to that provider and skip the Kiro pipeline.
+    let user_id = user_creds.as_ref().map(|c| c.user_id);
+    // Ensure OAuth token is fresh before resolving provider
+    if let Some(uid) = user_id {
+        if let Some(db) = state.config_db.as_ref() {
+            state
+                .provider_registry
+                .ensure_fresh_token(uid, &request.model, db, state.token_exchanger.as_ref())
+                .await;
+        }
+    }
+    let (provider, provider_creds) = state
+        .provider_registry
+        .resolve_provider(user_id, &request.model, state.config_db.as_deref())
+        .await;
+    if provider != ProviderId::Kiro {
+        return handle_direct_openai(&state, provider, provider_creds.unwrap(), &request).await;
+    }
+    // ── End direct provider routing ──────────────────────────────────
 
     // Resolve model name
     let resolution = state.resolver.resolve(&request.model);
@@ -657,6 +907,26 @@ async fn anthropic_messages_handler(
         ));
     }
 
+    // ── Direct provider routing ──────────────────────────────────────
+    let user_id = user_creds.as_ref().map(|c| c.user_id);
+    // Ensure OAuth token is fresh before resolving provider
+    if let Some(uid) = user_id {
+        if let Some(db) = state.config_db.as_ref() {
+            state
+                .provider_registry
+                .ensure_fresh_token(uid, &request.model, db, state.token_exchanger.as_ref())
+                .await;
+        }
+    }
+    let (provider, provider_creds) = state
+        .provider_registry
+        .resolve_provider(user_id, &request.model, state.config_db.as_deref())
+        .await;
+    if provider != ProviderId::Kiro {
+        return handle_direct_anthropic(&state, provider, provider_creds.unwrap(), &request).await;
+    }
+    // ── End direct provider routing ──────────────────────────────────
+
     // Resolve model name
     let resolution = state.resolver.resolve(&request.model);
     let model_id = resolution.internal_id.clone();
@@ -896,6 +1166,12 @@ mod tests {
             oauth_pending: Arc::new(DashMap::new()),
             guardrails_engine: None,
             mcp_manager: None,
+            provider_registry: Arc::new(ProviderRegistry::new()),
+            anthropic_provider: Arc::new(AnthropicProvider::new()),
+            openai_provider: Arc::new(OpenAIProvider::new()),
+            gemini_provider: Arc::new(GeminiProvider::new()),
+            provider_oauth_pending: Arc::new(DashMap::new()),
+            token_exchanger: Arc::new(crate::web_ui::provider_oauth::HttpTokenExchanger::new()),
         }
     }
 

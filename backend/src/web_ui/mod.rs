@@ -2,6 +2,7 @@ pub mod api_keys;
 pub mod config_api;
 pub mod config_db;
 pub mod google_auth;
+pub mod provider_oauth;
 pub mod routes;
 pub mod session;
 pub mod user_kiro;
@@ -69,6 +70,8 @@ pub fn web_ui_routes(state: AppState) -> Router {
         // Stream 3: per-user Kiro token + API key routes
         .merge(user_kiro::kiro_routes())
         .merge(api_keys::api_key_routes())
+        // Multi-provider: per-user provider OAuth management
+        .merge(provider_oauth::provider_oauth_routes())
         // Session + CSRF middleware stack
         .layer(axum::middleware::from_fn(google_auth::csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(
@@ -102,6 +105,8 @@ pub fn web_ui_routes(state: AppState) -> Router {
             "/auth/google/callback",
             get(google_auth::google_auth_callback),
         )
+        // Provider OAuth relay routes (authenticated by relay_token, not session)
+        .merge(provider_oauth::provider_oauth_public_routes())
         .with_state(state.clone());
 
     Router::new()

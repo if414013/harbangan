@@ -1,9 +1,194 @@
+import { useState, useEffect, useRef } from 'react'
 import { KiroSetup } from '../components/KiroSetup'
 import { ApiKeyManager } from '../components/ApiKeyManager'
 import { useSession } from '../components/SessionGate'
+import { useToast } from '../components/Toast'
+import { getProvidersStatus, getProviderConnectUrl, disconnectProvider } from '../lib/api'
+import type { ProvidersStatusResponse } from '../lib/api'
+
+const PROVIDERS = ['anthropic', 'gemini', 'openai'] as const
+
+const RELAY_TIMEOUT_MS = 10 * 60 * 1000
+
+interface RelayModalProps {
+  provider: string
+  relayScriptUrl: string
+  onConnected: () => void
+  onClose: () => void
+}
+
+function RelayModal({ provider, relayScriptUrl, onConnected, onClose }: RelayModalProps) {
+  const [copied, setCopied] = useState(false)
+  const [timedOut, setTimedOut] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mountedRef = useRef(true)
+
+  const curlCommand = `curl -fsSL '${relayScriptUrl}' | sh`
+
+  useEffect(() => {
+    mountedRef.current = true
+
+    pollRef.current = setInterval(async () => {
+      if (!mountedRef.current) return
+      try {
+        const status = await getProvidersStatus()
+        if (!mountedRef.current) return
+        const p = status.providers[provider]
+        if (p?.connected) {
+          onConnected()
+        }
+      } catch {
+        // ignore poll errors
+      }
+    }, 2000)
+
+    timeoutRef.current = setTimeout(() => {
+      if (!mountedRef.current) return
+      setTimedOut(true)
+      if (pollRef.current) clearInterval(pollRef.current)
+    }, RELAY_TIMEOUT_MS)
+
+    return () => {
+      mountedRef.current = false
+      if (pollRef.current) clearInterval(pollRef.current)
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    }
+  }, [provider, onConnected])
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(curlCommand)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // ignore
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box relay-modal" onClick={e => e.stopPropagation()}>
+        <h3>connect {provider}</h3>
+        {timedOut ? (
+          <>
+            <p className="relay-timeout">Connection timed out. Click connect to try again.</p>
+            <div className="modal-actions">
+              <button type="button" onClick={onClose}>$ close</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p>Run this in your terminal:</p>
+            <div className="relay-command-wrap">
+              <code className="relay-command">{curlCommand}</code>
+              <button type="button" className="relay-copy-btn" onClick={handleCopy}>
+                {copied ? '[copied]' : '[copy]'}
+              </button>
+            </div>
+            <div className="device-code-polling">
+              <span className="cursor" />
+              waiting for authorization...
+            </div>
+            <div className="modal-actions">
+              <button type="button" onClick={onClose}>$ cancel</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+interface ProviderCardProps {
+  provider: string
+  connected: boolean
+  email?: string
+  onRefresh: () => void
+}
+
+function ProviderCard({ provider, connected, email, onRefresh }: ProviderCardProps) {
+  const { showToast } = useToast()
+  const [connecting, setConnecting] = useState(false)
+  const [relayUrl, setRelayUrl] = useState<string | null>(null)
+
+  async function handleConnect() {
+    setConnecting(true)
+    try {
+      const result = await getProviderConnectUrl(provider)
+      setRelayUrl(result.relay_script_url)
+    } catch (err) {
+      showToast('Failed to start connect: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error')
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  async function handleDisconnect() {
+    try {
+      await disconnectProvider(provider)
+      showToast(`${provider} disconnected`, 'success')
+      onRefresh()
+    } catch (err) {
+      showToast('Failed to disconnect: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error')
+    }
+  }
+
+  function handleConnected() {
+    setRelayUrl(null)
+    showToast(`${provider} connected`, 'success')
+    onRefresh()
+  }
+
+  return (
+    <>
+      <div className="card provider-card">
+        <div className="card-header">
+          <span className="card-title">{'> '}{provider}</span>
+          {connected ? (
+            <span className="tag-ok">CONNECTED</span>
+          ) : (
+            <span className="tag-err">NOT CONNECTED</span>
+          )}
+        </div>
+        {connected && email && (
+          <div className="provider-email">{email}</div>
+        )}
+        <div className="kiro-actions">
+          {connected ? (
+            <button className="device-code-cancel" type="button" onClick={handleDisconnect}>
+              $ disconnect
+            </button>
+          ) : (
+            <button className="btn-save" type="button" onClick={handleConnect} disabled={connecting}>
+              {connecting ? '...' : '$ connect'}
+            </button>
+          )}
+        </div>
+      </div>
+      {relayUrl && (
+        <RelayModal
+          provider={provider}
+          relayScriptUrl={relayUrl}
+          onConnected={handleConnected}
+          onClose={() => setRelayUrl(null)}
+        />
+      )}
+    </>
+  )
+}
 
 export function Profile() {
   const { user } = useSession()
+  const [providerStatus, setProviderStatus] = useState<ProvidersStatusResponse | null>(null)
+
+  function loadProviders() {
+    getProvidersStatus()
+      .then(setProviderStatus)
+      .catch(() => {})
+  }
+
+  useEffect(() => { loadProviders() }, [])
 
   return (
     <>
@@ -51,7 +236,25 @@ export function Profile() {
       </div>
 
       <h2 className="section-header">API KEYS</h2>
-      <ApiKeyManager />
+      <div className="mb-24">
+        <ApiKeyManager />
+      </div>
+
+      <h2 className="section-header">PROVIDERS</h2>
+      <div className="providers-grid">
+        {PROVIDERS.map(p => {
+          const info = providerStatus?.providers[p]
+          return (
+            <ProviderCard
+              key={p}
+              provider={p}
+              connected={info?.connected ?? false}
+              email={info?.email}
+              onRefresh={loadProviders}
+            />
+          )
+        })}
+      </div>
     </>
   )
 }

@@ -6,7 +6,7 @@ import { defineConfig, devices } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './specs',
-  testMatch: 'theme-toggle.spec.ts',
+  testMatch: '{theme-toggle,provider-oauth}.spec.ts',
   fullyParallel: false,
   retries: 0,
   workers: 1,

@@ -13,6 +13,7 @@ mod http_client;
 mod mcp;
 mod middleware;
 mod models;
+mod providers;
 mod resolver;
 mod routes;
 mod streaming;
@@ -216,6 +217,12 @@ async fn main() -> Result<()> {
         oauth_pending: Arc::new(dashmap::DashMap::new()),
         guardrails_engine: None,
         mcp_manager: None,
+        provider_registry: Arc::new(providers::registry::ProviderRegistry::new()),
+        anthropic_provider: Arc::new(providers::anthropic::AnthropicProvider::new()),
+        openai_provider: Arc::new(providers::openai::OpenAIProvider::new()),
+        gemini_provider: Arc::new(providers::gemini::GeminiProvider::new()),
+        provider_oauth_pending: Arc::new(dashmap::DashMap::new()),
+        token_exchanger: Arc::new(web_ui::provider_oauth::HttpTokenExchanger::new()),
     };
 
     // ── Guardrails (skip in proxy-only mode) ────────────────────────

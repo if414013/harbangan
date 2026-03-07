@@ -1,0 +1,22 @@
+{
+  "id": "provider-oauth-relay_20260307",
+  "title": "Provider OAuth Relay + Profile Page Merge",
+  "type": "feature",
+  "status": "completed",
+  "preset": "fullstack + backend-qa",
+  "services": ["backend", "frontend", "backend-qa", "frontend-qa"],
+  "agents": ["scrum-master", "rust-backend-engineer", "react-frontend-engineer", "backend-qa", "frontend-qa"],
+  "branch": "feat/provider-oauth-relay_20260307",
+  "created_at": "2026-03-07T17:40:00.000Z",
+  "updated_at": "2026-03-07T18:28:00.000Z",
+  "phases": {
+    "1": { "name": "Backend: DB Migration v8", "status": "completed", "tasks_total": 4, "tasks_done": 4 },
+    "2": { "name": "Backend: OAuth Endpoints", "status": "completed", "tasks_total": 11, "tasks_done": 11 },
+    "3": { "name": "Backend: Registry Update + Token Refresh", "status": "completed", "tasks_total": 5, "tasks_done": 5 },
+    "4": { "name": "Frontend: Remove Providers Page", "status": "completed", "tasks_total": 5, "tasks_done": 5 },
+    "5": { "name": "Frontend: PROVIDERS Section in Profile", "status": "completed", "tasks_total": 4, "tasks_done": 4 },
+    "6": { "name": "QA: Backend Tests", "status": "completed", "tasks_total": 3, "tasks_done": 3 },
+    "7": { "name": "QA: Frontend E2E", "status": "completed", "tasks_total": 3, "tasks_done": 3 }
+  },
+  "commits": []
+}

@@ -2,10 +2,7 @@ FROM rust:1-slim-bookworm AS builder
 RUN apt-get update && apt-get install -y pkg-config && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY . .
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/build/target \
-    cargo build --release --bin kiro-gateway \
+RUN cargo build --release --bin kiro-gateway \
     && cp target/release/kiro-gateway /usr/local/bin/kiro-gateway
 
 FROM debian:bookworm-slim

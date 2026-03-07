@@ -133,6 +133,28 @@ impl ConfigDb {
             self.migrate_to_v6().await?;
         }
 
+        // Re-read max version after v6 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 7 {
+            self.migrate_to_v7().await?;
+        }
+
+        // Re-read max version after v7 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 8 {
+            self.migrate_to_v8().await?;
+        }
+
         Ok(())
     }
 
@@ -1292,12 +1314,12 @@ impl ConfigDb {
         .await
         .context("Failed to get user OAuth client")?;
 
-        Ok(row.and_then(|(id, secret, region)| {
-            match (id, secret, region) {
+        Ok(
+            row.and_then(|(id, secret, region)| match (id, secret, region) {
                 (Some(id), Some(secret), Some(region)) => Some((id, secret, region)),
                 _ => None,
-            }
-        }))
+            }),
+        )
     }
 
     /// Clear per-user OAuth client credentials (before fresh registration).
@@ -1406,6 +1428,305 @@ impl ConfigDb {
         Ok(allowed.unwrap_or(false))
     }
 
+    /// Version 7 migration: per-user provider API keys and model routing overrides.
+    async fn migrate_to_v7(&self) -> Result<()> {
+        tracing::info!("Running database migration to version 7 (provider keys)...");
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v7 migration transaction")?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS user_provider_keys (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                provider_id TEXT NOT NULL CHECK (provider_id IN ('anthropic', 'openai', 'gemini')),
+                api_key     TEXT NOT NULL,
+                key_prefix  TEXT NOT NULL,
+                label       TEXT NOT NULL DEFAULT '',
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE(user_id, provider_id)
+            )",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to create user_provider_keys table")?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS model_routes (
+                model_pattern TEXT PRIMARY KEY,
+                provider_id   TEXT NOT NULL CHECK (provider_id IN ('kiro', 'anthropic', 'openai', 'gemini')),
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to create model_routes table")?;
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(7_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 7")?;
+
+        tx.commit().await.context("Failed to commit v7 migration")?;
+
+        tracing::info!("Database migration to version 7 complete");
+        Ok(())
+    }
+
+    /// Version 8 migration: provider OAuth tokens table.
+    async fn migrate_to_v8(&self) -> Result<()> {
+        tracing::info!("Running database migration to version 8 (provider OAuth tokens)...");
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v8 migration transaction")?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS user_provider_tokens (
+                id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                provider_id   TEXT NOT NULL CHECK (provider_id IN ('anthropic', 'gemini', 'openai')),
+                access_token  TEXT NOT NULL,
+                refresh_token TEXT NOT NULL DEFAULT '',
+                expires_at    TIMESTAMPTZ NOT NULL,
+                email         TEXT NOT NULL DEFAULT '',
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE(user_id, provider_id)
+            )",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to create user_provider_tokens table")?;
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(8_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 8")?;
+
+        tx.commit().await.context("Failed to commit v8 migration")?;
+
+        tracing::info!("Database migration to version 8 complete");
+        Ok(())
+    }
+
+    // ── Provider Keys ─────────────────────────────────────────────
+
+    /// Get a user's stored API key for a specific provider.
+    /// Returns (api_key, key_prefix, label).
+    #[allow(dead_code)]
+    pub async fn get_user_provider_key(
+        &self,
+        user_id: Uuid,
+        provider_id: &str,
+    ) -> Result<Option<(String, String, String)>> {
+        let row: Option<(String, String, String)> = sqlx::query_as(
+            "SELECT api_key, key_prefix, label
+             FROM user_provider_keys
+             WHERE user_id = $1 AND provider_id = $2",
+        )
+        .bind(user_id)
+        .bind(provider_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to get user provider key")?;
+
+        Ok(row)
+    }
+
+    /// Upsert a user's API key for a provider (one key per user per provider).
+    #[allow(dead_code)]
+    pub async fn upsert_user_provider_key(
+        &self,
+        user_id: Uuid,
+        provider_id: &str,
+        api_key: &str,
+        key_prefix: &str,
+        label: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO user_provider_keys (user_id, provider_id, api_key, key_prefix, label, updated_at)
+             VALUES ($1, $2, $3, $4, $5, NOW())
+             ON CONFLICT (user_id, provider_id) DO UPDATE SET
+               api_key    = EXCLUDED.api_key,
+               key_prefix = EXCLUDED.key_prefix,
+               label      = EXCLUDED.label,
+               updated_at = NOW()",
+        )
+        .bind(user_id)
+        .bind(provider_id)
+        .bind(api_key)
+        .bind(key_prefix)
+        .bind(label)
+        .execute(&self.pool)
+        .await
+        .context("Failed to upsert user provider key")?;
+
+        Ok(())
+    }
+
+    /// Delete a user's API key for a specific provider.
+    #[allow(dead_code)]
+    pub async fn delete_user_provider_key(&self, user_id: Uuid, provider_id: &str) -> Result<u64> {
+        let result =
+            sqlx::query("DELETE FROM user_provider_keys WHERE user_id = $1 AND provider_id = $2")
+                .bind(user_id)
+                .bind(provider_id)
+                .execute(&self.pool)
+                .await
+                .context("Failed to delete user provider key")?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Get all providers for which a user has configured a key.
+    /// Returns a list of (provider_id, key_prefix, label).
+    #[allow(dead_code)]
+    pub async fn get_user_connected_providers(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<(String, String, String)>> {
+        let rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT provider_id, key_prefix, label
+             FROM user_provider_keys
+             WHERE user_id = $1
+             ORDER BY provider_id",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get user connected providers")?;
+
+        Ok(rows)
+    }
+
+    // ── Provider OAuth Tokens ──────────────────────────────────────
+
+    /// Upsert a user's OAuth token for a provider.
+    /// Only overwrites `refresh_token` if the new value is non-empty (preserves existing on re-auth).
+    #[allow(dead_code)]
+    pub async fn upsert_user_provider_token(
+        &self,
+        user_id: Uuid,
+        provider_id: &str,
+        access_token: &str,
+        refresh_token: &str,
+        expires_at: DateTime<Utc>,
+        email: &str,
+    ) -> Result<()> {
+        if refresh_token.is_empty() {
+            // Preserve existing refresh_token
+            sqlx::query(
+                "INSERT INTO user_provider_tokens (user_id, provider_id, access_token, expires_at, email, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, NOW())
+                 ON CONFLICT (user_id, provider_id) DO UPDATE SET
+                   access_token  = EXCLUDED.access_token,
+                   expires_at    = EXCLUDED.expires_at,
+                   email         = CASE WHEN EXCLUDED.email = '' THEN user_provider_tokens.email ELSE EXCLUDED.email END,
+                   updated_at    = NOW()",
+            )
+            .bind(user_id)
+            .bind(provider_id)
+            .bind(access_token)
+            .bind(expires_at)
+            .bind(email)
+            .execute(&self.pool)
+            .await
+            .context("Failed to upsert user provider token")?;
+        } else {
+            sqlx::query(
+                "INSERT INTO user_provider_tokens (user_id, provider_id, access_token, refresh_token, expires_at, email, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                 ON CONFLICT (user_id, provider_id) DO UPDATE SET
+                   access_token  = EXCLUDED.access_token,
+                   refresh_token = EXCLUDED.refresh_token,
+                   expires_at    = EXCLUDED.expires_at,
+                   email         = CASE WHEN EXCLUDED.email = '' THEN user_provider_tokens.email ELSE EXCLUDED.email END,
+                   updated_at    = NOW()",
+            )
+            .bind(user_id)
+            .bind(provider_id)
+            .bind(access_token)
+            .bind(refresh_token)
+            .bind(expires_at)
+            .bind(email)
+            .execute(&self.pool)
+            .await
+            .context("Failed to upsert user provider token")?;
+        }
+
+        Ok(())
+    }
+
+    /// Get a user's OAuth token for a specific provider.
+    /// Returns (access_token, refresh_token, expires_at, email).
+    #[allow(dead_code)]
+    pub async fn get_user_provider_token(
+        &self,
+        user_id: Uuid,
+        provider_id: &str,
+    ) -> Result<Option<(String, String, DateTime<Utc>, String)>> {
+        let row: Option<(String, String, DateTime<Utc>, String)> = sqlx::query_as(
+            "SELECT access_token, refresh_token, expires_at, email
+             FROM user_provider_tokens
+             WHERE user_id = $1 AND provider_id = $2",
+        )
+        .bind(user_id)
+        .bind(provider_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to get user provider token")?;
+
+        Ok(row)
+    }
+
+    /// Delete a user's OAuth token for a specific provider.
+    #[allow(dead_code)]
+    pub async fn delete_user_provider_token(
+        &self,
+        user_id: Uuid,
+        provider_id: &str,
+    ) -> Result<u64> {
+        let result =
+            sqlx::query("DELETE FROM user_provider_tokens WHERE user_id = $1 AND provider_id = $2")
+                .bind(user_id)
+                .bind(provider_id)
+                .execute(&self.pool)
+                .await
+                .context("Failed to delete user provider token")?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Get all providers for which a user has OAuth tokens.
+    /// Returns a list of (provider_id, email).
+    #[allow(dead_code)]
+    pub async fn get_user_connected_oauth_providers(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<(String, String)>> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT provider_id, email
+             FROM user_provider_tokens
+             WHERE user_id = $1
+             ORDER BY provider_id",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get user connected OAuth providers")?;
+
+        Ok(rows)
+    }
+
     /// Expose the connection pool for direct use in transactional operations.
     #[allow(dead_code)]
     pub fn pool(&self) -> &PgPool {
@@ -1427,6 +1748,14 @@ mod tests {
             .await
             .ok();
         sqlx::query("DELETE FROM user_kiro_tokens")
+            .execute(&db.pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM user_provider_tokens")
+            .execute(&db.pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM user_provider_keys")
             .execute(&db.pool)
             .await
             .ok();
@@ -1930,5 +2259,277 @@ mod tests {
             admin_count, 1,
             "Exactly one user should be admin after concurrent inserts"
         );
+    }
+
+    // ── Provider OAuth Token Tests ───────────────────────────────────
+
+    /// Helper: create a user and return their UUID.
+    async fn create_test_user(db: &ConfigDb, email: &str) -> Uuid {
+        let (user_id, _) = db.upsert_user(email, "Test User", None).await.unwrap();
+        user_id
+    }
+
+    #[tokio::test]
+    async fn test_upsert_and_get_provider_token() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let user_id = create_test_user(&db, "token@example.com").await;
+        let expires = Utc::now() + chrono::Duration::hours(1);
+
+        db.upsert_user_provider_token(
+            user_id,
+            "anthropic",
+            "access_123",
+            "refresh_456",
+            expires,
+            "user@anthropic.com",
+        )
+        .await
+        .unwrap();
+
+        let row = db
+            .get_user_provider_token(user_id, "anthropic")
+            .await
+            .unwrap();
+        assert!(row.is_some());
+        let (access, refresh, exp, email) = row.unwrap();
+        assert_eq!(access, "access_123");
+        assert_eq!(refresh, "refresh_456");
+        assert_eq!(email, "user@anthropic.com");
+        // Timestamps lose sub-microsecond precision in PG, just check it's close
+        assert!((exp - expires).num_seconds().abs() < 2);
+    }
+
+    #[tokio::test]
+    async fn test_upsert_provider_token_preserves_refresh_when_empty() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let user_id = create_test_user(&db, "refresh@example.com").await;
+        let expires = Utc::now() + chrono::Duration::hours(1);
+
+        // First insert with a refresh token
+        db.upsert_user_provider_token(
+            user_id,
+            "gemini",
+            "access_1",
+            "refresh_original",
+            expires,
+            "user@gmail.com",
+        )
+        .await
+        .unwrap();
+
+        // Second upsert with empty refresh_token — should preserve the original
+        let expires2 = Utc::now() + chrono::Duration::hours(2);
+        db.upsert_user_provider_token(
+            user_id,
+            "gemini",
+            "access_2",
+            "",
+            expires2,
+            "user@gmail.com",
+        )
+        .await
+        .unwrap();
+
+        let (access, refresh, _, _) = db
+            .get_user_provider_token(user_id, "gemini")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(access, "access_2");
+        assert_eq!(refresh, "refresh_original");
+    }
+
+    #[tokio::test]
+    async fn test_upsert_provider_token_overwrites_refresh_when_nonempty() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let user_id = create_test_user(&db, "overwrite@example.com").await;
+        let expires = Utc::now() + chrono::Duration::hours(1);
+
+        db.upsert_user_provider_token(
+            user_id,
+            "openai",
+            "access_1",
+            "refresh_old",
+            expires,
+            "user@openai.com",
+        )
+        .await
+        .unwrap();
+
+        db.upsert_user_provider_token(
+            user_id,
+            "openai",
+            "access_2",
+            "refresh_new",
+            expires,
+            "user@openai.com",
+        )
+        .await
+        .unwrap();
+
+        let (_, refresh, _, _) = db
+            .get_user_provider_token(user_id, "openai")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(refresh, "refresh_new");
+    }
+
+    #[tokio::test]
+    async fn test_get_provider_token_not_found() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let user_id = create_test_user(&db, "empty@example.com").await;
+
+        let row = db
+            .get_user_provider_token(user_id, "anthropic")
+            .await
+            .unwrap();
+        assert!(row.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_delete_provider_token() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let user_id = create_test_user(&db, "delete@example.com").await;
+        let expires = Utc::now() + chrono::Duration::hours(1);
+
+        db.upsert_user_provider_token(
+            user_id,
+            "anthropic",
+            "access",
+            "refresh",
+            expires,
+            "a@b.com",
+        )
+        .await
+        .unwrap();
+
+        let deleted = db
+            .delete_user_provider_token(user_id, "anthropic")
+            .await
+            .unwrap();
+        assert_eq!(deleted, 1);
+
+        let row = db
+            .get_user_provider_token(user_id, "anthropic")
+            .await
+            .unwrap();
+        assert!(row.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_delete_provider_token_not_found() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let user_id = create_test_user(&db, "nodel@example.com").await;
+
+        let deleted = db
+            .delete_user_provider_token(user_id, "gemini")
+            .await
+            .unwrap();
+        assert_eq!(deleted, 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_connected_oauth_providers() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let user_id = create_test_user(&db, "multi@example.com").await;
+        let expires = Utc::now() + chrono::Duration::hours(1);
+
+        db.upsert_user_provider_token(
+            user_id,
+            "anthropic",
+            "a1",
+            "r1",
+            expires,
+            "me@anthropic.com",
+        )
+        .await
+        .unwrap();
+        db.upsert_user_provider_token(user_id, "openai", "a2", "r2", expires, "me@openai.com")
+            .await
+            .unwrap();
+
+        let providers = db
+            .get_user_connected_oauth_providers(user_id)
+            .await
+            .unwrap();
+        assert_eq!(providers.len(), 2);
+        // Ordered by provider_id alphabetically
+        assert_eq!(
+            providers[0],
+            ("anthropic".to_string(), "me@anthropic.com".to_string())
+        );
+        assert_eq!(
+            providers[1],
+            ("openai".to_string(), "me@openai.com".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_connected_oauth_providers_empty() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let user_id = create_test_user(&db, "none@example.com").await;
+
+        let providers = db
+            .get_user_connected_oauth_providers(user_id)
+            .await
+            .unwrap();
+        assert!(providers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_provider_token_unique_per_user_provider() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let user1 = create_test_user(&db, "user1@example.com").await;
+        let user2 = create_test_user(&db, "user2@example.com").await;
+        let expires = Utc::now() + chrono::Duration::hours(1);
+
+        // Both users can have anthropic tokens
+        db.upsert_user_provider_token(user1, "anthropic", "a1", "r1", expires, "u1@a.com")
+            .await
+            .unwrap();
+        db.upsert_user_provider_token(user2, "anthropic", "a2", "r2", expires, "u2@a.com")
+            .await
+            .unwrap();
+
+        let t1 = db
+            .get_user_provider_token(user1, "anthropic")
+            .await
+            .unwrap()
+            .unwrap();
+        let t2 = db
+            .get_user_provider_token(user2, "anthropic")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(t1.0, "a1");
+        assert_eq!(t2.0, "a2");
     }
 }

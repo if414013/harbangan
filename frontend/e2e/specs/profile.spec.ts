@@ -42,4 +42,11 @@ test.describe('Profile page', () => {
     const apiKeysTitle = page.locator(Card.title, { hasText: 'api keys' })
     await expect(apiKeysTitle).toBeVisible()
   })
+
+  test('PROVIDERS section renders', async ({ page }) => {
+    await navigateTo(page, '/profile')
+
+    const providersHeader = page.locator('h2.section-header', { hasText: 'PROVIDERS' })
+    await expect(providersHeader).toBeVisible()
+  })
 })

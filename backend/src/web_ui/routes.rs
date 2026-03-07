@@ -68,8 +68,16 @@ pub async fn get_config(State(state): State<AppState>) -> Json<Value> {
 
     // Fetch DB-only config values (not on the Config struct)
     let (oauth_start_url, oauth_sso_region) = if let Some(ref db) = state.config_db {
-        let url = db.get("oauth_start_url").await.unwrap_or(None).unwrap_or_default();
-        let region = db.get("oauth_sso_region").await.unwrap_or(None).unwrap_or_default();
+        let url = db
+            .get("oauth_start_url")
+            .await
+            .unwrap_or(None)
+            .unwrap_or_default();
+        let region = db
+            .get("oauth_sso_region")
+            .await
+            .unwrap_or(None)
+            .unwrap_or_default();
         (url, region)
     } else {
         (String::new(), String::new())

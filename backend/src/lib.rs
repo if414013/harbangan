@@ -9,6 +9,7 @@ pub mod http_client;
 pub mod mcp;
 pub mod middleware;
 pub mod models;
+pub mod providers;
 pub mod resolver;
 pub mod routes;
 pub mod streaming;

@@ -1527,3 +1527,74 @@ select.config-input {
   gap: 8px;
   align-items: center;
 }
+
+/* ---- Provider Cards ---- */
+
+.providers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.provider-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.provider-email {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+}
+
+/* ---- Relay Modal ---- */
+
+.relay-modal {
+  max-width: 560px;
+}
+
+.relay-command-wrap {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.relay-command {
+  flex: 1;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--green);
+  word-break: break-all;
+  line-height: 1.5;
+  user-select: all;
+}
+
+.relay-copy-btn {
+  background: var(--surface);
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.relay-copy-btn:hover {
+  color: var(--green);
+  background: var(--surface-hover);
+}
+
+.relay-timeout {
+  color: var(--yellow);
+}
+

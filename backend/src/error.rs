@@ -109,6 +109,20 @@ pub enum ApiError {
     #[allow(dead_code)]
     NotFound(String),
 
+    /// Error returned by a direct provider API (Anthropic, OpenAI, Gemini)
+    #[error("Provider API error ({provider}): {status} - {message}")]
+    #[allow(dead_code)]
+    ProviderApiError {
+        provider: String,
+        status: u16,
+        message: String,
+    },
+
+    /// User has not configured a key for the required provider
+    #[error("Provider not configured: {0}")]
+    #[allow(dead_code)]
+    ProviderNotConfigured(String),
+
     /// Internal server error
     #[error("Internal error: {0}")]
     Internal(#[from] anyhow::Error),
@@ -194,6 +208,27 @@ impl IntoResponse for ApiError {
             }
             ApiError::McpProtocolError(msg) => (StatusCode::BAD_GATEWAY, "mcp_protocol_error", msg),
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg),
+            ApiError::ProviderApiError {
+                provider,
+                status,
+                message,
+            } => {
+                let status_code =
+                    StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+                (
+                    status_code,
+                    "provider_api_error",
+                    format!("[{}] {}", provider, message),
+                )
+            }
+            ApiError::ProviderNotConfigured(provider) => (
+                StatusCode::FORBIDDEN,
+                "provider_not_configured",
+                format!(
+                    "No API key configured for provider '{}'. Connect it at /_ui/profile",
+                    provider
+                ),
+            ),
             ApiError::Internal(err) => {
                 // Log internal errors
                 tracing::error!("Internal error: {:?}", err);

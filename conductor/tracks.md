@@ -8,6 +8,10 @@
 
 | planned | light-mode-toggle_20260307 | Add Light Mode UI Support with Dark/Light Toggle | feature | frontend | 2026-03-07 |
 
+| completed | multi-provider-support_20260307 | Multi-Provider Support | feature | backend, frontend | 2026-03-07 |
+
+| completed | provider-oauth-relay_20260307 | Provider OAuth Relay + Profile Page Merge | feature | backend, frontend, backend-qa, frontend-qa | 2026-03-07 |
+
 <!-- Tracks registered by /conductor:new-track -->
 
 ## Archived Tracks

@@ -38,6 +38,11 @@ pub struct Config {
     // Guardrails
     pub guardrails_enabled: bool,
 
+    // Multi-provider routing
+    /// Default provider when user has no matching key. Typically "kiro".
+    #[allow(dead_code)]
+    pub default_provider: String,
+
     // MCP Gateway
     pub mcp_enabled: bool,
     pub mcp_tool_execution_timeout: u64,
@@ -103,6 +108,7 @@ impl Config {
             fake_reasoning_handling: FakeReasoningHandling::AsReasoningContent,
             truncation_recovery: true,
             guardrails_enabled: false,
+            default_provider: "kiro".to_string(),
             mcp_enabled: false,
             mcp_tool_execution_timeout: 30,
             mcp_health_check_interval: 10,

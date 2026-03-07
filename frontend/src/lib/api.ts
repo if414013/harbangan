@@ -235,6 +235,35 @@ export function validateCelExpression(expression: string) {
   return apiPost<CelValidationResult>('/admin/guardrails/cel/validate', { expression })
 }
 
+// --- Provider OAuth Types ---
+
+export interface ProviderStatus {
+  connected: boolean
+  email?: string
+}
+
+export interface ProvidersStatusResponse {
+  providers: Record<string, ProviderStatus>
+}
+
+export interface ProviderConnectResponse {
+  relay_script_url: string
+}
+
+// --- Provider OAuth API ---
+
+export function getProvidersStatus() {
+  return apiFetch<ProvidersStatusResponse>('/providers/status')
+}
+
+export function getProviderConnectUrl(provider: string) {
+  return apiFetch<ProviderConnectResponse>(`/providers/${provider}/connect`)
+}
+
+export function disconnectProvider(provider: string) {
+  return apiDelete(`/providers/${provider}`)
+}
+
 // --- MCP Types ---
 
 export interface McpClientConfig {

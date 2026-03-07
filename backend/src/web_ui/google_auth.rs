@@ -652,6 +652,12 @@ mod tests {
             oauth_pending: Arc::new(dashmap::DashMap::new()),
             guardrails_engine: None,
             mcp_manager: None,
+            provider_registry: Arc::new(crate::providers::registry::ProviderRegistry::new()),
+            anthropic_provider: Arc::new(crate::providers::anthropic::AnthropicProvider::new()),
+            openai_provider: Arc::new(crate::providers::openai::OpenAIProvider::new()),
+            gemini_provider: Arc::new(crate::providers::gemini::GeminiProvider::new()),
+            provider_oauth_pending: Arc::new(dashmap::DashMap::new()),
+            token_exchanger: Arc::new(crate::web_ui::provider_oauth::HttpTokenExchanger::new()),
         }
     }
 

@@ -32,7 +32,7 @@ export default defineConfig({
     },
     {
       name: 'authenticated',
-      testMatch: ['dashboard.spec.ts', 'profile.spec.ts', 'navigation.spec.ts'],
+      testMatch: ['dashboard.spec.ts', 'profile.spec.ts', 'navigation.spec.ts', 'providers.spec.ts'],
       use: { storageState: path.join(authDir, 'session.json') },
     },
     {

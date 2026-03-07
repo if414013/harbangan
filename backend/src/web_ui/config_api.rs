@@ -452,9 +452,7 @@ struct RoleUpdateRequest {
 }
 
 /// GET /_ui/api/users — list all users (admin only)
-async fn list_users(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+async fn list_users(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     let config_db = state
         .config_db
         .as_ref()
@@ -464,17 +462,19 @@ async fn list_users(
 
     let users: Vec<serde_json::Value> = rows
         .into_iter()
-        .map(|(id, email, name, picture_url, role, created_at, last_login)| {
-            serde_json::json!({
-                "id": id,
-                "email": email,
-                "name": name,
-                "picture_url": picture_url,
-                "role": role,
-                "created_at": created_at,
-                "last_login": last_login,
-            })
-        })
+        .map(
+            |(id, email, name, picture_url, role, created_at, last_login)| {
+                serde_json::json!({
+                    "id": id,
+                    "email": email,
+                    "name": name,
+                    "picture_url": picture_url,
+                    "role": role,
+                    "created_at": created_at,
+                    "last_login": last_login,
+                })
+            },
+        )
         .collect();
 
     Ok(Json(serde_json::json!({ "users": users })))
