@@ -181,6 +181,34 @@ Defined in `backend/src/routes/mod.rs`:
 
 All Playwright E2E tests live in `e2e-tests/` (API tests in `specs/api/`, browser tests in `specs/ui/`). Screenshots and artifacts must be saved to `.playwright-mcp/` (gitignored).
 
+## Git Workflow
+
+The `main` branch is protected. All changes (features, bugfixes, refactors) must go through pull requests.
+
+### Branch Naming
+
+- `feat/<short-description>` — new features
+- `fix/<short-description>` — bug fixes
+- `refactor/<short-description>` — refactoring
+- `chore/<short-description>` — maintenance, docs, CI
+
+### PR Flow
+
+```bash
+git checkout -b feat/my-feature          # create branch from main
+# ... make changes, commit ...
+git push -u origin feat/my-feature       # push branch
+gh pr create --title "feat: ..." --body "..."  # open PR
+```
+
+### Rules
+
+- Never push directly to `main` — all changes require a PR with at least 1 approving review
+- Stale reviews are dismissed on new pushes
+- Force pushes and branch deletion are blocked on `main`
+- Keep PRs focused — one logical change per PR
+- Run `cargo clippy`, `cargo test --lib`, and `cargo fmt` before opening a PR
+
 ## Code Style
 
 ### Imports

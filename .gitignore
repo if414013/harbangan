@@ -46,9 +46,7 @@ logs/security/
 # TLS certificates
 certs/
 
-# Claude Code
-.claude/
-.mcp.json
+# Claude Code — all tracked in git (no credentials in these files)
 
 .flox/
 target/

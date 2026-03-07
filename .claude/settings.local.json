@@ -1,0 +1,25 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "mcp__plugin_claude-mem_mcp-search__search"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "deepwiki",
+    "datadog"
+  ],
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "playwright@claude-plugins-official": false,
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "chrome-devtools-mcp@chrome-devtools-plugins": false
+  },
+  "teammateMode": "iterm2"
+}
