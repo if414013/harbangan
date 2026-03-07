@@ -425,16 +425,38 @@ async fn providers_status(
     Ok(Json(ProvidersStatusResponse { providers }))
 }
 
-/// GET /_ui/api/providers/{provider}/connect
+/// GET /_ui/api/providers/:provider/connect
 async fn provider_connect(
     State(state): State<AppState>,
     Extension(session): Extension<SessionInfo>,
     Path(provider): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Json<ConnectResponse>, ApiError> {
     validate_provider(&provider)?;
 
-    let domain = std::env::var("DOMAIN").unwrap_or_default();
-    validate_domain(&domain)?;
+    // Derive base URL from request headers (respects reverse proxy)
+    // Priority: Origin (browser-set) > X-Forwarded-Host > Host
+    let (scheme, host) = if let Some(origin) = headers.get("origin").and_then(|v| v.to_str().ok()) {
+        if let Some(rest) = origin.strip_prefix("https://") {
+            ("https", rest.to_string())
+        } else if let Some(rest) = origin.strip_prefix("http://") {
+            ("http", rest.to_string())
+        } else {
+            ("https", origin.to_string())
+        }
+    } else {
+        let h = headers
+            .get("x-forwarded-host")
+            .or_else(|| headers.get("host"))
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("localhost")
+            .to_string();
+        let s = headers
+            .get("x-forwarded-proto")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or(if h.starts_with("localhost") { "http" } else { "https" });
+        (s, h)
+    };
 
     let user_id = session.user_id;
 
@@ -469,8 +491,8 @@ async fn provider_connect(
     );
 
     let relay_script_url = format!(
-        "https://{}/_ui/api/providers/{}/relay-script?token={}",
-        domain, provider, relay_token
+        "{}://{}/_ui/api/providers/{}/relay-script?token={}",
+        scheme, host, provider, relay_token
     );
 
     tracing::info!(
@@ -488,6 +510,7 @@ async fn relay_script(
     State(state): State<AppState>,
     Path(provider): Path<String>,
     Query(query): Query<RelayScriptQuery>,
+    headers: axum::http::HeaderMap,
 ) -> Result<axum::response::Response, ApiError> {
     validate_provider(&provider)?;
 
@@ -513,8 +536,14 @@ async fn relay_script(
     }
 
     let config = get_provider_config(&provider)?;
-    let domain = std::env::var("DOMAIN").unwrap_or_default();
-    validate_domain(&domain)?;
+    let host = headers
+        .get("host")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("localhost");
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or(if host.starts_with("localhost") { "http" } else { "https" });
 
     // Build auth URL
     let scopes = config.scopes.join(" ");
@@ -528,7 +557,7 @@ async fn relay_script(
         urlencoding::encode(&pkce_challenge(&pending_state.pkce_verifier)),
     );
 
-    let relay_url = format!("https://{}/_ui/api/providers/{}/relay", domain, provider);
+    let relay_url = format!("{}://{}/_ui/api/providers/{}/relay", scheme, host, provider);
 
     let script = format!(
         r#"#!/bin/sh

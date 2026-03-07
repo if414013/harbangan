@@ -10,6 +10,10 @@ export default defineConfig({
       '/_ui/api': {
         target: 'http://backend:9999',
         changeOrigin: true,
+        headers: {
+          'X-Forwarded-Host': 'localhost:5173',
+          'X-Forwarded-Proto': 'http',
+        },
       },
     },
   },
