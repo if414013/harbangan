@@ -55,6 +55,74 @@
 }
 
 // ============================================================
+// Light Mode Overrides
+// ============================================================
+[data-theme="light"] {
+  --kgw-bg: #f8f8f5;
+  --kgw-bg-raised: #ffffff;
+  --kgw-surface: #f0f0ec;
+  --kgw-surface-hover: #e8e8e3;
+  --kgw-border: #d5d5cf;
+  --kgw-border-subtle: #e0e0da;
+
+  --kgw-green: #16a34a;
+  --kgw-green-dim: rgba(22, 163, 74, 0.10);
+  --kgw-green-glow: rgba(22, 163, 74, 0.12);
+  --kgw-cyan: #0891b2;
+  --kgw-cyan-dim: rgba(8, 145, 178, 0.10);
+
+  --kgw-red: #dc2626;
+  --kgw-red-dim: rgba(220, 38, 38, 0.08);
+  --kgw-yellow: #d97706;
+  --kgw-yellow-dim: rgba(217, 119, 6, 0.08);
+  --kgw-blue: #2563eb;
+  --kgw-blue-dim: rgba(37, 99, 235, 0.08);
+
+  --kgw-text: #1a2a1a;
+  --kgw-text-secondary: #4a5a4a;
+  --kgw-text-tertiary: #6a7a6a;
+
+  --kgw-glow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --kgw-glow-md: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --kgw-glow-lg: 0 4px 16px rgba(0, 0, 0, 0.10);
+}
+
+// Disable CRT effects in light mode
+[data-theme="light"] body::before,
+[data-theme="light"] body::after {
+  display: none !important;
+}
+
+// Light mode hero gradient
+[data-theme="light"] .hero h1 {
+  background: linear-gradient(135deg, #1a2a1a 30%, #16a34a);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+// Light mode tagline
+[data-theme="light"] .hero .tagline {
+  color: #4a5a4a;
+}
+
+// Light mode feature card text
+[data-theme="light"] .feature-card p {
+  color: var(--kgw-text-secondary);
+}
+
+// Light mode selection
+[data-theme="light"] ::selection {
+  background: rgba(22, 163, 74, 0.2);
+  color: #16a34a;
+}
+
+// Light mode focus
+[data-theme="light"] :focus-visible {
+  outline-color: #16a34a;
+}
+
+// ============================================================
 // Global Overrides — just-the-docs theme
 // ============================================================
 
