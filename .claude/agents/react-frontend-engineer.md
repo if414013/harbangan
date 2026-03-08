@@ -2,7 +2,7 @@
 name: react-frontend-engineer
 description: React frontend implementation specialist. Use for implementing Web UI pages, components, API integrations, SSE streaming, and frontend bug fixes. Follows the project's minimalist architecture with React 19, TypeScript 5.9, Vite 7, and CRT terminal aesthetic.
 tools: Read, Edit, Write, Bash, Grep, Glob
-model: inherit
+model: opus
 memory: project
 ---
 

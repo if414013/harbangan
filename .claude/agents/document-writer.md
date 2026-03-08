@@ -2,7 +2,7 @@
 name: document-writer
 description: Documentation and communication specialist. Use for writing API docs, architecture guides, deployment runbooks, release notes, publishing to Notion, and communicating via Slack. Covers both backend (Rust/Axum) and frontend (React 19) documentation.
 tools: Read, Write, Edit, Bash, Grep, Glob
-model: inherit
+model: opus
 memory: project
 ---
 

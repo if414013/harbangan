@@ -2,7 +2,7 @@
 name: devops-engineer
 description: Docker, nginx, deployment, and infrastructure specialist. Use for managing Docker Compose services, nginx configuration, TLS certificates, deployment modes, environment variables, health checks, and monitoring setup.
 tools: Read, Edit, Write, Bash, Grep, Glob
-model: inherit
+model: opus
 memory: project
 ---
 

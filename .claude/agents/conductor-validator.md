@@ -2,7 +2,7 @@
 name: conductor-validator
 description: Conductor artifact validation specialist. Use for auditing conductor directory structure, verifying track consistency, checking content completeness, and validating state files. Read-only — never modifies files. Reports findings at CRITICAL, WARNING, and INFO severity levels.
 tools: Read, Glob, Grep, Bash
-model: inherit
+model: opus
 memory: project
 ---
 

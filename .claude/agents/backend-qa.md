@@ -2,7 +2,7 @@
 name: backend-qa
 description: Rust unit and integration test specialist. Use for writing and running backend tests, verifying endpoint behavior, testing converters, streaming parsers, auth flows, middleware chains, and guardrails logic. Expert in cargo test, tokio::test, and the project's test infrastructure.
 tools: Read, Write, Edit, Bash, Grep, Glob
-model: inherit
+model: opus
 memory: project
 ---
 

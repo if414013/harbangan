@@ -2,7 +2,7 @@
 name: frontend-qa
 description: Web QA and E2E test specialist. Use for writing and running browser-based tests on the rkgw Web UI using Playwright. Tests dashboard metrics, configuration management, admin workflows, Google SSO login, and all UI interactions.
 tools: Read, Edit, Write, Bash, Grep, Glob
-model: inherit
+model: opus
 memory: project
 ---
 

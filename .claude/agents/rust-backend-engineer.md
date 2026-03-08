@@ -2,7 +2,7 @@
 name: rust-backend-engineer
 description: Rust/Axum backend implementation specialist. Use for implementing API endpoints, format converters, streaming parsers, authentication flows, guardrails engine, MCP client orchestration, middleware, and backend bug fixes. Follows the project's async architecture with Axum 0.7, Tokio, sqlx, and tracing.
 tools: Read, Edit, Write, Bash, Grep, Glob
-model: inherit
+model: opus
 memory: project
 ---
 
