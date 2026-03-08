@@ -17,7 +17,7 @@
       "args": [
         "@playwright/mcp@latest",
         "--user-data-dir",
-        "/Users/hikennoace/ai-gateway/rkgw/.playwright-mcp/profile"
+        "/Users/hikennoace/ai-gateway/harbangan/.playwright-mcp/profile"
       ]
     }
   }
