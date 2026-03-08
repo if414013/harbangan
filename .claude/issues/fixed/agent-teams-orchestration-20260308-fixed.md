@@ -89,3 +89,25 @@ No heartbeat, progress indicator, or "currently editing file X" signal exists.
 6. Handle iTerm2 session cleanup when agents are killed — don't cache stale pane IDs for respawns
 7. Add agent heartbeat/progress signals so the lead can distinguish "working" from "stuck" from "context-exhausted"
 8. Consider splitting large phases into smaller tasks so agents complete within context limits — e.g., Phase 1 (7 tasks across many files) exhausted the agent's context before it could move to Phase 2
+
+---
+
+## Resolution (2026-03-08)
+
+All 6 issues addressed via prompt-level fixes across 6 skill files:
+
+| Issue | Fix | Skill Files Modified |
+|-------|-----|---------------------|
+| 1. Context exhaustion | Detection heuristic (3+ idle + in_progress task), respawn protocol (`--respawn-for`), task sizing limit (max 4-5 per wave), health monitoring loop | team-status, team-spawn, team-feature, team-coordination |
+| 2. Stale iTerm2 sessions | Retry + fallback spawn without `--team-name`, manual config registration | team-spawn |
+| 3. Blocked agents waste resources | Lazy per-wave spawning (Wave 1 immediate, Wave 2+ deferred until dependencies resolve) | team-feature |
+| 4. Task ownership lost on respawn | Reuse same agent name, automatic task reclaim via TaskUpdate, new "Reclaim Tasks" action | team-spawn, team-delegate |
+| 5. Ghost members in config | Mark predecessors as `"replaced"` (not removed), dead member cleanup on shutdown | team-spawn, team-shutdown |
+| 6. No working verification | Activity probe (git log + file mtime), stale detection (30+ min no activity), new Activity column in status output | team-status |
+
+Key new concepts introduced:
+- `--respawn-for {agent-name}` flag on `/team-spawn`
+- `deferred_agents` array in team config for lazy spawning
+- `replaced_by` / `replaced_at` fields on agent config entries
+- Context exhaustion heuristic: 3+ consecutive idle_notifications + in_progress task + no file edits
+- Agent activity classification: Active / Quiet / Stale

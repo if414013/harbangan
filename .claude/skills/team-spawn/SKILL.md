@@ -1,7 +1,7 @@
 ---
 name: team-spawn
 description: Initialize agent teams from presets or custom composition. Dynamically loads agent definitions and service mappings from project configuration. Use when user says 'spin up a team', 'create agents', 'need a fullstack team', 'start backend team', or 'spawn agents'.
-argument-hint: "[preset] [--delegate]"
+argument-hint: "[preset] [--delegate] [--respawn-for agent-name]"
 allowed-tools:
   - Bash
   - Read
@@ -20,6 +20,7 @@ Initialize agent teams from presets or custom composition. Agent definitions and
 - **Dynamic agent loading** — load agent definitions from `.claude/agents/*.md` at runtime; never hardcode agent names, roles, or colors
 - **Background spawning** — spawn all agents with `run_in_background: true`
 - **Persist team config** — save team config to `~/.claude/teams/{team-name}/config.json` after spawning
+- **Respawn reuses agent name** — when respawning via `--respawn-for`, use the same agent name as the predecessor to maintain task ownership continuity. Mark the dead member as `"replaced"` rather than accumulating suffixed names (`-2`, `-3`)
 
 ---
 
@@ -169,6 +170,70 @@ Run each spawn command with `run_in_background: true`.
 
 > **If an agent spawn command fails (non-zero exit):** Retry the spawn once. If it still fails, report the error (including the agent name and exit code), mark that agent as `"status": "failed"` in the team config, and continue spawning the remaining agents. Do not abort the entire team spawn due to a single agent failure.
 
+### iTerm2 Stale Pane Workaround
+
+When respawning an agent (`--respawn-for`), the Claude Code agent-teams plugin may try to reuse the dead agent's iTerm2 pane session ID, causing:
+```
+Failed to create iTerm2 split pane: Error: Session 'XXXX' not found
+```
+
+If the spawn command fails with this error:
+1. **First retry**: Run the spawn command again (the plugin sometimes recovers on retry)
+2. **Second retry**: Spawn WITHOUT the `--team-name` parameter to force a new iTerm2 pane, then manually register the agent in the team config file afterward:
+   ```bash
+   cd {project-root} && claude \
+     --agent-id {agent-name}@{team-name} \
+     --agent-name {agent-name} \
+     --agent-color "{color}" \
+     --parent-session-id $CLAUDE_SESSION_ID \
+     --agent-type {agent-name} \
+     --dangerously-skip-permissions \
+     --model {model}
+   ```
+   After successful spawn, manually add the agent to `~/.claude/teams/{team-name}/config.json`.
+3. **If both retries fail**: Report the error and suggest the user manually open a new terminal tab and spawn the agent there.
+
+## Step 4.5: Respawn Protocol (when --respawn-for is provided)
+
+When respawning an agent to replace a dead or context-exhausted predecessor:
+
+### 4.5.1 — Identify predecessor
+- `dead_agent_name` = the value of `--respawn-for`
+- Read team config to find the predecessor's role, color, and assigned tasks
+
+### 4.5.2 — Clean up dead member
+- In `~/.claude/teams/{team-name}/config.json`, set the predecessor's status to `"replaced"`
+- Do NOT remove the entry (preserves history), but add `"replaced_by": "{new-agent-name}"` and `"replaced_at": "{ISO-8601 timestamp}"`
+
+### 4.5.3 — Gather context summary for new agent
+Collect a handoff summary by running:
+```bash
+cd {project-root} && git log --oneline -20
+```
+Also check TaskList for the predecessor's in_progress and pending tasks.
+
+Build a context summary:
+```
+You are replacing {dead_agent_name} who was context-exhausted.
+
+Completed work (from git log):
+  - {commit1}
+  - {commit2}
+
+Remaining tasks (from TaskList):
+  - Task #{id}: {description} [status: {status}]
+
+Resume from the first incomplete task. Do not redo completed work.
+```
+
+### 4.5.4 — Reassign task ownership
+For every task owned by `dead_agent_name`, update ownership to the new agent name using TaskUpdate with `owner: "{new-agent-name}"`.
+
+### 4.5.5 — Spawn with context
+Spawn the new agent using the same command as Step 4, but include the context summary in the initial message sent to the agent after spawn.
+
+The new agent name follows the pattern: `{role-name}` (reuse the same name, not `-2`/`-3` suffixes). This avoids task ownership mismatch.
+
 ## Step 5: Register Team
 
 Note track association if `conductor/tracks.md` exists.
@@ -186,9 +251,12 @@ Write to `~/.claude/teams/{team-name}/config.json`:
       "name": "{agent-name}",
       "color": "{color}",
       "role": "{role-description}",
-      "status": "spawning"
+      "status": "spawning",
+      "replaced_by": null,
+      "replaced_at": null
     }
   ],
+  "deferred_agents": [],
   "created_at": "{ISO-8601 timestamp}",
   "parent_session_id": "{CLAUDE_SESSION_ID}"
 }

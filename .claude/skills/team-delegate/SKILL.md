@@ -49,6 +49,7 @@ Actions:
   [m] Send message to agent
   [b] Broadcast to all agents
   [r] Rebalance workload
+  [c] Reclaim tasks from dead agent
   [s] Show status
 ```
 
@@ -76,6 +77,22 @@ Send to ALL agents with `type: "broadcast"`.
 Review assignments, identify idle/overloaded/blocked agents, suggest reassignments.
 
 > **If no idle agents are available for rebalancing:** Report the current workload distribution for all agents (agent name, current task, how long they have been working) and suggest the user either wait for an agent to finish or manually reassign a lower-priority task.
+
+### Reclaim Tasks (on respawn)
+
+When a new agent replaces a dead predecessor (detected by checking team config for entries with `"status": "replaced"`):
+
+1. Find all tasks owned by the dead agent name:
+   - Check TaskList for tasks where `owner` matches the dead agent's name
+2. For each such task:
+   - If status is `in_progress` or `pending`, update owner to the new agent's name via TaskUpdate
+   - If status is `completed`, leave ownership unchanged (historical record)
+3. Send the new agent a summary of reclaimed tasks via SendMessage
+4. Report the ownership transfer:
+   ```
+   Task ownership migrated:
+     Task #{id}: {old-owner} -> {new-owner} ({status})
+   ```
 
 ## Step 4: Update Config
 

@@ -45,6 +45,26 @@ ps aux | grep "claude.*--team-name {team-name}" | grep -v grep
 
 > **If the `ps` command fails to find agent processes** (returns no matches or errors): Mark those agents as "status unknown" in the report rather than "stopped". An absent process entry may mean the agent exited, was never started, or the process name pattern does not match -- do not assume the agent has stopped.
 
+## Step 3.5: Agent Activity Probe
+
+For each agent that has a running process but no recent messages:
+
+1. **Check git activity** — look for recent commits or file changes:
+   ```bash
+   cd {project-root} && git log --oneline --since="30 minutes ago" --all
+   ```
+
+2. **Check file modification times** — look for recently modified files in the agent's owned directories:
+   ```bash
+   find {project-root}/backend/src -name "*.rs" -mmin -10 2>/dev/null | head -5
+   find {project-root}/frontend/src \( -name "*.ts" -o -name "*.tsx" \) -mmin -10 2>/dev/null | head -5
+   ```
+
+3. **Classify activity**:
+   - **Active**: Recent commits or file modifications in the last 10 minutes
+   - **Quiet**: Process running, no file changes in 10-30 minutes (may be reading/planning)
+   - **Stale**: Process running, no file changes in 30+ minutes, no messages — likely stuck or context-exhausted
+
 ## Step 4: Compile Task Status
 
 Gather from TaskList and team config.
@@ -60,10 +80,10 @@ Preset: {preset}
 Created: {timestamp}
 
 Members ({N} total):
-  Agent                        Role                      Status
-  rust-backend-engineer        Axum backend              working
-  react-frontend-engineer      React UI                  idle
-  backend-qa                   Rust tests                waiting
+  Agent                        Role              Status    Activity
+  rust-backend-engineer        Axum backend      working   active (edited 2 min ago)
+  react-frontend-engineer      React UI          idle      stale (no activity 45 min)
+  backend-qa                   Rust tests        waiting   quiet (no changes 15 min)
 
 Tasks:
   Agent                        Task                      Status
@@ -78,10 +98,33 @@ Summary:
 ### Members-only (`--members`)
 ### JSON (`--json`)
 
+## Step 5.5: Context Exhaustion Heuristic
+
+For each agent that has status "idle" but owns an in_progress task, check:
+
+1. Count consecutive `idle_notification` messages from this agent (from conversation history)
+2. Check if the agent produced any file edits, tool calls, or teammate messages between idle notifications
+
+Classification:
+- **Normal idle**: 0-1 idle notifications, or idle with no assigned tasks
+- **Possibly stuck**: 2 consecutive idle notifications with an in_progress task
+- **Likely context-exhausted**: 3+ consecutive idle notifications with an in_progress task and no tool calls between them
+
+For "likely context-exhausted" agents, recommend:
+```
+Recommendation: {agent-name} appears context-exhausted. Run respawn protocol:
+  1. Note completed work: check git log for recent commits by this agent
+  2. Kill the agent process
+  3. Use /team-spawn --respawn-for {agent-name}
+```
+
 ## Step 6: Alerts
 
 ```
 Alerts:
   [!] react-frontend-engineer process not found
   [!] rust-backend-engineer task running for >2 hours
+  [!] rust-backend-engineer suspected context exhaustion — idle 3+ times with in_progress task
+  [!] react-frontend-engineer stale — process running but no file activity for 30+ minutes
+      Recommendation: Send a ping message. If no response after 2 minutes, likely context-exhausted.
 ```
