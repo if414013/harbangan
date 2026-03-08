@@ -100,7 +100,7 @@ fn gemini_config() -> Result<ProviderOAuthConfig, ApiError> {
         port: 8085,
         scopes: &[
             "openid",
-            "https://www.googleapis.com/auth/cloud-platform",
+            "https://www.googleapis.com/auth/generative-language",
             "https://www.googleapis.com/auth/userinfo.email",
             "https://www.googleapis.com/auth/userinfo.profile",
         ],

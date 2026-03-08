@@ -64,7 +64,7 @@ export function QwenSetup() {
     return (
       <div className="card">
         <div className="card-header">
-          <span className="card-title">{'> '}qwen setup</span>
+          <span className="card-title">{'> '}Qwen Setup</span>
         </div>
         <DeviceCodeDisplay
           userCode={deviceAuth.user_code}
@@ -83,7 +83,7 @@ export function QwenSetup() {
   return (
     <div className="card">
       <div className="card-header">
-        <span className="card-title">{'> '}qwen coder</span>
+        <span className="card-title">{'> '}Qwen Coder</span>
         {status?.connected && !status.expired && (
           <span className="tag-ok">CONNECTED</span>
         )}

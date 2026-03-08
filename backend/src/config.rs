@@ -65,11 +65,6 @@ pub struct Config {
     pub google_client_id: String,
     pub google_client_secret: String,
     pub google_callback_url: String,
-
-    // GitHub Copilot OAuth (optional)
-    pub github_copilot_client_id: String,
-    pub github_copilot_client_secret: String,
-    pub github_copilot_callback_url: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -129,9 +124,6 @@ impl Config {
             google_client_id: String::new(),
             google_client_secret: String::new(),
             google_callback_url: String::new(),
-            github_copilot_client_id: String::new(),
-            github_copilot_client_secret: String::new(),
-            github_copilot_callback_url: String::new(),
         }
     }
 
@@ -176,14 +168,6 @@ impl Config {
         config.google_client_id = std::env::var("GOOGLE_CLIENT_ID").unwrap_or_default();
         config.google_client_secret = std::env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default();
         config.google_callback_url = std::env::var("GOOGLE_CALLBACK_URL").unwrap_or_default();
-
-        // GitHub Copilot OAuth (optional)
-        config.github_copilot_client_id =
-            std::env::var("GITHUB_COPILOT_CLIENT_ID").unwrap_or_default();
-        config.github_copilot_client_secret =
-            std::env::var("GITHUB_COPILOT_CLIENT_SECRET").unwrap_or_default();
-        config.github_copilot_callback_url =
-            std::env::var("GITHUB_COPILOT_CALLBACK_URL").unwrap_or_default();
 
         Ok(config)
     }

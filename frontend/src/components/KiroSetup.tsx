@@ -64,7 +64,7 @@ export function KiroSetup() {
     return (
       <div className="card">
         <div className="card-header">
-          <span className="card-title">{'> '}kiro setup</span>
+          <span className="card-title">{'> '}Kiro Setup</span>
         </div>
         <DeviceCodeDisplay
           userCode={deviceAuth.user_code}
@@ -83,7 +83,7 @@ export function KiroSetup() {
   return (
     <div className="card">
       <div className="card-header">
-        <span className="card-title">{'> '}kiro connection</span>
+        <span className="card-title">{'> '}Kiro Connection</span>
         {status?.has_token && !status.expired && (
           <span className="tag-ok">CONNECTED</span>
         )}

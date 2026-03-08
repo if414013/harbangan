@@ -333,6 +333,7 @@ mod tests {
             provider_oauth_pending: Arc::new(dashmap::DashMap::new()),
             token_exchanger: Arc::new(crate::web_ui::provider_oauth::HttpTokenExchanger::new()),
             copilot_token_cache: Arc::new(dashmap::DashMap::new()),
+            copilot_device_pending: Arc::new(dashmap::DashMap::new()),
             qwen_device_pending: Arc::new(dashmap::DashMap::new()),
         }
     }

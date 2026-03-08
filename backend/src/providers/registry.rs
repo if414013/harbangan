@@ -1310,9 +1310,7 @@ mod tests {
             },
         );
 
-        let (provider, _) = registry
-            .resolve_provider(Some(uid), "qwq-32b", None)
-            .await;
+        let (provider, _) = registry.resolve_provider(Some(uid), "qwq-32b", None).await;
         assert_eq!(provider, ProviderId::Qwen);
     }
 
@@ -1354,10 +1352,7 @@ mod tests {
         let uid = Uuid::new_v4();
 
         let mut expires_map = HashMap::new();
-        expires_map.insert(
-            "qwen".to_string(),
-            Utc::now() + chrono::Duration::hours(1),
-        );
+        expires_map.insert("qwen".to_string(), Utc::now() + chrono::Duration::hours(1));
         let mut creds_map = HashMap::new();
         creds_map.insert(
             "qwen".to_string(),

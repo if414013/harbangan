@@ -146,7 +146,7 @@ function ProviderCard({ provider, connected, email, onRefresh }: ProviderCardPro
     <>
       <div className="card provider-card">
         <div className="card-header">
-          <span className="card-title">{'> '}{provider}</span>
+          <span className="card-title">{'> '}{provider.charAt(0).toUpperCase() + provider.slice(1)}</span>
           {connected ? (
             <span className="tag-ok">CONNECTED</span>
           ) : (
@@ -180,6 +180,39 @@ function ProviderCard({ provider, connected, email, onRefresh }: ProviderCardPro
   )
 }
 
+interface TreeNodeProps {
+  label: string
+  last?: boolean
+  children: React.ReactNode
+}
+
+function TreeNode({ label, last, children }: TreeNodeProps) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className={`tree-node${last ? ' tree-node-last' : ''}`}>
+      <button
+        type="button"
+        className="tree-node-toggle"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+      >
+        <span className="tree-branch">{last ? '└' : '├'}</span>
+        <span className="tree-arrow">{open ? '▼' : '▶'}</span>
+        <span className="tree-label">{label}</span>
+      </button>
+      {open && (
+        <div className="tree-node-content">
+          <div className={`tree-node-line${last ? ' tree-node-line-hidden' : ''}`} />
+          <div className="tree-node-body">
+            {children}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function Profile() {
   const { user } = useSession()
   const [providerStatus, setProviderStatus] = useState<ProvidersStatusResponse | null>(null)
@@ -197,7 +230,7 @@ export function Profile() {
       <h2 className="section-header">PROFILE</h2>
       <div className="card mb-24">
         <div className="card-header">
-          <span className="card-title">{'> '}account</span>
+          <span className="card-title">{'> '}Account</span>
           <span
             style={{
               fontSize: '0.55rem',
@@ -232,38 +265,33 @@ export function Profile() {
         </div>
       </div>
 
-      <h2 className="section-header">KIRO TOKEN</h2>
-      <div className="mb-24">
-        <KiroSetup />
-      </div>
-
-      <h2 className="section-header">GITHUB COPILOT</h2>
-      <div className="mb-24">
-        <CopilotSetup />
-      </div>
-
-      <h2 className="section-header">QWEN CODER</h2>
-      <div className="mb-24">
-        <QwenSetup />
-      </div>
-
       <h2 className="section-header">API KEYS</h2>
       <div className="mb-24">
         <ApiKeyManager />
       </div>
 
       <h2 className="section-header">PROVIDERS</h2>
-      <div className="providers-grid">
-        {PROVIDERS.map(p => {
+      <div className="provider-tree">
+        <TreeNode label="Kiro">
+          <KiroSetup />
+        </TreeNode>
+        <TreeNode label="github copilot">
+          <CopilotSetup />
+        </TreeNode>
+        <TreeNode label="qwen coder">
+          <QwenSetup />
+        </TreeNode>
+        {PROVIDERS.map((p, i) => {
           const info = providerStatus?.providers[p]
           return (
-            <ProviderCard
-              key={p}
-              provider={p}
-              connected={info?.connected ?? false}
-              email={info?.email}
-              onRefresh={loadProviders}
-            />
+            <TreeNode key={p} label={p} last={i === PROVIDERS.length - 1}>
+              <ProviderCard
+                provider={p}
+                connected={info?.connected ?? false}
+                email={info?.email}
+                onRefresh={loadProviders}
+              />
+            </TreeNode>
           )
         })}
       </div>

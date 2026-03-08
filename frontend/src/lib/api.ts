@@ -274,10 +274,26 @@ export interface CopilotStatus {
   expired: boolean
 }
 
+export interface CopilotDeviceCodeResponse {
+  device_code: string
+  user_code: string
+  verification_uri: string
+  expires_in: number
+  interval: number
+}
+
 // --- Copilot API ---
 
 export function getCopilotStatus() {
   return apiFetch<CopilotStatus>('/copilot/status')
+}
+
+export function startCopilotDeviceFlow() {
+  return apiPost<CopilotDeviceCodeResponse>('/copilot/device-code')
+}
+
+export function pollCopilotDeviceCode(deviceCode: string) {
+  return apiFetch<DevicePollResponse>(`/copilot/device-poll?device_code=${encodeURIComponent(deviceCode)}`)
 }
 
 export function disconnectCopilot() {

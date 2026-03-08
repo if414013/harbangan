@@ -2,9 +2,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::extract::State;
-use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::{delete, get};
-use axum::{Json, Router};
+use axum::routing::{delete, get, post};
+use axum::{Extension, Json, Router};
 use chrono::Utc;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
@@ -12,13 +11,16 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::error::ApiError;
-use crate::routes::{AppState, OAuthPendingState, SessionInfo};
+use crate::routes::{AppState, SessionInfo};
 use crate::web_ui::config_db::ConfigDb;
 
 // ── Constants ─────────────────────────────────────────────────────
 
-const GITHUB_AUTH_URL: &str = "https://github.com/login/oauth/authorize";
+const GITHUB_CLIENT_ID: &str = "Iv1.b507a08c87ecfe98";
+const GITHUB_DEVICE_CODE_URL: &str = "https://github.com/login/device/code";
 const GITHUB_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
+const GITHUB_SCOPE: &str = "read:user";
+
 const GITHUB_USER_URL: &str = "https://api.github.com/user";
 const COPILOT_TOKEN_URL: &str = "https://api.github.com/copilot_internal/v2/token";
 const COPILOT_USER_URL: &str = "https://api.github.com/copilot_internal/user";
@@ -27,6 +29,19 @@ const EDITOR_VERSION: &str = "vscode/1.97.2";
 const EDITOR_PLUGIN_VERSION: &str = "copilot-chat/0.26.7";
 const USER_AGENT_VALUE: &str = "GitHubCopilotChat/0.26.7";
 const GITHUB_API_VERSION: &str = "2025-04-01";
+
+// ── Pending State ─────────────────────────────────────────────────
+
+/// In-memory pending state for a Copilot device flow.
+#[derive(Debug, Clone)]
+pub struct CopilotDevicePending {
+    pub device_code: String,
+    pub user_id: Uuid,
+    pub created_at: chrono::DateTime<Utc>,
+}
+
+/// Shared map of pending Copilot device flows: device_code → CopilotDevicePending.
+pub type CopilotDevicePendingMap = Arc<DashMap<String, CopilotDevicePending>>;
 
 // ── Response types ────────────────────────────────────────────────
 
@@ -38,17 +53,46 @@ pub struct CopilotStatusResponse {
     pub expired: bool,
 }
 
+#[derive(Serialize)]
+struct CopilotDeviceCodeResponse {
+    device_code: String,
+    user_code: String,
+    verification_uri: String,
+    expires_in: u64,
+    interval: u64,
+}
+
 #[derive(Deserialize)]
-struct CallbackQuery {
-    code: Option<String>,
-    state: Option<String>,
+struct CopilotDevicePollQuery {
+    device_code: String,
+}
+
+#[derive(Serialize)]
+struct CopilotDevicePollResponse {
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+// ── GitHub API response types ────────────────────────────────────
+
+#[derive(Deserialize)]
+struct GitHubDeviceCodeApiResponse {
+    device_code: Option<String>,
+    user_code: Option<String>,
+    verification_uri: Option<String>,
+    expires_in: Option<u64>,
+    interval: Option<u64>,
+    // Error fields
     error: Option<String>,
+    error_description: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct GitHubTokenResponse {
     access_token: Option<String>,
     error: Option<String>,
+    #[allow(dead_code)]
     error_description: Option<String>,
 }
 
@@ -73,152 +117,220 @@ struct CopilotUserResponse {
 
 pub fn copilot_routes() -> Router<AppState> {
     Router::new()
-        .route("/copilot/connect", get(copilot_connect))
-        .route("/copilot/callback", get(copilot_callback))
+        .route("/copilot/device-code", post(copilot_device_code))
+        .route("/copilot/device-poll", get(copilot_device_poll))
         .route("/copilot/status", get(copilot_status))
         .route("/copilot/disconnect", delete(copilot_disconnect))
 }
 
-// ── GET /copilot/connect ──────────────────────────────────────────
+// ── POST /copilot/device-code ────────────────────────────────────
 
-async fn copilot_connect(
+async fn copilot_device_code(
     State(state): State<AppState>,
-    request: axum::http::Request<axum::body::Body>,
-) -> Result<Response, ApiError> {
-    let _session = request
-        .extensions()
-        .get::<SessionInfo>()
-        .ok_or_else(|| ApiError::AuthError("No session".to_string()))?;
+    Extension(session): Extension<SessionInfo>,
+) -> Result<Json<CopilotDeviceCodeResponse>, ApiError> {
+    let pending_map = &state.copilot_device_pending;
 
-    let (client_id, callback_url) = {
-        let config = state.config.read().unwrap_or_else(|p| p.into_inner());
-        (
-            config.github_copilot_client_id.clone(),
-            config.github_copilot_callback_url.clone(),
-        )
-    };
-
-    if client_id.is_empty() || callback_url.is_empty() {
-        return Err(ApiError::ConfigError(
-            "GitHub Copilot OAuth not configured (GITHUB_COPILOT_CLIENT_ID, GITHUB_COPILOT_CALLBACK_URL)".to_string(),
-        ));
-    }
-
-    // Cleanup expired entries
+    // Cleanup expired entries (10-min TTL)
     let now = Utc::now();
-    state
-        .oauth_pending
-        .retain(|_, v| (now - v.created_at).num_minutes() < 10);
+    pending_map.retain(|_, v| (now - v.created_at).num_minutes() < 10);
 
-    if state.oauth_pending.len() >= 10_000 {
+    if pending_map.len() >= 10_000 {
         return Err(ApiError::Internal(anyhow::anyhow!(
-            "Too many pending OAuth requests. Please try again later."
+            "Too many pending Copilot device flows. Please try again later."
         )));
     }
 
-    let csrf_state = Uuid::new_v4().to_string();
+    let http = reqwest::Client::new();
+    let resp = http
+        .post(GITHUB_DEVICE_CODE_URL)
+        .header("accept", "application/json")
+        .json(&json!({
+            "client_id": GITHUB_CLIENT_ID,
+            "scope": GITHUB_SCOPE,
+        }))
+        .send()
+        .await
+        .map_err(|e| {
+            ApiError::CopilotAuthError(format!("GitHub device code request failed: {}", e))
+        })?;
 
-    // Store with "copilot:" prefix to avoid collision with Google SSO states
-    state.oauth_pending.insert(
-        format!("copilot:{}", csrf_state),
-        OAuthPendingState {
-            nonce: String::new(),
-            pkce_verifier: String::new(),
-            created_at: now,
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(ApiError::CopilotAuthError(format!(
+            "GitHub device code API returned {}: {}",
+            status, body
+        )));
+    }
+
+    let api_resp: GitHubDeviceCodeApiResponse = resp.json().await.map_err(|e| {
+        ApiError::CopilotAuthError(format!(
+            "Failed to parse GitHub device code response: {}",
+            e
+        ))
+    })?;
+
+    if let Some(err) = api_resp.error {
+        let desc = api_resp.error_description.unwrap_or_default();
+        return Err(ApiError::CopilotAuthError(format!(
+            "GitHub device code error: {} - {}",
+            err, desc
+        )));
+    }
+
+    let device_code = api_resp.device_code.ok_or_else(|| {
+        ApiError::CopilotAuthError("GitHub device code response missing device_code".to_string())
+    })?;
+    let user_code = api_resp.user_code.ok_or_else(|| {
+        ApiError::CopilotAuthError("GitHub device code response missing user_code".to_string())
+    })?;
+    let verification_uri = api_resp.verification_uri.ok_or_else(|| {
+        ApiError::CopilotAuthError(
+            "GitHub device code response missing verification_uri".to_string(),
+        )
+    })?;
+
+    // Store pending state
+    pending_map.insert(
+        device_code.clone(),
+        CopilotDevicePending {
+            device_code: device_code.clone(),
+            user_id: session.user_id,
+            created_at: Utc::now(),
         },
     );
 
-    let auth_url = format!(
-        "{}?client_id={}&redirect_uri={}&scope=read:user&state={}",
-        GITHUB_AUTH_URL,
-        urlencoding::encode(&client_id),
-        urlencoding::encode(&callback_url),
-        urlencoding::encode(&csrf_state),
+    tracing::info!(
+        user_id = %session.user_id,
+        "Copilot device flow initiated"
     );
 
-    Ok(Redirect::temporary(&auth_url).into_response())
+    Ok(Json(CopilotDeviceCodeResponse {
+        device_code,
+        user_code,
+        verification_uri,
+        expires_in: api_resp.expires_in.unwrap_or(900),
+        interval: api_resp.interval.unwrap_or(5),
+    }))
 }
 
-// ── GET /copilot/callback ─────────────────────────────────────────
+// ── GET /copilot/device-poll ─────────────────────────────────────
 
-async fn copilot_callback(
+async fn copilot_device_poll(
     State(state): State<AppState>,
-    axum::extract::Query(params): axum::extract::Query<CallbackQuery>,
-    request: axum::http::Request<axum::body::Body>,
-) -> Result<Response, ApiError> {
-    let session = request
-        .extensions()
-        .get::<SessionInfo>()
-        .ok_or_else(|| ApiError::AuthError("No session".to_string()))?
+    Extension(session): Extension<SessionInfo>,
+    axum::extract::Query(params): axum::extract::Query<CopilotDevicePollQuery>,
+) -> Result<Json<CopilotDevicePollResponse>, ApiError> {
+    let pending_map = &state.copilot_device_pending;
+
+    // Look up pending state (don't remove yet — only remove on success/expiry)
+    let pending = pending_map
+        .get(&params.device_code)
+        .ok_or_else(|| {
+            ApiError::ValidationError(
+                "Unknown or expired device code. Start a new device flow.".to_string(),
+            )
+        })?
         .clone();
 
-    // Handle user denial
-    if let Some(ref err) = params.error {
-        let msg = urlencoding::encode(err);
-        return Ok(
-            Redirect::temporary(&format!("/_ui/profile?copilot=error&message={}", msg))
-                .into_response(),
-        );
+    // Verify this device code belongs to the requesting user
+    if pending.user_id != session.user_id {
+        return Err(ApiError::ValidationError(
+            "Device code does not belong to this user".to_string(),
+        ));
     }
 
-    let code = params
-        .code
-        .as_deref()
-        .ok_or_else(|| ApiError::ValidationError("Missing code parameter".to_string()))?;
-
-    let request_state = params
-        .state
-        .as_deref()
-        .ok_or_else(|| ApiError::ValidationError("Missing state parameter".to_string()))?;
-
-    // Validate CSRF state
-    let pending_key = format!("copilot:{}", request_state);
-    let pending = state
-        .oauth_pending
-        .remove(&pending_key)
-        .ok_or_else(|| ApiError::ValidationError("Invalid or expired OAuth state".to_string()))?;
-
-    let (_, pending_state) = pending;
-    let age = Utc::now() - pending_state.created_at;
+    // Check TTL (10 minutes)
+    let age = Utc::now() - pending.created_at;
     if age.num_minutes() >= 10 {
-        return Err(ApiError::ValidationError("OAuth state expired".to_string()));
+        pending_map.remove(&params.device_code);
+        return Ok(Json(CopilotDevicePollResponse {
+            status: "expired".to_string(),
+            message: Some("Device code expired. Start a new device flow.".to_string()),
+        }));
     }
-
-    let (client_id, client_secret) = {
-        let config = state.config.read().unwrap_or_else(|p| p.into_inner());
-        (
-            config.github_copilot_client_id.clone(),
-            config.github_copilot_client_secret.clone(),
-        )
-    };
 
     let http = reqwest::Client::new();
 
-    // Step 1: Exchange code for GitHub access token
-    let github_token = exchange_github_code(&http, &client_id, &client_secret, code).await?;
+    let resp = http
+        .post(GITHUB_TOKEN_URL)
+        .header("accept", "application/json")
+        .json(&json!({
+            "client_id": GITHUB_CLIENT_ID,
+            "device_code": params.device_code,
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+        }))
+        .send()
+        .await
+        .map_err(|e| ApiError::CopilotAuthError(format!("GitHub token poll failed: {}", e)))?;
 
-    // Step 2: Fetch GitHub username
+    // Parse response body regardless of status (RFC 8628 uses 400 for pending states)
+    let token_resp: GitHubTokenResponse = resp.json().await.map_err(|e| {
+        ApiError::CopilotAuthError(format!("Failed to parse GitHub token response: {}", e))
+    })?;
+
+    // Handle RFC 8628 error codes
+    if let Some(ref error_code) = token_resp.error {
+        return match error_code.as_str() {
+            "authorization_pending" => Ok(Json(CopilotDevicePollResponse {
+                status: "pending".to_string(),
+                message: Some("Waiting for user authorization".to_string()),
+            })),
+            "slow_down" => Ok(Json(CopilotDevicePollResponse {
+                status: "slow_down".to_string(),
+                message: Some("Polling too fast, please slow down".to_string()),
+            })),
+            "expired_token" => {
+                pending_map.remove(&params.device_code);
+                Ok(Json(CopilotDevicePollResponse {
+                    status: "expired".to_string(),
+                    message: Some("Device code expired. Start a new device flow.".to_string()),
+                }))
+            }
+            "access_denied" => {
+                pending_map.remove(&params.device_code);
+                Ok(Json(CopilotDevicePollResponse {
+                    status: "denied".to_string(),
+                    message: Some("Authorization was denied by the user.".to_string()),
+                }))
+            }
+            _ => {
+                pending_map.remove(&params.device_code);
+                Err(ApiError::CopilotAuthError(format!(
+                    "GitHub token error: {}",
+                    error_code
+                )))
+            }
+        };
+    }
+
+    // Success — extract GitHub access token
+    let github_token = token_resp.access_token.ok_or_else(|| {
+        ApiError::CopilotAuthError("GitHub token response missing access_token".to_string())
+    })?;
+
+    // Fetch GitHub username
     let github_username = fetch_github_username(&http, &github_token).await?;
 
-    // Step 3: Fetch Copilot bearer token
+    // Fetch Copilot bearer token
     let copilot_resp = fetch_copilot_token(&http, &github_token).await?;
 
-    // Step 4: Detect account type
+    // Detect account type (ok to fail)
     let copilot_plan = fetch_copilot_plan(&http, &github_token).await.ok();
 
-    // Step 5: Compute base_url from plan
+    // Compute base_url from plan
     let base_url = copilot_plan
         .as_deref()
         .map(base_url_for_plan)
         .unwrap_or("https://api.githubcopilot.com");
 
-    // Step 6: Compute expires_at from epoch timestamp
+    // Compute expires_at from epoch timestamp
     let expires_at = copilot_resp
         .expires_at
-        .map(|ts| chrono::DateTime::from_timestamp(ts, 0))
-        .flatten();
+        .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0));
 
-    // Step 7: Store in DB
+    // Store in DB
     let db = state
         .config_db
         .as_ref()
@@ -239,27 +351,28 @@ async fn copilot_callback(
     // Invalidate cache
     state.copilot_token_cache.remove(&session.user_id);
 
+    // Clean up pending state
+    pending_map.remove(&params.device_code);
+
     tracing::info!(
         user_id = %session.user_id,
         github_username = %github_username,
         copilot_plan = ?copilot_plan,
-        "Copilot connected"
+        "Copilot connected via device flow"
     );
 
-    Ok(Redirect::temporary("/_ui/profile?copilot=connected").into_response())
+    Ok(Json(CopilotDevicePollResponse {
+        status: "success".to_string(),
+        message: Some("Copilot connected successfully".to_string()),
+    }))
 }
 
 // ── GET /copilot/status ───────────────────────────────────────────
 
 async fn copilot_status(
     State(state): State<AppState>,
-    request: axum::http::Request<axum::body::Body>,
+    Extension(session): Extension<SessionInfo>,
 ) -> Result<Json<CopilotStatusResponse>, ApiError> {
-    let session = request
-        .extensions()
-        .get::<SessionInfo>()
-        .ok_or_else(|| ApiError::AuthError("No session".to_string()))?;
-
     let db = state
         .config_db
         .as_ref()
@@ -293,13 +406,8 @@ async fn copilot_status(
 
 async fn copilot_disconnect(
     State(state): State<AppState>,
-    request: axum::http::Request<axum::body::Body>,
+    Extension(session): Extension<SessionInfo>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let session = request
-        .extensions()
-        .get::<SessionInfo>()
-        .ok_or_else(|| ApiError::AuthError("No session".to_string()))?;
-
     let db = state
         .config_db
         .as_ref()
@@ -435,41 +543,6 @@ fn github_api_headers(github_token: &str) -> reqwest::header::HeaderMap {
     headers.insert("user-agent", USER_AGENT_VALUE.parse().unwrap());
     headers.insert("x-github-api-version", GITHUB_API_VERSION.parse().unwrap());
     headers
-}
-
-async fn exchange_github_code(
-    http: &reqwest::Client,
-    client_id: &str,
-    client_secret: &str,
-    code: &str,
-) -> Result<String, ApiError> {
-    let resp = http
-        .post(GITHUB_TOKEN_URL)
-        .header("accept", "application/json")
-        .json(&serde_json::json!({
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": code,
-        }))
-        .send()
-        .await
-        .map_err(|e| ApiError::CopilotAuthError(format!("GitHub token exchange failed: {}", e)))?;
-
-    let body: GitHubTokenResponse = resp.json().await.map_err(|e| {
-        ApiError::CopilotAuthError(format!("Failed to parse GitHub token response: {}", e))
-    })?;
-
-    if let Some(err) = body.error {
-        let desc = body.error_description.unwrap_or_default();
-        return Err(ApiError::CopilotAuthError(format!(
-            "GitHub OAuth error: {} - {}",
-            err, desc
-        )));
-    }
-
-    body.access_token.ok_or_else(|| {
-        ApiError::CopilotAuthError("GitHub token response missing access_token".to_string())
-    })
 }
 
 async fn fetch_github_username(
@@ -673,21 +746,207 @@ mod tests {
     }
 
     #[test]
-    fn test_callback_query_deserialization_success() {
-        let json = r#"{"code":"abc123","state":"xyz789"}"#;
-        let q: CallbackQuery = serde_json::from_str(json).unwrap();
-        assert_eq!(q.code.unwrap(), "abc123");
-        assert_eq!(q.state.unwrap(), "xyz789");
-        assert!(q.error.is_none());
+    fn test_device_code_response_serialization() {
+        let resp = CopilotDeviceCodeResponse {
+            device_code: "dc_test123".to_string(),
+            user_code: "ABCD-1234".to_string(),
+            verification_uri: "https://github.com/login/device".to_string(),
+            expires_in: 900,
+            interval: 5,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["device_code"], "dc_test123");
+        assert_eq!(json["user_code"], "ABCD-1234");
+        assert_eq!(json["verification_uri"], "https://github.com/login/device");
+        assert_eq!(json["expires_in"], 900);
+        assert_eq!(json["interval"], 5);
     }
 
     #[test]
-    fn test_callback_query_deserialization_error() {
-        let json = r#"{"error":"access_denied"}"#;
-        let q: CallbackQuery = serde_json::from_str(json).unwrap();
-        assert!(q.code.is_none());
-        assert!(q.state.is_none());
-        assert_eq!(q.error.unwrap(), "access_denied");
+    fn test_device_poll_response_pending() {
+        let resp = CopilotDevicePollResponse {
+            status: "pending".to_string(),
+            message: Some("Waiting for user authorization".to_string()),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "pending");
+        assert_eq!(json["message"], "Waiting for user authorization");
+    }
+
+    #[test]
+    fn test_device_poll_response_success() {
+        let resp = CopilotDevicePollResponse {
+            status: "success".to_string(),
+            message: Some("Copilot connected successfully".to_string()),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "success");
+    }
+
+    #[test]
+    fn test_device_poll_response_expired() {
+        let resp = CopilotDevicePollResponse {
+            status: "expired".to_string(),
+            message: Some("Device code expired".to_string()),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "expired");
+    }
+
+    #[test]
+    fn test_device_poll_response_denied() {
+        let resp = CopilotDevicePollResponse {
+            status: "denied".to_string(),
+            message: Some("Authorization was denied".to_string()),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "denied");
+    }
+
+    #[test]
+    fn test_device_poll_response_slow_down() {
+        let resp = CopilotDevicePollResponse {
+            status: "slow_down".to_string(),
+            message: Some("Polling too fast".to_string()),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "slow_down");
+    }
+
+    #[test]
+    fn test_device_poll_response_no_message() {
+        let resp = CopilotDevicePollResponse {
+            status: "success".to_string(),
+            message: None,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.get("message").is_none());
+    }
+
+    #[test]
+    fn test_github_device_code_api_response_success() {
+        let json = r#"{"device_code":"dc_123","user_code":"ABCD-EFGH","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5}"#;
+        let resp: GitHubDeviceCodeApiResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.device_code.unwrap(), "dc_123");
+        assert_eq!(resp.user_code.unwrap(), "ABCD-EFGH");
+        assert!(resp.error.is_none());
+    }
+
+    #[test]
+    fn test_github_device_code_api_response_error() {
+        let json = r#"{"error":"invalid_client","error_description":"Bad client ID"}"#;
+        let resp: GitHubDeviceCodeApiResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.error.unwrap(), "invalid_client");
+        assert!(resp.device_code.is_none());
+    }
+
+    #[test]
+    fn test_github_device_code_api_response_minimal() {
+        let json = r#"{"device_code":"dc_123","user_code":"ABCD","verification_uri":"https://github.com/login/device"}"#;
+        let resp: GitHubDeviceCodeApiResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.device_code.unwrap(), "dc_123");
+        assert!(resp.expires_in.is_none());
+        assert!(resp.interval.is_none());
+    }
+
+    #[test]
+    fn test_github_token_response_rfc8628_authorization_pending() {
+        let json = r#"{"error":"authorization_pending","error_description":"The user has not yet authorized"}"#;
+        let resp: GitHubTokenResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.error.unwrap(), "authorization_pending");
+        assert!(resp.access_token.is_none());
+    }
+
+    #[test]
+    fn test_github_token_response_rfc8628_slow_down() {
+        let json = r#"{"error":"slow_down","error_description":"Polling too fast"}"#;
+        let resp: GitHubTokenResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.error.unwrap(), "slow_down");
+    }
+
+    #[test]
+    fn test_github_token_response_rfc8628_expired_token() {
+        let json = r#"{"error":"expired_token","error_description":"Device code expired"}"#;
+        let resp: GitHubTokenResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.error.unwrap(), "expired_token");
+    }
+
+    #[test]
+    fn test_github_token_response_rfc8628_access_denied() {
+        let json = r#"{"error":"access_denied","error_description":"User denied"}"#;
+        let resp: GitHubTokenResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.error.unwrap(), "access_denied");
+    }
+
+    #[test]
+    fn test_copilot_device_pending_clone() {
+        let pending = CopilotDevicePending {
+            device_code: "dc_test".to_string(),
+            user_id: Uuid::new_v4(),
+            created_at: Utc::now(),
+        };
+        let cloned = pending.clone();
+        assert_eq!(cloned.device_code, "dc_test");
+        assert_eq!(cloned.user_id, pending.user_id);
+    }
+
+    #[test]
+    fn test_copilot_pending_map_insert_and_lookup() {
+        let map: CopilotDevicePendingMap = Arc::new(DashMap::new());
+        let uid = Uuid::new_v4();
+        map.insert(
+            "dc_123".to_string(),
+            CopilotDevicePending {
+                device_code: "dc_123".to_string(),
+                user_id: uid,
+                created_at: Utc::now(),
+            },
+        );
+        assert!(map.contains_key("dc_123"));
+        let entry = map.get("dc_123").unwrap();
+        assert_eq!(entry.user_id, uid);
+    }
+
+    #[test]
+    fn test_copilot_pending_map_ttl_cleanup() {
+        let map: CopilotDevicePendingMap = Arc::new(DashMap::new());
+        let uid = Uuid::new_v4();
+
+        // Insert an entry that's 11 minutes old (past 10-min TTL)
+        map.insert(
+            "dc_old".to_string(),
+            CopilotDevicePending {
+                device_code: "dc_old".to_string(),
+                user_id: uid,
+                created_at: Utc::now() - chrono::Duration::minutes(11),
+            },
+        );
+
+        // Insert a fresh entry
+        map.insert(
+            "dc_new".to_string(),
+            CopilotDevicePending {
+                device_code: "dc_new".to_string(),
+                user_id: uid,
+                created_at: Utc::now(),
+            },
+        );
+
+        let now = Utc::now();
+        map.retain(|_, v| (now - v.created_at).num_minutes() < 10);
+
+        assert!(
+            !map.contains_key("dc_old"),
+            "Old entry should be cleaned up"
+        );
+        assert!(map.contains_key("dc_new"), "Fresh entry should remain");
+    }
+
+    #[test]
+    fn test_device_poll_query_deserialization() {
+        let json = serde_json::json!({ "device_code": "test-code-123" });
+        let q: CopilotDevicePollQuery = serde_json::from_value(json).unwrap();
+        assert_eq!(q.device_code, "test-code-123");
     }
 
     #[test]

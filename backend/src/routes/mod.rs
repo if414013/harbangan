@@ -119,6 +119,8 @@ pub struct AppState {
     // Copilot
     /// user_id → (copilot_token, base_url, cached_at)
     pub copilot_token_cache: Arc<DashMap<Uuid, (String, String, std::time::Instant)>>,
+    /// Pending Copilot device flow states: device_code → CopilotDevicePending
+    pub copilot_device_pending: crate::web_ui::copilot_auth::CopilotDevicePendingMap,
     // Qwen device flow
     /// Pending Qwen device flow states: device_code → QwenDevicePending
     pub qwen_device_pending: crate::web_ui::qwen_auth::QwenDevicePendingMap,
@@ -1197,6 +1199,7 @@ mod tests {
             provider_oauth_pending: Arc::new(DashMap::new()),
             token_exchanger: Arc::new(crate::web_ui::provider_oauth::HttpTokenExchanger::new()),
             copilot_token_cache: Arc::new(DashMap::new()),
+            copilot_device_pending: Arc::new(DashMap::new()),
             qwen_device_pending: Arc::new(DashMap::new()),
         }
     }

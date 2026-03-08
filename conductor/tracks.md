@@ -6,6 +6,7 @@
 | completed | qwen-coder-provider_20260308 | Add Qwen Coder Provider Support | 2026-03-08 | 2026-03-08 |
 | completed | ghpages-crt-styling_20260308 | Update GH-Pages Styling and Content to Match Frontend CRT Aesthetic | 2026-03-08 | 2026-03-08 |
 | planned | rename-harbangan_20260308 | Rename rkgw → Harbangan | 2026-03-08 | 2026-03-08 |
+| completed | copilot-device-code_20260308 | Switch Copilot OAuth to Device Code Flow | 2026-03-08 | 2026-03-08 |
 
 <!-- Tracks registered by /conductor:new-track -->
 

@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react'
-import { getCopilotStatus, disconnectCopilot } from '../lib/api'
-import type { CopilotStatus } from '../lib/api'
+import { getCopilotStatus, startCopilotDeviceFlow, pollCopilotDeviceCode, disconnectCopilot } from '../lib/api'
+import type { CopilotStatus, CopilotDeviceCodeResponse } from '../lib/api'
+import { DeviceCodeDisplay } from './DeviceCodeDisplay'
 import { useToast } from './Toast'
 
 export function CopilotSetup() {
   const { showToast } = useToast()
   const [status, setStatus] = useState<CopilotStatus | null>(null)
   const [loading, setLoading] = useState(true)
+  const [deviceAuth, setDeviceAuth] = useState<CopilotDeviceCodeResponse | null>(null)
+  const [starting, setStarting] = useState(false)
 
   function loadStatus() {
     getCopilotStatus()
@@ -14,29 +17,31 @@ export function CopilotSetup() {
       .catch(() => setLoading(false))
   }
 
-  useEffect(() => {
-    loadStatus()
+  useEffect(() => { loadStatus() }, [])
 
-    const params = new URLSearchParams(window.location.search)
-    const copilotParam = params.get('copilot')
-    if (copilotParam === 'connected') {
-      showToast('GitHub Copilot connected', 'success')
-      params.delete('copilot')
-      const newUrl = params.toString()
-        ? `${window.location.pathname}?${params}`
-        : window.location.pathname
-      window.history.replaceState({}, '', newUrl)
-    } else if (copilotParam === 'error') {
-      const message = params.get('message') || 'Connection failed'
-      showToast(message, 'error')
-      params.delete('copilot')
-      params.delete('message')
-      const newUrl = params.toString()
-        ? `${window.location.pathname}?${params}`
-        : window.location.pathname
-      window.history.replaceState({}, '', newUrl)
+  async function handleStart() {
+    setStarting(true)
+    try {
+      const result = await startCopilotDeviceFlow()
+      setDeviceAuth(result)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      showToast('Failed to start Copilot setup: ' + msg, 'error')
+    } finally {
+      setStarting(false)
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }
+
+  function handleComplete() {
+    setDeviceAuth(null)
+    showToast('GitHub Copilot connected successfully', 'success')
+    loadStatus()
+  }
+
+  function handleError(message: string) {
+    showToast(message, 'error')
+    setDeviceAuth(null)
+  }
 
   async function handleDisconnect() {
     try {
@@ -51,18 +56,34 @@ export function CopilotSetup() {
     }
   }
 
-  function handleConnect() {
-    window.location.href = '/_ui/api/copilot/connect'
-  }
-
   if (loading) {
     return <div className="skeleton skeleton-block" role="status" aria-label="Loading Copilot status" />
+  }
+
+  if (deviceAuth) {
+    return (
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">{'> '}Copilot Setup</span>
+        </div>
+        <DeviceCodeDisplay
+          userCode={deviceAuth.user_code}
+          verificationUri={deviceAuth.verification_uri}
+          verificationUriComplete={deviceAuth.verification_uri}
+          deviceCode={deviceAuth.device_code}
+          pollFn={pollCopilotDeviceCode}
+          onComplete={handleComplete}
+          onError={handleError}
+          onCancel={() => setDeviceAuth(null)}
+        />
+      </div>
+    )
   }
 
   return (
     <div className="card">
       <div className="card-header">
-        <span className="card-title">{'> '}github copilot</span>
+        <span className="card-title">{'> '}GitHub Copilot</span>
         {status?.connected && !status.expired && (
           <span className="tag-ok">CONNECTED</span>
         )}
@@ -85,7 +106,8 @@ export function CopilotSetup() {
         <button
           className="btn-save"
           type="button"
-          onClick={handleConnect}
+          onClick={handleStart}
+          disabled={starting}
         >
           {status?.connected ? '$ reconnect' : '$ connect github'}
         </button>

@@ -1528,6 +1528,77 @@ select.config-input {
   align-items: center;
 }
 
+/* ---- Provider Tree ---- */
+
+.provider-tree {
+  display: flex;
+  flex-direction: column;
+  padding-left: 4px;
+}
+
+.tree-node-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 4px 0;
+  cursor: pointer;
+  transition: color 0.15s;
+  width: 100%;
+  text-align: left;
+}
+
+.tree-node-toggle:hover {
+  color: var(--green);
+}
+
+.tree-branch {
+  color: var(--text-tertiary);
+  user-select: none;
+}
+
+.tree-arrow {
+  font-size: 0.55rem;
+  width: 10px;
+  text-align: center;
+  color: var(--green);
+}
+
+.tree-label {
+  color: var(--text);
+}
+
+.tree-node-content {
+  display: flex;
+  gap: 0;
+}
+
+.tree-node-line {
+  width: 1px;
+  margin-left: 3px;
+  margin-right: 12px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.tree-node-line-hidden {
+  background: transparent;
+}
+
+.tree-node-body {
+  flex: 1;
+  padding: 4px 0 8px;
+  min-width: 0;
+}
+
+.tree-node-body > .card {
+  border-left: none;
+}
+
 /* ---- Provider Cards ---- */
 
 .providers-grid {

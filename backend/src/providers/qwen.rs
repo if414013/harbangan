@@ -790,7 +790,10 @@ mod tests {
 
         let body = QwenProvider::anthropic_to_openai_body(&req);
         let temp = body["temperature"].as_f64().unwrap();
-        assert!((temp - 0.7).abs() < 0.001, "temperature should be ~0.7, got {temp}");
+        assert!(
+            (temp - 0.7).abs() < 0.001,
+            "temperature should be ~0.7, got {temp}"
+        );
     }
 
     #[test]
@@ -942,7 +945,10 @@ mod tests {
         assert_eq!(tool["type"], "function");
         assert_eq!(tool["function"]["name"], "_qwen_dummy");
         assert_eq!(tool["function"]["parameters"]["type"], "object");
-        assert!(tool["function"]["description"].as_str().unwrap().contains("Qwen3"));
+        assert!(tool["function"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("Qwen3"));
     }
 
     #[test]

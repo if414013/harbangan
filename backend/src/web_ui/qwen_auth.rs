@@ -739,7 +739,10 @@ mod tests {
         let now = Utc::now();
         map.retain(|_, v| (now - v.created_at).num_minutes() < 10);
 
-        assert!(!map.contains_key("dc_old"), "Old entry should be cleaned up");
+        assert!(
+            !map.contains_key("dc_old"),
+            "Old entry should be cleaned up"
+        );
         assert!(map.contains_key("dc_new"), "Fresh entry should remain");
     }
 
