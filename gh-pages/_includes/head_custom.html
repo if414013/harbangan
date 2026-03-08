@@ -296,8 +296,9 @@ code.highlighter-rouge { padding: 0.15em 0.4em; border-radius: 2px; font-size: 0
     var counter = 0;
     // Convert code.language-mermaid blocks to div.mermaid
     document.querySelectorAll('code.language-mermaid').forEach(function(code) {
-      var pre = code.parentElement;
-      var container = pre.parentElement;
+      var pre = code.parentElement; // <pre>
+      // Find the highlighter-rouge wrapper (could be 2-3 levels up)
+      var wrapper = pre.closest('.highlighter-rouge') || pre;
       var source = code.textContent;
       var id = 'kgw-mermaid-' + counter++;
       window.__mermaidSources[id] = source;
@@ -305,7 +306,7 @@ code.highlighter-rouge { padding: 0.15em 0.4em; border-radius: 2px; font-size: 0
       div.className = 'mermaid';
       div.id = id;
       div.textContent = source;
-      container.replaceWith(div);
+      wrapper.replaceWith(div);
     });
 
     if (counter > 0) {
