@@ -25,8 +25,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   return (
     <nav className={`sidebar${open ? ' open' : ''}`} aria-label="Main navigation" onClick={e => e.stopPropagation()}>
       <div className="sidebar-brand">
-        <h1 aria-label="Kiro"><span aria-hidden="true">{'  _  ___\n | |/ (_)_ _ ___\n | \' <| | \'_/ _ \\\n |_|\\_\\_|_| \\___/'}</span></h1>
-        <div className="version">gateway v1.0.8</div>
+        <h1 aria-label="Harbangan"><span aria-hidden="true">{'  ╔◈╗   ╔◈╗\n  ║ ║   ║ ║\n  ╠═╩═◈═╩═╣\n  ║ │   │ ║\n  ╚═╧═◈═╧═╝\n HARBANGAN'}</span></h1>
+        <div className="version">v1.0.8</div>
       </div>
       <div className="sidebar-nav">
         <NavLink to="/profile" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={onClose}>

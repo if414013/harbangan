@@ -46,10 +46,10 @@ export function Login() {
       <div className="auth-card">
         <div className="auth-logo">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--bg)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+            <path d="M6 2v20"/><path d="M18 2v20"/><path d="M6 2h12"/><path d="M6 22h12"/><path d="M12 8l2.5 2.5-2.5 2.5-2.5-2.5z"/>
           </svg>
         </div>
-        <h2><span aria-hidden="true">{'> '}</span>KIRO GATEWAY<span className="cursor" aria-hidden="true" /></h2>
+        <h2><span aria-hidden="true">{'> '}</span>HARBANGAN<span className="cursor" aria-hidden="true" /></h2>
         <p>sign in to continue</p>
 
         {error && (
