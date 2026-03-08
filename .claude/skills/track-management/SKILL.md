@@ -1,6 +1,6 @@
 ---
 name: track-management
-description: Reference guide for creating, managing, and completing Conductor tracks — the logical work units for features, bugs, and refactors.
+description: Reference guide for creating, managing, and completing Conductor tracks — the logical work units for features, bugs, and refactors. Use when user asks 'how do tracks work', 'track lifecycle', 'what status markers mean', or 'track sizing guidelines'. Do NOT use to take action on tracks (use conductor-manage).
 ---
 
 # Track Management Reference

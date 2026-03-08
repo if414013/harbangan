@@ -1,6 +1,6 @@
 ---
 name: conductor-setup
-description: Initialize or update conductor project artifacts.
+description: Initialize or update conductor project artifacts. Use when user says 'set up conductor', 'initialize project', 'add a new service', 'refresh tech stack', or 'first time setup'. Do NOT use for creating tracks (use conductor-new-track).
 argument-hint: "[--refresh] [--add-service name] [--resume]"
 allowed-tools:
   - Bash
@@ -15,6 +15,13 @@ allowed-tools:
 # Conductor Setup
 
 Initialize or update the conductor orchestration layer for the rkgw Gateway project.
+
+## Critical Constraints
+
+- **Ask ONE question per turn** — never batch multiple questions together; use AskUserQuestion and wait for the response before asking the next
+- **Never overwrite existing artifacts without confirmation** — if `conductor/` already exists during Full Init, ask before overwriting or switch to Refresh mode
+- **Resume from setup_state.json if it exists** — check `conductor/setup_state.json` first and continue from where a previous setup left off
+- **Never delete existing track data** — no mode (init, refresh, add-service) should remove track information
 
 ## Modes
 

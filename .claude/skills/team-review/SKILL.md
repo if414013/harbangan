@@ -1,6 +1,6 @@
 ---
 name: team-review
-description: "Launch a multi-reviewer parallel code review organized by quality dimensions (Security, Performance, Architecture, Testing, Accessibility)"
+description: Launch a multi-reviewer parallel code review organized by quality dimensions (Security, Performance, Architecture, Testing, Accessibility). Use when user says 'review this code', 'security review', 'review my PR', 'code quality check', or 'architecture review'.
 argument-hint: "<target> [--reviewers security,performance,architecture,testing,accessibility] [--base-branch main]"
 allowed-tools:
   - Bash
@@ -17,6 +17,13 @@ allowed-tools:
 Orchestrate a multi-reviewer parallel code review where each reviewer focuses on a specific quality dimension. Produces a consolidated, deduplicated report organized by severity.
 
 Refer to `references/review-dimensions.md` for detailed per-dimension checklists.
+
+## Critical Constraints
+
+- **Agent teams required** — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` must be set
+- **Report only** — never auto-fix findings; reviewers report issues but do not modify code
+- **Deduplicate findings** — merge identical findings across reviewers (same file:line, same issue) into a single entry crediting all dimensions
+- **Clean up after completion** — shut down all reviewer agents after the consolidated report is produced
 
 ---
 

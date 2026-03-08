@@ -1,6 +1,6 @@
 ---
 name: team-coordination
-description: Reference guide for team composition patterns, file ownership rules, communication protocols, task coordination, and parallel development strategies.
+description: Reference guide for team composition patterns, file ownership rules, communication protocols, task coordination, and parallel development strategies. Use when user asks about 'file ownership rules', 'team communication', 'how to coordinate agents', or 'team sizing'.
 ---
 
 # Team Coordination Reference

@@ -1,6 +1,6 @@
 ---
 name: conductor-revert
-description: Git-aware undo for track changes. Reverts tasks, phases, or entire tracks safely.
+description: Git-aware undo for track changes. Reverts tasks, phases, or entire tracks safely. Use when user says 'undo task changes', 'revert phase', 'roll back track', or 'preview revert'. Do NOT use for pausing, archiving, or completing tracks (use conductor-manage).
 argument-hint: "<track-id> [--task N.M] [--phase N] [--preview]"
 allowed-tools:
   - Bash
@@ -14,6 +14,14 @@ allowed-tools:
 # Conductor Revert
 
 Safely revert code changes made during track implementation. Uses `git revert` (never `git reset --hard`) to preserve history.
+
+## Critical Constraints
+
+- **Always use `git revert --no-edit`** — never use `git reset --hard`, `git push --force`, or any other destructive git operation
+- **Preserve git history** — all reverts must create new commits that undo changes, never rewrite history
+- **Preview mode (`--preview`) must not make any changes** — only display what would be reverted without executing
+- **Ask for confirmation before executing reverts** — always confirm with the user before running any `git revert` commands
+- **Never force-resolve conflicts** — if a revert causes a merge conflict, report it and ask the user to resolve, abort, or skip
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: conductor-status
-description: Display project status — active tracks, progress, and active teams.
+description: Display project status — active tracks, progress, and active teams. Use when user says 'show progress', 'what is the status', 'how far along', 'list active tracks', or 'project overview'. Do NOT use for checking individual agent status (use team-status).
 argument-hint: "[track-id] [--tracks] [--teams] [--full]"
 allowed-tools:
   - Bash
@@ -12,6 +12,11 @@ allowed-tools:
 # Conductor Status
 
 Display the current status of the rkgw Gateway conductor orchestration layer. Shows active tracks, implementation progress, and active agent teams.
+
+## Critical Constraints
+
+- **Read-only** — this skill never modifies any files; it only reads and displays information
+- **Fail gracefully if conductor/ directory doesn't exist** — if conductor is not initialized, suggest running `conductor-setup` instead of erroring out
 
 ---
 

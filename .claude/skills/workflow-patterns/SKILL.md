@@ -1,6 +1,6 @@
 ---
 name: workflow-patterns
-description: Reference guide for implementing tasks according to Conductor's TDD workflow, handling phase checkpoints, managing git commits, and understanding the verification protocol.
+description: Reference guide for implementing tasks according to Conductor's TDD workflow, handling phase checkpoints, managing git commits, and understanding the verification protocol. Use when user asks about 'TDD policy', 'phase checkpoints', 'git commit format', 'quality gates', or 'task lifecycle'.
 ---
 
 # Workflow Patterns Reference

@@ -1,6 +1,6 @@
 ---
 name: team-debug
-description: ACH-based debugging — spawns domain investigators to evaluate competing hypotheses across the rkgw stack using formal evidence standards and arbitration.
+description: ACH-based debugging — spawns domain investigators to evaluate competing hypotheses across the rkgw stack using formal evidence standards and arbitration. Use when user says 'debug this error', 'why is this failing', 'investigate bug', 'root cause analysis', or 'something is broken'.
 argument-hint: "[error-description] [--scope path] [--hypotheses count]"
 allowed-tools:
   - Bash
@@ -17,6 +17,13 @@ allowed-tools:
 Structured debugging methodology that spawns multiple AI investigators to evaluate competing hypotheses in parallel. Based on the ACH (Analysis of Competing Hypotheses) framework, adapted for the rkgw Gateway stack.
 
 See `references/hypothesis-testing.md` for templates, decision trees, and rkgw-specific examples.
+
+## Critical Constraints
+
+- **Agent teams required** — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` must be set
+- **Read-only investigators** — investigators must not modify code; their sole job is to collect evidence and report verdicts
+- **Formal evidence standards** — all evidence must be classified by type (Direct, Correlational, Testimonial, Absence) with file:line citations
+- **Report only** — never auto-fix the root cause; present findings, causal chain, and suggested fix in the debug report
 
 ---
 

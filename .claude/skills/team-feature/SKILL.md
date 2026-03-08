@@ -1,6 +1,6 @@
 ---
 name: team-feature
-description: Coordinated parallel feature development with automated team spawning, task decomposition, and integration verification. Dynamically adapts to any project stack via conductor context.
+description: Coordinated parallel feature development with automated team spawning, task decomposition, and integration verification. Dynamically adapts to any project stack via conductor context. Use when user says 'build this feature end to end', 'coordinate frontend and backend', or 'full feature development'. Do NOT use for executing tasks from an existing track plan (use conductor-implement).
 argument-hint: "[feature-description] [--preset name] [--plan-first]"
 allowed-tools:
   - Bash
@@ -16,6 +16,13 @@ allowed-tools:
 
 Coordinated parallel feature development. All service detection, agent mapping, and verification commands are loaded dynamically from project configuration.
 
+## Critical Constraints
+
+- **Agent teams required** — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` must be set
+- **Dynamic service detection** — load service categories, agent mappings, and verification commands from conductor context (`conductor/tech-stack.md` and `.claude/agents/*.md`); never hardcode service names or agent roles
+- **One owner per file** — no file may be assigned to multiple agents
+- **Cross-service contract verification** — verify that both sides of every interface contract are implemented before reporting success
+
 ---
 
 ## Step 1: Load Project Context
@@ -30,6 +37,8 @@ Read project configuration to build service detection and verification maps:
 2. **Read `.claude/agents/*.md`** frontmatter to build agent registry:
    - Map each agent's description keywords to the service categories from tech-stack.md
    - Result: a `service-to-agent` map (e.g., Backend -> agent whose description matches backend technologies)
+
+   > **If no matching agent is found for a detected service:** Warn the user (e.g., "No agent definition matches the '{service}' service. You can manually assign an agent or spawn a general-purpose agent for this service.") and suggest manual assignment. Continue building the map for the remaining services.
 
 3. **Build keyword detection table** from tech-stack.md. For each service category, extract:
    - Technology names (e.g., "Axum", "React", "nginx")
@@ -53,6 +62,8 @@ For each service category from tech-stack.md:
 - Determine which services are affected
 
 Map affected services to agents using the service-to-agent map from Step 1.
+
+> **If no services are detected from the feature description:** Ask the user to specify which services are involved (e.g., "I couldn't detect which services this feature affects. Please specify: Backend, Frontend, Infrastructure, or a combination."). Do not proceed with team spawning until at least one service is confirmed.
 
 Also detect if testing agents are needed:
 - Look for test-related keywords in the feature description
@@ -107,6 +118,8 @@ Wave execution:
 - Start Wave 3 agents after feature code is substantially complete
 - Start Wave 4 agents after implementation is stable
 
+> **If an agent fails mid-task during work stream execution:** Report the failure to the user, including the agent name, error output, and which work stream was affected. Collect any partial results the agent produced (files created/modified, tests written). Then ask the user how to proceed: retry the failed agent, reassign the work stream to another agent, or continue with the remaining work streams and address the gap manually.
+
 ## Step 7: Integration Verification
 
 Run verification commands dynamically based on the verification command map built in Step 1.
@@ -119,6 +132,8 @@ For each service in affected_services:
 ```
 
 If no commands were found in tech-stack.md for a service, skip verification for that service and note it in the report.
+
+> **If verification commands fail (non-zero exit from lint, build, or test):** Report which specific checks failed, include the command output (stderr/stdout), and ask the user whether to fix the issues before completing or proceed despite the failures. Do not mark the feature as COMPLETE if any verification check has failed — use status NEEDS_ATTENTION in the final report.
 
 ### Cross-Service Contract Validation
 

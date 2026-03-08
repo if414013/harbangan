@@ -1,6 +1,6 @@
 ---
 name: conductor-manage
-description: Manage track lifecycle — complete, archive, pause, resume, or delete tracks.
+description: Manage track lifecycle — complete, archive, pause, resume, or delete tracks. Use when user says 'complete track', 'archive track', 'pause work', 'resume track', 'delete track', or 'rename track'. Do NOT use for reverting git changes (use conductor-revert).
 argument-hint: "<track-id> [--action complete|archive|restore|pause|resume|rename|delete|cleanup]"
 allowed-tools:
   - Bash
@@ -14,6 +14,13 @@ allowed-tools:
 # Conductor Manage
 
 Manage the lifecycle of development tracks. Supports completing, archiving, restoring, pausing, resuming, renaming, deleting, and cleaning up tracks.
+
+## Critical Constraints
+
+- **Validate status transitions** — enforce the allowed-actions table (e.g., cannot complete a paused track without resuming first; cannot archive an in-progress track)
+- **Complete action requires all tasks checked** — verify all tasks are `[x]` or `[-]` in `plan.md` before allowing completion; warn if incomplete tasks remain
+- **Never use destructive git operations** — never delete git commits, force-push, or reset; track deletion removes conductor artifacts only, not git history
+- **Delete and rename require explicit confirmation** — always ask the user before executing these irreversible actions
 
 ---
 

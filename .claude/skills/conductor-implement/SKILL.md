@@ -1,6 +1,6 @@
 ---
 name: conductor-implement
-description: Execute tasks from a track's plan with flexible TDD and optional team delegation.
+description: Execute tasks from a track's plan with flexible TDD and optional team delegation. Use when user says 'start working on track', 'implement next task', 'begin phase', 'pick up where I left off', or 'delegate task'. Do NOT use for building features from scratch without a track (use team-feature).
 argument-hint: "<track-id> [--phase N] [--task N.M] [--delegate]"
 allowed-tools:
   - Bash
@@ -16,6 +16,15 @@ allowed-tools:
 # Conductor Implement
 
 Execute implementation tasks from a track's phased plan. Supports direct execution (self) or delegation to specialized agents. Handles TDD policy, verification, commits, and status tracking.
+
+## Critical Constraints
+
+- **Never auto-commit** — always suggest a commit message and wait for explicit user approval before committing
+- **Phase gates** — STOP and wait for explicit user approval between phases; this approval gate is mandatory
+- **Branch required** — refuse to execute if on the `main` branch; create or switch to the track's feature branch first
+- **One question per turn** — never batch multiple questions together
+- **Mark tasks `[~]` when starting, `[x]` when done** — if implementation fails, revert the marker from `[~]` back to `[ ]`
+- **Never force-push or reset** — only additive git operations; never use `git reset --hard` or `git push --force`
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: conductor-new-track
-description: Create a new development track with spec, phased plan, and metadata. Auto-detects affected rkgw services and suggests team preset.
+description: Create a new development track with spec, phased plan, and metadata. Auto-detects affected rkgw services and suggests team preset. Use when user says 'new feature', 'plan a bug fix', 'create a track', 'start a refactor', or 'I want to build X'.
 argument-hint: "<title> [--type feature|bug|refactor|chore]"
 allowed-tools:
   - Bash
@@ -15,6 +15,14 @@ allowed-tools:
 # Conductor New Track
 
 Create a new development track with a specification, phased implementation plan, and metadata. Automatically detects which rkgw services are affected and suggests the appropriate team preset.
+
+## Critical Constraints
+
+- **Ask ONE question per turn** — never batch multiple questions together; use AskUserQuestion for each, wait for the response, then proceed to the next
+- **Auto-detect services but always confirm with user** — present detected services and allow additions/removals before proceeding
+- **Check for duplicate/colliding track IDs** — scan `conductor/tracks.md` for similar titles and existing IDs; warn on fuzzy matches and handle ID collisions with numeric suffixes
+- **Never skip spec creation** — the spec review gate is mandatory; always present the generated spec to the user for approval before generating the plan
+- **Conductor must be initialized** — if `conductor/setup_state.json` does not exist or is incomplete, direct the user to run `conductor-setup` first and stop
 
 ---
 

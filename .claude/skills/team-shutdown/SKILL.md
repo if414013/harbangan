@@ -1,6 +1,6 @@
 ---
 name: team-shutdown
-description: Gracefully terminate an agent team and clean up its configuration.
+description: Gracefully terminate an agent team and clean up its configuration. Use when user says 'shut down team', 'stop all agents', 'clean up team', 'terminate agents', or 'kill the team'.
 argument-hint: "[team-name] [--force] [--keep-config]"
 allowed-tools:
   - Bash
@@ -12,6 +12,12 @@ allowed-tools:
 # Team Shutdown
 
 Gracefully terminate an agent team and clean up its configuration.
+
+## Critical Constraints
+
+- **Ordered shutdown** — terminate worker agents (engineers, QA, document-writer) first, scrum-master last
+- **Confirm before proceeding** — show team status and ask for user confirmation unless `--force` is provided
+- **Clean up team config** — remove `~/.claude/teams/{team-name}/` and `~/.claude/tasks/{team-name}/` after shutdown (unless `--keep-config`)
 
 ---
 

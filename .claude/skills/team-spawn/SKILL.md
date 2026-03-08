@@ -1,6 +1,6 @@
 ---
 name: team-spawn
-description: Initialize agent teams from presets or custom composition. Dynamically loads agent definitions and service mappings from project configuration.
+description: Initialize agent teams from presets or custom composition. Dynamically loads agent definitions and service mappings from project configuration. Use when user says 'spin up a team', 'create agents', 'need a fullstack team', 'start backend team', or 'spawn agents'.
 argument-hint: "[preset] [--delegate]"
 allowed-tools:
   - Bash
@@ -14,6 +14,13 @@ allowed-tools:
 
 Initialize agent teams from presets or custom composition. Agent definitions and service mappings are loaded dynamically from project configuration — no hardcoded agent names or colors.
 
+## Critical Constraints
+
+- **Agent teams required** — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` must be set
+- **Dynamic agent loading** — load agent definitions from `.claude/agents/*.md` at runtime; never hardcode agent names, roles, or colors
+- **Background spawning** — spawn all agents with `run_in_background: true`
+- **Persist team config** — save team config to `~/.claude/teams/{team-name}/config.json` after spawning
+
 ---
 
 ## Step 1: Load Project Context
@@ -24,6 +31,8 @@ Read the following files to build the agent registry and service map:
    - `name` — agent identifier
    - `description` — role summary (first sentence is the short role)
    - `model` — model override (if any)
+
+   > **If an agent .md file is not found or its YAML frontmatter cannot be parsed:** Skip that agent, warn the user (e.g., "Skipping agent '{filename}': unable to parse definition"), and continue loading the remaining agent files. The team can still be spawned with the successfully loaded agents.
 
 2. **Tech stack** — Read `conductor/tech-stack.md` to identify:
    - Service categories (e.g., Backend, Frontend, Infrastructure)
@@ -69,6 +78,8 @@ Presets reference agents by **role keywords**, not hardcoded names. Match each r
 - "documentation" — agent whose description contains "documentation", "docs", or "writing"
 
 ### Custom Composition
+
+> **If the preset name is not recognized:** List all available presets (from the table above) and the available agents from the registry, then ask the user to choose a valid preset or specify agents by name.
 
 If no preset matches, or user specifies agent names directly, use those. If no preset or agent list is provided, prompt:
 
@@ -131,6 +142,8 @@ Format: `{preset-or-custom}-{short-id}` (4 random alphanumeric chars).
 cat /dev/urandom | LC_ALL=C tr -dc 'a-z0-9' | head -c4
 ```
 
+> **If the generated team name collides with an existing team** (i.e., `~/.claude/teams/{team-name}/` already exists): Append a random 4-character suffix and retry. If the collision persists after 3 attempts, prompt the user for a custom team name.
+
 ## Step 4: Spawn Agents
 
 For each agent in the resolved composition, spawn using the registry data:
@@ -153,6 +166,8 @@ For generic presets (research, security, migration) where agents are not from de
 - migration: `agent-teams:team-lead`, `agent-teams:team-implementer`, `agent-teams:team-reviewer`
 
 Run each spawn command with `run_in_background: true`.
+
+> **If an agent spawn command fails (non-zero exit):** Retry the spawn once. If it still fails, report the error (including the agent name and exit code), mark that agent as `"status": "failed"` in the team config, and continue spawning the remaining agents. Do not abort the entire team spawn due to a single agent failure.
 
 ## Step 5: Register Team
 

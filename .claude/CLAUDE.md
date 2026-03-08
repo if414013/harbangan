@@ -7,13 +7,14 @@ This directory contains the multi-agent workflow system for the rkgw Gateway. Se
 ```
 .claude/
 ├── settings.local.json          # Plugin toggles, MCP servers, env vars
-├── agents/                      # 7 agent definitions (domain-specific AI roles)
+├── agents/                      # 8 agent definitions (domain-specific AI roles)
 │   ├── scrum-master.md          # Workflow coordinator (orchestrates all agents)
 │   ├── rust-backend-engineer.md # Axum/Tokio backend (converters, auth, streaming)
 │   ├── react-frontend-engineer.md # React 19 web UI (pages, SSE, CRT aesthetic)
 │   ├── devops-engineer.md       # Docker, nginx, deployment, certs
 │   ├── backend-qa.md            # Rust unit/integration tests
 │   ├── frontend-qa.md           # Playwright E2E tests
+│   ├── conductor-validator.md   # Conductor artifact auditor (read-only)
 │   └── document-writer.md       # Notion, Slack, documentation
 ├── skills/                      # 16 invocable skills (/skill-name)
 │   ├── conductor-*/             # 6 project management skills (tracks, plans, status)
