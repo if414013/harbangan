@@ -151,6 +151,43 @@ Phase 1: Shared infrastructure (horizontal). Phase 2: Feature slices (vertical).
 
 ---
 
+## 7. Agent Health & Respawn Protocols
+
+### Context Exhaustion
+
+Agents hit context window limits after processing many files/tasks. Symptoms:
+- Repeated `idle_notification` messages with no task progress
+- Process is running but agent does not respond to messages
+- No file modifications despite having in_progress tasks
+
+**Detection heuristic**: 3+ consecutive idle notifications + in_progress task + no file edits between them = context-exhausted.
+
+### Respawn Protocol
+
+When an agent is detected as context-exhausted:
+
+1. Check `git log --oneline -20` for the agent's completed work
+2. Note all in_progress and pending tasks from TaskList
+3. Kill the agent process
+4. Respawn via `/team-spawn --respawn-for {agent-name}` (reuses same name for ownership continuity)
+5. New agent receives a handoff summary with completed commits and remaining tasks
+6. Task ownership transfers automatically — no manual TaskUpdate needed
+
+### Prevention
+
+- **Limit task density** — max 4-5 subtasks per agent per wave. Split larger phases into sub-waves (1a, 1b) with respawn checkpoints between them.
+- **Prefer many small tasks** over few large tasks. A phase with 7+ subtasks across many files will exhaust an agent's context before it can move to the next phase.
+- **Proactive respawn** — after each phase completion, consider respawning the agent with a fresh context rather than waiting for exhaustion.
+
+### Lazy Spawning
+
+Only spawn agents when their tasks become unblocked:
+- Wave 1 agents spawn immediately
+- Wave 2+ agents are recorded as `deferred_agents` in team config and spawned when dependencies resolve
+- This prevents 15+ minutes of idle resource consumption for blocked agents
+
+---
+
 ## References
 
 - [Messaging Patterns](references/messaging-patterns.md) — 8 structured message templates for inter-agent communication (task assignment, blocker reports, review findings, etc.)

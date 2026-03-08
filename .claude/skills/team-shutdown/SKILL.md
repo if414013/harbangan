@@ -46,6 +46,16 @@ Handle non-responsive agents (retry, force, skip).
 
 ## Step 4: Cleanup Configuration
 
+### Dead Member Cleanup (before full shutdown)
+
+Before removing the team config directory, clean up ghost entries:
+
+1. Read `~/.claude/teams/{team-name}/config.json`
+2. For each agent in the `agents` array:
+   - Check if the agent process is running: `ps aux | grep "claude.*{agent-name}.*{team-name}" | grep -v grep`
+   - If not running and status is not `"replaced"`, set status to `"exited"`
+3. This ensures the final config snapshot (if `--keep-config`) accurately reflects reality
+
 ### Team Config
 Unless `--keep-config`:
 ```bash

@@ -96,10 +96,38 @@ Break into parallel work streams, one per agent. Rules:
    - API endpoints / function signatures that both sides must agree on
    - Data types / schemas shared across the boundary
    - Event formats (if services communicate via events/streams)
+4. **Task sizing for context limits** — no single agent should be assigned more than 4-5 subtasks in a single wave. If a wave has more subtasks for one agent, split into sub-waves (e.g., Wave 1a, Wave 1b) so the agent can be respawned between sub-waves if needed. Large phases (7+ subtasks across many files) are the primary cause of context exhaustion.
 
-## Step 5: Spawn Team
+## Step 5: Spawn Team (Lazy, Per-Wave)
 
-Use `/team-spawn` with the selected preset. Agent names and colors are resolved dynamically by team-spawn from the agent registry — do not hardcode them here.
+Spawn agents incrementally by wave, not all at once:
+
+### 5.1 — Spawn Wave 1 agents immediately
+Use `/team-spawn` with only the Wave 1 agents (core/backend agents whose tasks have no dependencies). Pass agent names explicitly rather than a full preset:
+```
+/team-spawn {wave1-agent1}, {wave1-agent2}
+```
+
+### 5.2 — Defer Wave 2+ agents
+Do NOT spawn Wave 2, 3, or 4 agents yet. Record their planned composition in the team config under a `"deferred_agents"` array:
+```json
+{
+  "deferred_agents": [
+    { "name": "{agent}", "wave": 2, "trigger": "Wave 1 APIs ready" },
+    { "name": "{agent}", "wave": 3, "trigger": "Feature code complete" }
+  ]
+}
+```
+
+### 5.3 — Spawn deferred agents when unblocked
+When a wave completes (all its tasks marked done), spawn the next wave's agents:
+1. Read `deferred_agents` from team config
+2. Filter for agents whose wave number matches the next wave
+3. Spawn those agents via the same mechanism as Step 4 in team-spawn
+4. Move them from `deferred_agents` to `agents` in the config
+5. Send them their assignments immediately after spawn
+
+This avoids 15+ minutes of idle resource consumption for blocked agents.
 
 ## Step 6: Assign Work Streams
 
@@ -113,12 +141,27 @@ Send each agent their assignment via `SendMessage`. Include in each assignment:
 6. **Acceptance criteria** — how to verify this work stream is complete
 
 Wave execution:
-- Start Wave 1 agents immediately
-- Start Wave 2 agents after Wave 1 APIs/contracts are ready
-- Start Wave 3 agents after feature code is substantially complete
-- Start Wave 4 agents after implementation is stable
+- Wave 1: Already spawned and assigned in Step 5.1
+- Wave 2: Spawn agents (from deferred list) when Wave 1 tasks are complete, then assign
+- Wave 3: Spawn agents when feature code is substantially complete, then assign
+- Wave 4: Spawn agents when implementation is stable, then assign
+- Between waves: run `/team-status` to verify previous wave completion before spawning next
 
 > **If an agent fails mid-task during work stream execution:** Report the failure to the user, including the agent name, error output, and which work stream was affected. Collect any partial results the agent produced (files created/modified, tests written). Then ask the user how to proceed: retry the failed agent, reassign the work stream to another agent, or continue with the remaining work streams and address the gap manually.
+
+### Agent Health Monitoring Loop
+
+After assigning Wave 1, enter a monitoring cycle:
+
+1. Every time an agent sends an `idle_notification`, increment that agent's idle counter
+2. If an agent sends a task completion message or a teammate DM, reset its idle counter to 0
+3. If an agent's idle counter reaches 3 while it has an in_progress task:
+   a. Log: `"{agent-name} appears context-exhausted after {N} tasks"`
+   b. Check `git log` for the agent's recent commits to assess progress
+   c. If the agent made meaningful progress, initiate the Respawn Protocol (`/team-spawn --respawn-for {agent-name}`)
+   d. If no progress, send one final explicit message with the exact task description
+   e. If still idle after that message, initiate Respawn Protocol
+4. Continue monitoring until all waves complete
 
 ## Step 7: Integration Verification
 
