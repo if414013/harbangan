@@ -8,7 +8,15 @@ import { useToast } from '../components/Toast'
 import { getProvidersStatus, getProviderConnectUrl, disconnectProvider } from '../lib/api'
 import type { ProvidersStatusResponse } from '../lib/api'
 
-const PROVIDERS = ['anthropic', 'gemini', 'openai'] as const
+const PROVIDERS = ['anthropic', 'gemini', 'openai_codex'] as const
+
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  openai_codex: 'OpenAI Codex',
+}
+
+function providerDisplayName(id: string): string {
+  return PROVIDER_DISPLAY_NAMES[id] ?? id.charAt(0).toUpperCase() + id.slice(1)
+}
 
 const RELAY_TIMEOUT_MS = 10 * 60 * 1000
 
@@ -146,7 +154,7 @@ function ProviderCard({ provider, connected, email, onRefresh }: ProviderCardPro
     <>
       <div className="card provider-card">
         <div className="card-header">
-          <span className="card-title">{'> '}{provider.charAt(0).toUpperCase() + provider.slice(1)}</span>
+          <span className="card-title">{'> '}{providerDisplayName(provider)}</span>
           {connected ? (
             <span className="tag-ok">CONNECTED</span>
           ) : (
@@ -284,7 +292,7 @@ export function Profile() {
         {PROVIDERS.map((p, i) => {
           const info = providerStatus?.providers[p]
           return (
-            <TreeNode key={p} label={p} last={i === PROVIDERS.length - 1}>
+            <TreeNode key={p} label={providerDisplayName(p)} last={i === PROVIDERS.length - 1}>
               <ProviderCard
                 provider={p}
                 connected={info?.connected ?? false}
