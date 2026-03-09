@@ -1,0 +1,20 @@
+{
+  "id": "model-registry-refactor_20260309",
+  "title": "Model Registry Refactor",
+  "type": "refactor",
+  "status": "planned",
+  "preset": "fullstack",
+  "services": ["backend", "frontend", "backend-qa", "frontend-qa"],
+  "agents": ["scrum-master", "rust-backend-engineer", "react-frontend-engineer", "frontend-qa"],
+  "branch": "refactor/model-registry-refactor",
+  "dependency": "rename-openai-provider_20260309",
+  "created_at": "2026-03-09T20:30:00.000Z",
+  "updated_at": "2026-03-09T20:30:00.000Z",
+  "phases": {
+    "1": { "name": "Foundation", "status": "pending", "tasks_total": 6, "tasks_done": 0 },
+    "2": { "name": "Backend — Routing + Handlers", "status": "pending", "tasks_total": 8, "tasks_done": 0, "parallel_with": "3" },
+    "3": { "name": "Frontend — Models Admin Page", "status": "pending", "tasks_total": 4, "tasks_done": 0, "parallel_with": "2" },
+    "4": { "name": "Integration QA", "status": "pending", "tasks_total": 3, "tasks_done": 0 }
+  },
+  "commits": []
+}

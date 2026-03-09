@@ -8,6 +8,7 @@
 | completed | rename-harbangan_20260308 | Rename rkgw → Harbangan | 2026-03-08 | 2026-03-09 |
 | completed | copilot-device-code_20260308 | Switch Copilot OAuth to Device Code Flow | 2026-03-08 | 2026-03-08 |
 | planned | rename-openai-provider_20260309 | Rename OpenAI Provider to OpenAI Codex | 2026-03-09 | 2026-03-09 |
+| planned | model-registry-refactor_20260309 | Model Registry Refactor | 2026-03-09 | 2026-03-09 |
 
 <!-- Tracks registered by /conductor:new-track -->
 
