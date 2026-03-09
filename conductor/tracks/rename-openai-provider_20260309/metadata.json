@@ -1,0 +1,20 @@
+{
+  "id": "rename-openai-provider_20260309",
+  "title": "Rename OpenAI Provider to OpenAI Codex",
+  "type": "refactor",
+  "status": "planned",
+  "preset": "fullstack",
+  "services": ["backend", "frontend"],
+  "agents": ["rust-backend-engineer", "react-frontend-engineer"],
+  "branch": "refactor/rename-openai-provider",
+  "created_at": "2026-03-09T06:55:00.000Z",
+  "updated_at": "2026-03-09T06:55:00.000Z",
+  "phases": {
+    "1": { "name": "Backend — Types & Provider Module", "status": "pending", "tasks_total": 3, "tasks_done": 0 },
+    "2": { "name": "Frontend", "status": "pending", "tasks_total": 1, "tasks_done": 0 },
+    "3": { "name": "Backend — OAuth, Priority & DB Migration", "status": "pending", "tasks_total": 4, "tasks_done": 0 },
+    "4": { "name": "Backend Verification", "status": "pending", "tasks_total": 1, "tasks_done": 0 },
+    "5": { "name": "Integration Verification", "status": "pending", "tasks_total": 1, "tasks_done": 0 }
+  },
+  "commits": []
+}

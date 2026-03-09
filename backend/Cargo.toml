@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Jwadow"]
 license = "AGPL-3.0"
 description = "Proxy gateway for Kiro API - OpenAI and Anthropic compatible"
-repository = "https://github.com/jwadow/kiro-gateway"
+repository = "https://github.com/if414013/harbangan"
 readme = "README.md"
 
 [features]
