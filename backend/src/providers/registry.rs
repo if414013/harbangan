@@ -46,6 +46,18 @@ impl ProviderRegistry {
         }
     }
 
+    /// Parse a prefixed model ID like `"anthropic/claude-opus-4-6"` into (ProviderId, model_id).
+    ///
+    /// Returns `None` if the model string has no `/` prefix or the provider is unknown.
+    pub fn parse_prefixed_model(model: &str) -> Option<(ProviderId, String)> {
+        let (prefix, model_id) = model.split_once('/')?;
+        if model_id.is_empty() {
+            return None;
+        }
+        let provider: ProviderId = prefix.parse().ok()?;
+        Some((provider, model_id.to_string()))
+    }
+
     /// Infer the preferred direct provider for a model name based on prefix conventions.
     ///
     /// Returns `None` when the model should go through Kiro.
@@ -222,9 +234,17 @@ impl ProviderRegistry {
         let Some(uid) = user_id else {
             return (ProviderId::Kiro, None);
         };
-        let Some(native) = Self::provider_for_model(model) else {
+
+        // Try explicit prefix first (e.g. "anthropic/claude-opus-4-6")
+        let (native, actual_model) = if let Some((provider, _model_id)) = Self::parse_prefixed_model(model) {
+            (provider, model)
+        } else if let Some(provider) = Self::provider_for_model(model) {
+            (provider, model)
+        } else {
             return (ProviderId::Kiro, None);
         };
+        // actual_model is used for logging context only; routing uses `native`
+        let _ = actual_model;
 
         // Cache hit?
         if let Some(entry) = self.cache.get(&uid) {

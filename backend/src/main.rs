@@ -158,7 +158,12 @@ async fn main() -> Result<()> {
 
     // ── Model cache ─────────────────────────────────────────────────
     tracing::info!("Initializing model cache...");
-    let model_cache = cache::ModelCache::new(3600); // 1 hour TTL
+    let mut model_cache = cache::ModelCache::new(3600); // 1 hour TTL
+
+    // Wire DB reference for registry-backed lookups
+    if let Some(ref db) = config_db {
+        model_cache.set_db(Arc::clone(db));
+    }
 
     // Load models from Kiro API at startup (proxy-only or setup complete)
     if setup_complete_flag {
@@ -195,6 +200,48 @@ async fn main() -> Result<()> {
 
     // Add hidden models to cache
     add_hidden_models(&model_cache);
+
+    // ── Model registry population ────────────────────────────────
+    // Populate static models into the DB for each direct provider,
+    // then load enabled models into the in-memory registry cache.
+    if !is_proxy_only {
+        if let Some(ref db) = config_db {
+            let providers = ["anthropic", "openai_codex", "gemini", "qwen"];
+            for provider_id in &providers {
+                match web_ui::model_registry::populate_provider(
+                    provider_id,
+                    db,
+                    &http_client,
+                    None, // No auth_manager needed for static-only providers
+                )
+                .await
+                {
+                    Ok(count) => {
+                        if count > 0 {
+                            tracing::info!(provider = provider_id, count, "Populated model registry");
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            provider = provider_id,
+                            error = %e,
+                            "Failed to populate model registry"
+                        );
+                    }
+                }
+            }
+
+            // Load enabled registry models into in-memory cache
+            match model_cache.load_from_registry().await {
+                Ok(count) => {
+                    tracing::info!(count, "Loaded registry models into cache");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to load registry models into cache");
+                }
+            }
+        }
+    }
 
     let resolver =
         resolver::ModelResolver::new(model_cache.clone(), std::collections::HashMap::new());

@@ -387,3 +387,65 @@ export function reconnectMcpClient(id: string) {
 export function getMcpClientTools(id: string) {
   return apiFetch<McpTool[]>(`/admin/mcp/client/${id}/tools`)
 }
+
+// --- Model Registry Types ---
+
+export interface RegistryModel {
+  id: string
+  provider_id: string
+  model_id: string
+  display_name: string
+  prefixed_id: string
+  context_length: number
+  max_output_tokens: number
+  capabilities: Record<string, unknown>
+  enabled: boolean
+  source: string
+  upstream_meta: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ModelsListResponse {
+  models: RegistryModel[]
+  total: number
+}
+
+export interface UpdateModelResponse {
+  success: boolean
+  id: string
+}
+
+export interface PopulateResponse {
+  success: boolean
+  models_upserted: number
+}
+
+export interface DeleteModelResponse {
+  success: boolean
+  id: string
+}
+
+// --- Model Registry API ---
+
+export function getRegistryModels() {
+  return apiFetch<ModelsListResponse>('/admin/models')
+}
+
+export function updateModelEnabled(id: string, enabled: boolean) {
+  return apiFetch<UpdateModelResponse>(`/admin/models/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  })
+}
+
+export function deleteRegistryModel(id: string) {
+  return apiDelete(`/admin/models/${id}`)
+}
+
+export function populateModels(providerId?: string) {
+  return apiPost<PopulateResponse>('/admin/models/populate', {
+    provider_id: providerId ?? null,
+  })
+}

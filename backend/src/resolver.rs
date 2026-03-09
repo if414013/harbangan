@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::cache::ModelCache;
+use crate::providers::registry::ProviderRegistry;
 
 // Regex patterns for model name normalization
 static STANDARD_PATTERN: Lazy<Regex> = Lazy::new(|| {
@@ -82,9 +83,14 @@ pub fn extract_model_family(model_name: &str) -> Option<String> {
         .map(|m| m.as_str().to_string())
 }
 
-/// Model resolver with caching
+/// Model resolver for the Kiro provider pipeline only.
+///
+/// This resolver handles Claude model name normalization and resolution
+/// against the Kiro API's model cache. It should NOT be used for
+/// direct-provider models (OpenAI, Anthropic, Gemini, etc.) — those
+/// are routed via `ProviderRegistry` and the model registry DB.
 pub struct ModelResolver {
-    /// Model cache
+    /// Model cache (Kiro models)
     cache: ModelCache,
 
     /// Hidden models mapping (display name → internal ID)
@@ -100,13 +106,29 @@ impl ModelResolver {
         }
     }
 
-    /// Resolve a model name to the internal Kiro ID
+    /// Check if a model name should be routed through the Kiro pipeline.
     ///
-    /// Resolution pipeline:
-    /// 1. Normalize the name
-    /// 2. Check hidden models
-    /// 3. Check dynamic cache
-    /// 4. Pass-through (let Kiro decide)
+    /// Returns `false` for:
+    /// - Prefixed models (e.g. "anthropic/claude-opus-4-6")
+    /// - Models with a known direct-provider prefix (e.g. "gpt-5", "gemini-2.5-pro")
+    ///
+    /// Returns `true` for Claude models and unknown models that default to Kiro.
+    pub fn is_kiro_model(model: &str) -> bool {
+        // Explicit prefix → not Kiro
+        if ProviderRegistry::parse_prefixed_model(model).is_some() {
+            return false;
+        }
+        // Known direct-provider prefix → not Kiro
+        if ProviderRegistry::provider_for_model(model).is_some() {
+            return false;
+        }
+        // Everything else goes through Kiro (Claude models, "auto", unknown)
+        true
+    }
+
+    /// Resolve a model name to the internal Kiro ID.
+    ///
+    /// Only use this for models where `is_kiro_model()` returns true.
     pub fn resolve(&self, model_name: &str) -> ModelResolution {
         let normalized = normalize_model_name(model_name);
 

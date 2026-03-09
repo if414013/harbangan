@@ -3,18 +3,33 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::web_ui::config_db::{ConfigDb, RegistryModel};
+
 const DEFAULT_MAX_INPUT_TOKENS: i32 = 200_000;
 
-/// Thread-safe cache for storing model metadata
+/// Thread-safe cache for storing model metadata.
+///
+/// Supports two data sources:
+/// - Kiro API models (legacy `update()` path, keyed by internal modelId)
+/// - Model registry DB (new `load_from_registry()` path, keyed by prefixed_id)
 pub struct ModelCache {
-    /// Model data indexed by model ID
+    /// Kiro model data indexed by model ID (legacy)
     cache: Arc<DashMap<String, Value>>,
+
+    /// Registry models indexed by prefixed_id
+    registry_cache: Arc<DashMap<String, RegistryModel>>,
 
     /// Last update timestamp
     last_update: Arc<dashmap::DashMap<(), u64>>,
 
+    /// Last registry load timestamp
+    registry_last_update: Arc<dashmap::DashMap<(), u64>>,
+
     /// Cache TTL in seconds
     cache_ttl: u64,
+
+    /// Optional DB for registry-backed lookups
+    config_db: Option<Arc<ConfigDb>>,
 }
 
 impl ModelCache {
@@ -22,9 +37,31 @@ impl ModelCache {
     pub fn new(cache_ttl: u64) -> Self {
         Self {
             cache: Arc::new(DashMap::new()),
+            registry_cache: Arc::new(DashMap::new()),
             last_update: Arc::new(DashMap::new()),
+            registry_last_update: Arc::new(DashMap::new()),
             cache_ttl,
+            config_db: None,
         }
+    }
+
+    /// Create a model cache with a DB reference for registry-backed lookups.
+    #[allow(dead_code)]
+    pub fn with_db(cache_ttl: u64, db: Arc<ConfigDb>) -> Self {
+        Self {
+            cache: Arc::new(DashMap::new()),
+            registry_cache: Arc::new(DashMap::new()),
+            last_update: Arc::new(DashMap::new()),
+            registry_last_update: Arc::new(DashMap::new()),
+            cache_ttl,
+            config_db: Some(db),
+        }
+    }
+
+    /// Set the DB reference after construction.
+    #[allow(dead_code)]
+    pub fn set_db(&mut self, db: Arc<ConfigDb>) {
+        self.config_db = Some(db);
     }
 
     /// Update the cache with new model data
@@ -128,14 +165,83 @@ impl ModelCache {
             .map(|entry| entry.value().clone())
             .collect()
     }
+
+    // ── Registry-backed methods ──────────────────────────────
+
+    /// Load enabled models from the DB registry into the in-memory registry cache.
+    #[allow(dead_code)]
+    pub async fn load_from_registry(&self) -> Result<usize, anyhow::Error> {
+        let db = self
+            .config_db
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No config_db configured"))?;
+
+        let models = db.get_enabled_registry_models().await?;
+        let count = models.len();
+
+        self.registry_cache.clear();
+        for m in models {
+            self.registry_cache.insert(m.prefixed_id.clone(), m);
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        self.registry_last_update.insert((), now);
+
+        tracing::info!(count, "Loaded models from registry into cache");
+        Ok(count)
+    }
+
+    /// Check if a model exists in the registry cache (by prefixed_id).
+    #[allow(dead_code)]
+    pub fn is_registry_model(&self, prefixed_id: &str) -> bool {
+        self.registry_cache.contains_key(prefixed_id)
+    }
+
+    /// Get a registry model by prefixed_id.
+    #[allow(dead_code)]
+    pub fn get_registry_model(&self, prefixed_id: &str) -> Option<RegistryModel> {
+        self.registry_cache
+            .get(prefixed_id)
+            .map(|entry| entry.value().clone())
+    }
+
+    /// Get all enabled registry models.
+    #[allow(dead_code)]
+    pub fn get_all_registry_models(&self) -> Vec<RegistryModel> {
+        self.registry_cache
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    /// Check if the registry cache is stale.
+    #[allow(dead_code)]
+    pub fn is_registry_stale(&self) -> bool {
+        if let Some(entry) = self.registry_last_update.get(&()) {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let age = now - *entry.value();
+            age > self.cache_ttl
+        } else {
+            true
+        }
+    }
 }
 
 impl Clone for ModelCache {
     fn clone(&self) -> Self {
         Self {
             cache: Arc::clone(&self.cache),
+            registry_cache: Arc::clone(&self.registry_cache),
             last_update: Arc::clone(&self.last_update),
+            registry_last_update: Arc::clone(&self.registry_last_update),
             cache_ttl: self.cache_ttl,
+            config_db: self.config_db.clone(),
         }
     }
 }

@@ -23,6 +23,24 @@ pub struct CopilotTokenRow {
 /// Tuple representing a user row: (id, email, name, picture_url, role, created_at).
 pub type UserRow = (Uuid, String, String, Option<String>, String, DateTime<Utc>);
 
+/// A row from the `model_registry` table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RegistryModel {
+    pub id: Uuid,
+    pub provider_id: String,
+    pub model_id: String,
+    pub display_name: String,
+    pub prefixed_id: String,
+    pub context_length: i32,
+    pub max_output_tokens: i32,
+    pub capabilities: serde_json::Value,
+    pub enabled: bool,
+    pub source: String,
+    pub upstream_meta: Option<serde_json::Value>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 /// A record of a configuration change.
 #[derive(Debug, Clone)]
 pub struct ConfigChange {
@@ -199,6 +217,17 @@ impl ConfigDb {
 
         if max_version.unwrap_or(1) < 11 {
             self.migrate_to_v11().await?;
+        }
+
+        // Re-read max version after v11 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 12 {
+            self.migrate_to_v12().await?;
         }
 
         Ok(())
@@ -1808,6 +1837,267 @@ impl ConfigDb {
 
         tracing::info!("Database migration to version 11 complete");
         Ok(())
+    }
+
+    /// Version 12 migration: model registry table.
+    async fn migrate_to_v12(&self) -> Result<()> {
+        tracing::info!("Running database migration to version 12 (model registry)...");
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v12 migration transaction")?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS model_registry (
+                id                UUID PRIMARY KEY,
+                provider_id       TEXT NOT NULL,
+                model_id          TEXT NOT NULL,
+                display_name      TEXT NOT NULL,
+                prefixed_id       TEXT NOT NULL UNIQUE,
+                context_length    INTEGER NOT NULL DEFAULT 0,
+                max_output_tokens INTEGER NOT NULL DEFAULT 0,
+                capabilities      JSONB NOT NULL DEFAULT '{}',
+                enabled           BOOLEAN NOT NULL DEFAULT true,
+                source            TEXT NOT NULL DEFAULT 'static',
+                upstream_meta     JSONB,
+                created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (provider_id, model_id)
+            )",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to create model_registry table")?;
+
+        // Partial index for fast lookups of enabled models
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_model_registry_enabled
+             ON model_registry (provider_id, model_id)
+             WHERE enabled = true",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to create model_registry enabled index")?;
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(12_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 12")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit v12 migration")?;
+
+        tracing::info!("Database migration to version 12 complete");
+        Ok(())
+    }
+
+    // ── Model Registry ───────────────────────────────────────────
+
+    /// Get all models in the registry.
+    #[allow(dead_code)]
+    pub async fn get_all_registry_models(&self) -> Result<Vec<RegistryModel>> {
+        let rows: Vec<(Uuid, String, String, String, String, i32, i32, serde_json::Value, bool, String, Option<serde_json::Value>, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, provider_id, model_id, display_name, prefixed_id,
+                    context_length, max_output_tokens, capabilities, enabled,
+                    source, upstream_meta, created_at, updated_at
+             FROM model_registry
+             ORDER BY provider_id, display_name",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get all registry models")?;
+
+        Ok(rows.into_iter().map(Self::row_to_registry_model).collect())
+    }
+
+    /// Get only enabled models.
+    #[allow(dead_code)]
+    pub async fn get_enabled_registry_models(&self) -> Result<Vec<RegistryModel>> {
+        let rows: Vec<(Uuid, String, String, String, String, i32, i32, serde_json::Value, bool, String, Option<serde_json::Value>, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, provider_id, model_id, display_name, prefixed_id,
+                    context_length, max_output_tokens, capabilities, enabled,
+                    source, upstream_meta, created_at, updated_at
+             FROM model_registry
+             WHERE enabled = true
+             ORDER BY provider_id, display_name",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get enabled registry models")?;
+
+        Ok(rows.into_iter().map(Self::row_to_registry_model).collect())
+    }
+
+    /// Upsert a single model into the registry.
+    #[allow(dead_code)]
+    pub async fn upsert_registry_model(&self, model: &RegistryModel) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO model_registry
+                (id, provider_id, model_id, display_name, prefixed_id,
+                 context_length, max_output_tokens, capabilities, enabled,
+                 source, upstream_meta, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+             ON CONFLICT (provider_id, model_id) DO UPDATE SET
+               display_name      = EXCLUDED.display_name,
+               prefixed_id       = EXCLUDED.prefixed_id,
+               context_length    = EXCLUDED.context_length,
+               max_output_tokens = EXCLUDED.max_output_tokens,
+               capabilities      = EXCLUDED.capabilities,
+               source            = EXCLUDED.source,
+               upstream_meta     = EXCLUDED.upstream_meta,
+               updated_at        = NOW()",
+        )
+        .bind(model.id)
+        .bind(&model.provider_id)
+        .bind(&model.model_id)
+        .bind(&model.display_name)
+        .bind(&model.prefixed_id)
+        .bind(model.context_length)
+        .bind(model.max_output_tokens)
+        .bind(&model.capabilities)
+        .bind(model.enabled)
+        .bind(&model.source)
+        .bind(&model.upstream_meta)
+        .bind(model.created_at)
+        .bind(model.updated_at)
+        .execute(&self.pool)
+        .await
+        .context("Failed to upsert registry model")?;
+
+        Ok(())
+    }
+
+    /// Bulk upsert models into the registry within a single transaction.
+    #[allow(dead_code)]
+    pub async fn bulk_upsert_registry_models(&self, models: &[RegistryModel]) -> Result<usize> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin bulk upsert transaction")?;
+
+        let mut count = 0usize;
+        for model in models {
+            sqlx::query(
+                "INSERT INTO model_registry
+                    (id, provider_id, model_id, display_name, prefixed_id,
+                     context_length, max_output_tokens, capabilities, enabled,
+                     source, upstream_meta, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                 ON CONFLICT (provider_id, model_id) DO UPDATE SET
+                   display_name      = EXCLUDED.display_name,
+                   prefixed_id       = EXCLUDED.prefixed_id,
+                   context_length    = EXCLUDED.context_length,
+                   max_output_tokens = EXCLUDED.max_output_tokens,
+                   capabilities      = EXCLUDED.capabilities,
+                   source            = EXCLUDED.source,
+                   upstream_meta     = EXCLUDED.upstream_meta,
+                   updated_at        = NOW()",
+            )
+            .bind(model.id)
+            .bind(&model.provider_id)
+            .bind(&model.model_id)
+            .bind(&model.display_name)
+            .bind(&model.prefixed_id)
+            .bind(model.context_length)
+            .bind(model.max_output_tokens)
+            .bind(&model.capabilities)
+            .bind(model.enabled)
+            .bind(&model.source)
+            .bind(&model.upstream_meta)
+            .bind(model.created_at)
+            .bind(model.updated_at)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to upsert registry model in bulk")?;
+            count += 1;
+        }
+
+        tx.commit()
+            .await
+            .context("Failed to commit bulk upsert")?;
+
+        Ok(count)
+    }
+
+    /// Toggle a model's enabled status.
+    #[allow(dead_code)]
+    pub async fn update_model_enabled(&self, id: Uuid, enabled: bool) -> Result<bool> {
+        let result = sqlx::query(
+            "UPDATE model_registry SET enabled = $1, updated_at = NOW() WHERE id = $2",
+        )
+        .bind(enabled)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .context("Failed to update model enabled status")?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Delete a model from the registry by ID.
+    #[allow(dead_code)]
+    pub async fn delete_registry_model(&self, id: Uuid) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM model_registry WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .context("Failed to delete registry model")?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Update a model's display_name.
+    #[allow(dead_code)]
+    pub async fn update_model_display_name(&self, id: Uuid, display_name: &str) -> Result<bool> {
+        let result = sqlx::query(
+            "UPDATE model_registry SET display_name = $1, updated_at = NOW() WHERE id = $2",
+        )
+        .bind(display_name)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .context("Failed to update model display_name")?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Remove all models for a given provider.
+    #[allow(dead_code)]
+    pub async fn clear_registry_by_provider(&self, provider_id: &str) -> Result<u64> {
+        let result =
+            sqlx::query("DELETE FROM model_registry WHERE provider_id = $1")
+                .bind(provider_id)
+                .execute(&self.pool)
+                .await
+                .context("Failed to clear registry by provider")?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Convert a query row tuple into a `RegistryModel`.
+    fn row_to_registry_model(
+        row: (Uuid, String, String, String, String, i32, i32, serde_json::Value, bool, String, Option<serde_json::Value>, DateTime<Utc>, DateTime<Utc>),
+    ) -> RegistryModel {
+        RegistryModel {
+            id: row.0,
+            provider_id: row.1,
+            model_id: row.2,
+            display_name: row.3,
+            prefixed_id: row.4,
+            context_length: row.5,
+            max_output_tokens: row.6,
+            capabilities: row.7,
+            enabled: row.8,
+            source: row.9,
+            upstream_meta: row.10,
+            created_at: row.11,
+            updated_at: row.12,
+        }
     }
 
     // ── Copilot Tokens ────────────────────────────────────────────

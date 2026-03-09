@@ -500,6 +500,8 @@ select.config-input {
 }
 
 .btn-save:hover { background: #3bce74; box-shadow: var(--glow-md); }
+.btn-save:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+.btn-save:disabled:hover { background: var(--green); box-shadow: none; }
 
 /* ---- History Panel ---- */
 
@@ -929,6 +931,13 @@ select.config-input {
 
 .mb-16 { margin-bottom: 16px; }
 .mb-24 { margin-bottom: 20px; }
+
+.empty-state {
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--text-tertiary);
+}
 
 /* ---- Animations ---- */
 

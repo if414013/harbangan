@@ -43,6 +43,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <NavLink to="/mcp" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={onClose}>
               <span className="nav-cursor">{'>'}</span> mcp servers
             </NavLink>
+            <NavLink to="/models" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={onClose}>
+              <span className="nav-cursor">{'>'}</span> models
+            </NavLink>
             <NavLink to="/admin" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={onClose}>
               <span className="nav-cursor">{'>'}</span> admin
             </NavLink>

@@ -1,6 +1,8 @@
 pub mod api_keys;
 pub mod config_api;
 pub mod config_db;
+pub mod model_registry;
+pub mod model_registry_handlers;
 pub mod copilot_auth;
 pub mod google_auth;
 pub mod provider_oauth;
@@ -98,6 +100,7 @@ pub fn web_ui_routes(state: AppState) -> Router {
         .merge(config_api::user_routes())
         .merge(crate::guardrails::api::guardrails_routes())
         .nest("/admin/mcp", crate::mcp::api::mcp_admin_routes())
+        .nest("/admin/models", model_registry_handlers::model_registry_routes())
         .layer(axum::middleware::from_fn(google_auth::admin_middleware))
         .layer(axum::middleware::from_fn(google_auth::csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(
