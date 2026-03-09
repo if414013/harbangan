@@ -248,6 +248,10 @@ gh pr create --title "feat: ..." --body "..."  # open PR
 - Keep PRs focused — one logical change per PR
 - Run `cargo clippy`, `cargo test --lib`, and `cargo fmt` before opening a PR
 
+## File Operations
+
+Use Edit (not Write) for existing files, and read large files in chunks. See `.claude/rules/file-operations.md` for details. A PreToolUse hook enforces the Write restriction on files >50KB.
+
 ## Code Style
 
 ### Imports

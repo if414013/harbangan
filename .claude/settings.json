@@ -22,5 +22,18 @@
   },
   "plansDirectory": "/Users/hikennoace/ai-gateway/harbangan/.claude/plans",
   "teammateMode": "iterm2",
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/enforce-edit-for-large-files.sh"
+          }
+        ]
+      }
+    ]
+  }
 }
