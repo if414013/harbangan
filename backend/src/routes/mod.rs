@@ -662,13 +662,22 @@ async fn chat_completions_handler(
     // ── Direct provider routing ──────────────────────────────────────
     // Check if this user has an API key for the model's native provider.
     // If so, route directly to that provider and skip the Kiro pipeline.
+    // Strip prefix (e.g. "anthropic/claude-opus-4-6" → "claude-opus-4-6") for provider APIs.
     let user_id = user_creds.as_ref().map(|c| c.user_id);
+    let (raw_model, stripped_model) =
+        if let Some((_provider, model_id)) = ProviderRegistry::parse_prefixed_model(&request.model)
+        {
+            (request.model.clone(), Some(model_id))
+        } else {
+            (request.model.clone(), None)
+        };
+    let routing_model = stripped_model.as_deref().unwrap_or(&raw_model);
     // Ensure OAuth token is fresh before resolving provider
     if let Some(uid) = user_id {
         if let Some(db) = state.config_db.as_ref() {
             state
                 .provider_registry
-                .ensure_fresh_token(uid, &request.model, db, state.token_exchanger.as_ref())
+                .ensure_fresh_token(uid, routing_model, db, state.token_exchanger.as_ref())
                 .await;
         }
     }
@@ -677,7 +686,11 @@ async fn chat_completions_handler(
         .resolve_provider(user_id, &request.model, state.config_db.as_deref())
         .await;
     if provider != ProviderId::Kiro {
-        return handle_direct_openai(&state, provider, provider_creds.unwrap(), &request).await;
+        let mut req = request;
+        if let Some(ref model_id) = stripped_model {
+            req.model = model_id.clone();
+        }
+        return handle_direct_openai(&state, provider, provider_creds.unwrap(), &req).await;
     }
     // ── End direct provider routing ──────────────────────────────────
 
@@ -932,13 +945,22 @@ async fn anthropic_messages_handler(
     }
 
     // ── Direct provider routing ──────────────────────────────────────
+    // Strip prefix (e.g. "anthropic/claude-opus-4-6" → "claude-opus-4-6") for provider APIs.
     let user_id = user_creds.as_ref().map(|c| c.user_id);
+    let (raw_model, stripped_model) =
+        if let Some((_provider, model_id)) = ProviderRegistry::parse_prefixed_model(&request.model)
+        {
+            (request.model.clone(), Some(model_id))
+        } else {
+            (request.model.clone(), None)
+        };
+    let routing_model = stripped_model.as_deref().unwrap_or(&raw_model);
     // Ensure OAuth token is fresh before resolving provider
     if let Some(uid) = user_id {
         if let Some(db) = state.config_db.as_ref() {
             state
                 .provider_registry
-                .ensure_fresh_token(uid, &request.model, db, state.token_exchanger.as_ref())
+                .ensure_fresh_token(uid, routing_model, db, state.token_exchanger.as_ref())
                 .await;
         }
     }
@@ -947,7 +969,11 @@ async fn anthropic_messages_handler(
         .resolve_provider(user_id, &request.model, state.config_db.as_deref())
         .await;
     if provider != ProviderId::Kiro {
-        return handle_direct_anthropic(&state, provider, provider_creds.unwrap(), &request).await;
+        let mut req = request;
+        if let Some(ref model_id) = stripped_model {
+            req.model = model_id.clone();
+        }
+        return handle_direct_anthropic(&state, provider, provider_creds.unwrap(), &req).await;
     }
     // ── End direct provider routing ──────────────────────────────────
 
