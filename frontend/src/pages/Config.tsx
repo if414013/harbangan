@@ -124,7 +124,14 @@ export function Config() {
   const [dirty, setDirty] = useState(false)
   const savedSnapshot = useRef<string>('')
 
+  function loadHistory() {
+    apiFetch<{ history: HistoryEntry[] }>('/config/history')
+      .then(data => setHistory(data.history || []))
+      .catch(() => {})
+  }
+
   useEffect(() => {
+    loadHistory()
     apiFetch<{ setup_complete: boolean; config: Record<string, unknown> }>('/config')
       .then(data => {
         setValues(data.config)
@@ -135,14 +142,7 @@ export function Config() {
         showToast('Failed to load config: ' + err.message, 'error')
         setLoading(false)
       })
-    loadHistory()
   }, [])
-
-  function loadHistory() {
-    apiFetch<{ history: HistoryEntry[] }>('/config/history')
-      .then(data => setHistory(data.history || []))
-      .catch(() => {})
-  }
 
   function handleChange(key: string, value: unknown) {
     setValues(prev => {
