@@ -428,9 +428,7 @@ pub async fn fetch_copilot_models(
                 if resp.status().is_success() {
                     if let Ok(body) = resp.text().await {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-                            return Ok(parse_openai_models_response(
-                                "copilot", &json,
-                            ));
+                            return Ok(parse_openai_models_response("copilot", &json));
                         }
                     }
                 }
@@ -464,7 +462,10 @@ pub async fn fetch_openai_compatible_models(
         anyhow::bail!("Models API returned status {}", resp.status());
     }
 
-    let body = resp.text().await.context("Failed to read models response")?;
+    let body = resp
+        .text()
+        .await
+        .context("Failed to read models response")?;
     let json: serde_json::Value =
         serde_json::from_str(&body).context("Failed to parse models JSON")?;
 
@@ -490,7 +491,10 @@ pub async fn fetch_anthropic_models(
         anyhow::bail!("Anthropic models API returned status {}", resp.status());
     }
 
-    let body = resp.text().await.context("Failed to read Anthropic response")?;
+    let body = resp
+        .text()
+        .await
+        .context("Failed to read Anthropic response")?;
     let json: serde_json::Value =
         serde_json::from_str(&body).context("Failed to parse Anthropic models JSON")?;
 
@@ -550,7 +554,10 @@ pub async fn fetch_gemini_models(
         anyhow::bail!("Gemini models API returned status {}", resp.status());
     }
 
-    let body = resp.text().await.context("Failed to read Gemini response")?;
+    let body = resp
+        .text()
+        .await
+        .context("Failed to read Gemini response")?;
     let json: serde_json::Value =
         serde_json::from_str(&body).context("Failed to parse Gemini models JSON")?;
 
@@ -652,19 +659,29 @@ pub async fn populate_provider(
         }
         "copilot" => fetch_copilot_models(http_client, db).await.ok(),
         "qwen" => None, // static only
-        _ => None,       // anthropic, openai_codex, gemini handled via user keys below
+        _ => None,      // anthropic, openai_codex, gemini handled via user keys below
     };
 
     let models = if let Some(api) = api_models {
         if api.is_empty() {
-            tracing::debug!(provider = provider_id, "API returned no models, using static fallback");
+            tracing::debug!(
+                provider = provider_id,
+                "API returned no models, using static fallback"
+            );
             get_static_for_provider(provider_id)
         } else {
-            tracing::info!(provider = provider_id, count = api.len(), "Fetched models from API");
+            tracing::info!(
+                provider = provider_id,
+                count = api.len(),
+                "Fetched models from API"
+            );
             api
         }
     } else {
-        tracing::debug!(provider = provider_id, "No API available, using static models");
+        tracing::debug!(
+            provider = provider_id,
+            "No API available, using static models"
+        );
         get_static_for_provider(provider_id)
     };
 
@@ -687,16 +704,14 @@ pub async fn populate_provider_with_key(
 ) -> Result<usize> {
     let api_models = match provider_id {
         "anthropic" => fetch_anthropic_models(http_client, api_key).await.ok(),
-        "openai_codex" => {
-            fetch_openai_compatible_models(
-                http_client,
-                "openai_codex",
-                "https://api.openai.com",
-                api_key,
-            )
-            .await
-            .ok()
-        }
+        "openai_codex" => fetch_openai_compatible_models(
+            http_client,
+            "openai_codex",
+            "https://api.openai.com",
+            api_key,
+        )
+        .await
+        .ok(),
         "gemini" => fetch_gemini_models(http_client, api_key).await.ok(),
         _ => None,
     };
@@ -705,7 +720,11 @@ pub async fn populate_provider_with_key(
         if api.is_empty() {
             get_static_for_provider(provider_id)
         } else {
-            tracing::info!(provider = provider_id, count = api.len(), "Fetched models from API with key");
+            tracing::info!(
+                provider = provider_id,
+                count = api.len(),
+                "Fetched models from API with key"
+            );
             api
         }
     } else {
@@ -797,7 +816,10 @@ mod tests {
         let openai_count = openai_codex_static_models().len();
         let gemini_count = gemini_static_models().len();
         let qwen_count = qwen_static_models().len();
-        assert_eq!(all.len(), anthropic_count + openai_count + gemini_count + qwen_count);
+        assert_eq!(
+            all.len(),
+            anthropic_count + openai_count + gemini_count + qwen_count
+        );
     }
 
     #[test]

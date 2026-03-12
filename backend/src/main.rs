@@ -218,7 +218,11 @@ async fn main() -> Result<()> {
                 {
                     Ok(count) => {
                         if count > 0 {
-                            tracing::info!(provider = provider_id, count, "Populated model registry");
+                            tracing::info!(
+                                provider = provider_id,
+                                count,
+                                "Populated model registry"
+                            );
                         }
                     }
                     Err(e) => {

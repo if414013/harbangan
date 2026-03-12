@@ -326,7 +326,9 @@ mod tests {
             mcp_manager: None,
             provider_registry: Arc::new(crate::providers::registry::ProviderRegistry::new()),
             anthropic_provider: Arc::new(crate::providers::anthropic::AnthropicProvider::new()),
-            openai_codex_provider: Arc::new(crate::providers::openai_codex::OpenAICodexProvider::new()),
+            openai_codex_provider: Arc::new(
+                crate::providers::openai_codex::OpenAICodexProvider::new(),
+            ),
             gemini_provider: Arc::new(crate::providers::gemini::GeminiProvider::new()),
             copilot_provider: Arc::new(crate::providers::copilot::CopilotProvider::new()),
             qwen_provider: Arc::new(crate::providers::qwen::QwenProvider::new()),

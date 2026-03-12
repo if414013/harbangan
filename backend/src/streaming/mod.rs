@@ -816,7 +816,8 @@ pub async fn parse_kiro_stream(
     first_token_timeout_secs: u64,
     idle_timeout_secs: u64,
 ) -> Result<impl Stream<Item = Result<KiroEvent, ApiError>>, ApiError> {
-    parse_kiro_stream_with_thinking(response, first_token_timeout_secs, idle_timeout_secs, true).await
+    parse_kiro_stream_with_thinking(response, first_token_timeout_secs, idle_timeout_secs, true)
+        .await
 }
 
 /// Parse a Kiro SSE stream with optional thinking parser.
@@ -1705,7 +1706,8 @@ pub async fn stream_kiro_to_openai(
     let model = model.to_string();
 
     // Parse Kiro stream and collect all events
-    let kiro_stream = parse_kiro_stream(response, first_token_timeout_secs, idle_timeout_secs).await?;
+    let kiro_stream =
+        parse_kiro_stream(response, first_token_timeout_secs, idle_timeout_secs).await?;
 
     // Use scan to maintain state across stream items
     use std::sync::Arc;
@@ -2076,7 +2078,8 @@ pub async fn stream_kiro_to_anthropic(
     let model = model.to_string();
 
     // Parse Kiro stream
-    let kiro_stream = parse_kiro_stream(response, first_token_timeout_secs, idle_timeout_secs).await?;
+    let kiro_stream =
+        parse_kiro_stream(response, first_token_timeout_secs, idle_timeout_secs).await?;
 
     // Use state to track blocks
     use std::sync::Arc;
@@ -2463,7 +2466,8 @@ pub async fn collect_openai_response(
     let created_time = chrono::Utc::now().timestamp();
 
     // Parse Kiro stream
-    let mut kiro_stream = parse_kiro_stream(response, first_token_timeout_secs, idle_timeout_secs).await?;
+    let mut kiro_stream =
+        parse_kiro_stream(response, first_token_timeout_secs, idle_timeout_secs).await?;
 
     // Collect all content
     let mut full_content = String::new();
@@ -2613,7 +2617,8 @@ pub async fn collect_anthropic_response(
     let message_id = generate_anthropic_message_id();
 
     // Parse Kiro stream
-    let mut kiro_stream = parse_kiro_stream(response, first_token_timeout_secs, idle_timeout_secs).await?;
+    let mut kiro_stream =
+        parse_kiro_stream(response, first_token_timeout_secs, idle_timeout_secs).await?;
 
     // Collect all content
     let mut full_content = String::new();

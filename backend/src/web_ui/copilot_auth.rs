@@ -311,16 +311,20 @@ async fn copilot_device_poll(
     })?;
 
     // Fetch GitHub username
-    let github_username = fetch_github_username(&http, &github_token).await.map_err(|e| {
-        tracing::error!(error = %e, "Copilot device poll: failed to fetch GitHub username");
-        e
-    })?;
+    let github_username = fetch_github_username(&http, &github_token)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Copilot device poll: failed to fetch GitHub username");
+            e
+        })?;
 
     // Fetch Copilot bearer token
-    let copilot_resp = fetch_copilot_token(&http, &github_token).await.map_err(|e| {
-        tracing::error!(error = %e, "Copilot device poll: failed to fetch Copilot token");
-        e
-    })?;
+    let copilot_resp = fetch_copilot_token(&http, &github_token)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Copilot device poll: failed to fetch Copilot token");
+            e
+        })?;
 
     // Detect account type (ok to fail)
     let copilot_plan = fetch_copilot_plan(&http, &github_token).await.ok();

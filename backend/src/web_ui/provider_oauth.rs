@@ -1179,7 +1179,9 @@ mod tests {
             "user@anthropic.com"
         );
         assert!(!json["providers"]["gemini"]["connected"].as_bool().unwrap());
-        assert!(!json["providers"]["openai_codex"]["connected"].as_bool().unwrap());
+        assert!(!json["providers"]["openai_codex"]["connected"]
+            .as_bool()
+            .unwrap());
     }
 
     #[test]

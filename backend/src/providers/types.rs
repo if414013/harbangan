@@ -117,7 +117,10 @@ mod tests {
             ProviderId::from_str("anthropic").unwrap(),
             ProviderId::Anthropic
         );
-        assert_eq!(ProviderId::from_str("openai_codex").unwrap(), ProviderId::OpenAICodex);
+        assert_eq!(
+            ProviderId::from_str("openai_codex").unwrap(),
+            ProviderId::OpenAICodex
+        );
         assert_eq!(ProviderId::from_str("gemini").unwrap(), ProviderId::Gemini);
         assert_eq!(
             ProviderId::from_str("copilot").unwrap(),

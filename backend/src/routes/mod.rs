@@ -460,7 +460,12 @@ async fn handle_direct_openai(
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e)))
     } else {
         let resp = match &provider_id {
-            ProviderId::OpenAICodex => state.openai_codex_provider.execute_openai(&ctx, req).await?,
+            ProviderId::OpenAICodex => {
+                state
+                    .openai_codex_provider
+                    .execute_openai(&ctx, req)
+                    .await?
+            }
             ProviderId::Anthropic => state.anthropic_provider.execute_openai(&ctx, req).await?,
             ProviderId::Gemini => state.gemini_provider.execute_openai(&ctx, req).await?,
             ProviderId::Copilot => state.copilot_provider.execute_openai(&ctx, req).await?,
@@ -502,7 +507,12 @@ async fn handle_direct_anthropic(
 
     if req.stream {
         let stream = match &provider_id {
-            ProviderId::OpenAICodex => state.openai_codex_provider.stream_anthropic(&ctx, req).await?,
+            ProviderId::OpenAICodex => {
+                state
+                    .openai_codex_provider
+                    .stream_anthropic(&ctx, req)
+                    .await?
+            }
             ProviderId::Anthropic => state.anthropic_provider.stream_anthropic(&ctx, req).await?,
             ProviderId::Gemini => state.gemini_provider.stream_anthropic(&ctx, req).await?,
             ProviderId::Copilot => state.copilot_provider.stream_anthropic(&ctx, req).await?,
@@ -519,7 +529,12 @@ async fn handle_direct_anthropic(
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e)))
     } else {
         let resp = match &provider_id {
-            ProviderId::OpenAICodex => state.openai_codex_provider.execute_anthropic(&ctx, req).await?,
+            ProviderId::OpenAICodex => {
+                state
+                    .openai_codex_provider
+                    .execute_anthropic(&ctx, req)
+                    .await?
+            }
             ProviderId::Anthropic => {
                 state
                     .anthropic_provider
@@ -620,8 +635,7 @@ async fn get_models_handler(State(state): State<AppState>) -> Result<Json<ModelL
 
     // 2. Registry models (direct providers)
     let registry_models = state.model_cache.get_all_registry_models();
-    let kiro_set: std::collections::HashSet<String> =
-        models.iter().map(|m| m.id.clone()).collect();
+    let kiro_set: std::collections::HashSet<String> = models.iter().map(|m| m.id.clone()).collect();
 
     for rm in registry_models {
         // Avoid duplicates if a model appears in both caches
@@ -681,13 +695,13 @@ async fn chat_completions_handler(
     // If so, route directly to that provider and skip the Kiro pipeline.
     // Strip prefix (e.g. "anthropic/claude-opus-4-6" → "claude-opus-4-6") for provider APIs.
     let user_id = user_creds.as_ref().map(|c| c.user_id);
-    let (raw_model, stripped_model) =
-        if let Some((_provider, model_id)) = ProviderRegistry::parse_prefixed_model(&request.model)
-        {
-            (request.model.clone(), Some(model_id))
-        } else {
-            (request.model.clone(), None)
-        };
+    let (raw_model, stripped_model) = if let Some((_provider, model_id)) =
+        ProviderRegistry::parse_prefixed_model(&request.model)
+    {
+        (request.model.clone(), Some(model_id))
+    } else {
+        (request.model.clone(), None)
+    };
     let routing_model = stripped_model.as_deref().unwrap_or(&raw_model);
     // Ensure OAuth token is fresh before resolving provider
     if let Some(uid) = user_id {
@@ -967,13 +981,13 @@ async fn anthropic_messages_handler(
     // ── Direct provider routing ──────────────────────────────────────
     // Strip prefix (e.g. "anthropic/claude-opus-4-6" → "claude-opus-4-6") for provider APIs.
     let user_id = user_creds.as_ref().map(|c| c.user_id);
-    let (raw_model, stripped_model) =
-        if let Some((_provider, model_id)) = ProviderRegistry::parse_prefixed_model(&request.model)
-        {
-            (request.model.clone(), Some(model_id))
-        } else {
-            (request.model.clone(), None)
-        };
+    let (raw_model, stripped_model) = if let Some((_provider, model_id)) =
+        ProviderRegistry::parse_prefixed_model(&request.model)
+    {
+        (request.model.clone(), Some(model_id))
+    } else {
+        (request.model.clone(), None)
+    };
     let routing_model = stripped_model.as_deref().unwrap_or(&raw_model);
     // Ensure OAuth token is fresh before resolving provider
     if let Some(uid) = user_id {
