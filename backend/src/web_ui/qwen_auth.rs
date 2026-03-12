@@ -21,7 +21,18 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::error::ApiError;
+use crate::providers::qwen::QwenProvider;
+use crate::providers::types::ProviderId;
 use crate::routes::{AppState, SessionInfo};
+
+/// Get the QwenProvider from AppState via downcast.
+fn get_qwen(state: &AppState) -> Result<&QwenProvider, ApiError> {
+    state
+        .providers
+        .get(&ProviderId::Qwen)
+        .and_then(|p| p.as_any().downcast_ref::<QwenProvider>())
+        .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("QwenProvider not registered")))
+}
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -138,7 +149,8 @@ async fn qwen_device_code(
     State(state): State<AppState>,
     Extension(session): Extension<SessionInfo>,
 ) -> Result<Json<DeviceCodeResponse>, ApiError> {
-    let pending_map = &state.qwen_device_pending;
+    let qwen = get_qwen(&state)?;
+    let pending_map = qwen.device_pending();
 
     // Cleanup expired entries (10-min TTL)
     let now = Utc::now();
@@ -244,7 +256,8 @@ async fn qwen_device_poll(
     Extension(session): Extension<SessionInfo>,
     axum::extract::Query(params): axum::extract::Query<DevicePollQuery>,
 ) -> Result<Json<DevicePollResponse>, ApiError> {
-    let pending_map = &state.qwen_device_pending;
+    let qwen = get_qwen(&state)?;
+    let pending_map = qwen.device_pending();
 
     // Look up pending state (don't remove yet — only remove on success/expiry)
     let pending = pending_map

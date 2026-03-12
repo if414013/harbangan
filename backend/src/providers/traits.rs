@@ -1,7 +1,9 @@
+use std::any::Any;
 use std::pin::Pin;
 
 use async_trait::async_trait;
 use futures::stream::Stream;
+use serde_json::Value;
 
 use crate::error::ApiError;
 use crate::models::anthropic::AnthropicMessagesRequest;
@@ -13,8 +15,9 @@ use crate::providers::types::{ProviderContext, ProviderId, ProviderResponse, Pro
 /// Every provider must be able to handle both OpenAI-format and Anthropic-format inputs.
 /// Cross-format conversion is the responsibility of the provider implementation.
 #[async_trait]
-#[allow(dead_code)]
 pub trait Provider: Send + Sync {
+    /// Downcast to concrete type for accessing provider-specific state.
+    fn as_any(&self) -> &dyn Any;
     /// The provider identifier.
     fn id(&self) -> ProviderId;
 
@@ -45,4 +48,22 @@ pub trait Provider: Send + Sync {
         ctx: &ProviderContext<'_>,
         req: &AnthropicMessagesRequest,
     ) -> Result<Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>, ApiError>;
+
+    /// Normalize a non-streaming response for the OpenAI endpoint.
+    ///
+    /// Called after `execute_openai()`. Providers whose native format isn't OpenAI
+    /// (e.g. Anthropic, Gemini) override this to convert their response body.
+    /// Default: identity (response is already OpenAI format).
+    fn normalize_response_for_openai(&self, _model: &str, body: Value) -> Value {
+        body
+    }
+
+    /// Normalize a non-streaming response for the Anthropic endpoint.
+    ///
+    /// Called after `execute_anthropic()`. Providers whose native format isn't Anthropic
+    /// (e.g. OpenAI, Copilot, Qwen) override this to convert their response body.
+    /// Default: identity (response is already Anthropic format).
+    fn normalize_response_for_anthropic(&self, _model: &str, body: Value) -> Value {
+        body
+    }
 }

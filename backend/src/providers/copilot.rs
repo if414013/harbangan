@@ -4,9 +4,12 @@
 /// VS Code-mimicking headers on every request. Handles both OpenAI-format
 /// (pass-through) and Anthropic-format (converted to OpenAI) inputs.
 use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use dashmap::DashMap;
 use futures::stream::{Stream, StreamExt};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -16,16 +19,33 @@ use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::ChatCompletionRequest;
 use crate::providers::traits::Provider;
 use crate::providers::types::{ProviderContext, ProviderId, ProviderResponse, ProviderStreamItem};
+use crate::web_ui::copilot_auth::CopilotDevicePendingMap;
 
 pub struct CopilotProvider {
     client: reqwest::Client,
+    /// user_id → (copilot_token, base_url, cached_at)
+    token_cache: Arc<DashMap<Uuid, (String, String, Instant)>>,
+    /// Pending Copilot device flow states: device_code → CopilotDevicePending
+    device_pending: CopilotDevicePendingMap,
 }
 
 impl CopilotProvider {
     pub fn new() -> Self {
         Self {
             client: reqwest::Client::new(),
+            token_cache: Arc::new(DashMap::new()),
+            device_pending: Arc::new(DashMap::new()),
         }
+    }
+
+    /// Access the Copilot token cache.
+    pub fn token_cache(&self) -> &Arc<DashMap<Uuid, (String, String, Instant)>> {
+        &self.token_cache
+    }
+
+    /// Access the pending device flow map.
+    pub fn device_pending(&self) -> &CopilotDevicePendingMap {
+        &self.device_pending
     }
 
     /// Copilot completions URL: `{base_url}/chat/completions` (no /v1/ prefix).
@@ -137,7 +157,7 @@ impl CopilotProvider {
             )
             .header("content-type", "application/json")
             .header("copilot-integration-id", "vscode-chat")
-            .header("editor-version", "vscode/1.97.2")
+            .header("editor-version", "vscode/1.104.1")
             .header("editor-plugin-version", "copilot-chat/0.26.7")
             .header("user-agent", "GitHubCopilotChat/0.26.7")
             .header("openai-intent", "conversation-panel")
@@ -175,6 +195,10 @@ impl Default for CopilotProvider {
 
 #[async_trait]
 impl Provider for CopilotProvider {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn id(&self) -> ProviderId {
         ProviderId::Copilot
     }
@@ -239,6 +263,12 @@ impl Provider for CopilotProvider {
             Err(e) => Err(e),
         });
         Ok(Box::pin(sse))
+    }
+
+    /// Copilot (OpenAI-compatible) responses need conversion for the Anthropic endpoint.
+    fn normalize_response_for_anthropic(&self, model: &str, body: Value) -> Value {
+        // Reuse the same OpenAI→Anthropic conversion as OpenAICodex
+        crate::providers::openai_codex::openai_response_to_anthropic(model, &body)
     }
 }
 

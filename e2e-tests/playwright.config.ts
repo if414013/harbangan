@@ -2,8 +2,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 require('dotenv').config();
 
-const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:8000';
-const BASE_UI_URL = process.env.BASE_UI_URL || 'https://localhost/_ui';
+const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:9999';
+const BASE_UI_URL = process.env.BASE_UI_URL || 'http://localhost:5173/_ui';
 const API_KEY = process.env.API_KEY || '';
 
 export default defineConfig({

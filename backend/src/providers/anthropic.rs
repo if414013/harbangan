@@ -130,6 +130,10 @@ impl Default for AnthropicProvider {
 
 #[async_trait]
 impl Provider for AnthropicProvider {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn id(&self) -> ProviderId {
         ProviderId::Anthropic
     }
@@ -194,6 +198,54 @@ impl Provider for AnthropicProvider {
             chunk.map_err(|e| ApiError::Internal(anyhow::anyhow!("Stream error: {}", e)))
         });
         Ok(Box::pin(stream))
+    }
+
+    /// Anthropic responses need conversion when served through the OpenAI endpoint.
+    fn normalize_response_for_openai(&self, model: &str, body: Value) -> Value {
+        let text = body
+            .get("content")
+            .and_then(|c| c.as_array())
+            .and_then(|a| a.first())
+            .and_then(|b| b.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let finish_reason = body
+            .get("stop_reason")
+            .and_then(|r| r.as_str())
+            .map(|r| if r == "end_turn" { "stop" } else { r })
+            .unwrap_or("stop")
+            .to_string();
+
+        let prompt_tokens = body
+            .get("usage")
+            .and_then(|u| u.get("input_tokens"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32;
+        let completion_tokens = body
+            .get("usage")
+            .and_then(|u| u.get("output_tokens"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32;
+
+        serde_json::json!({
+            "id": body.get("id").and_then(|v| v.as_str()).unwrap_or("chatcmpl-direct"),
+            "object": "chat.completion",
+            "created": chrono::Utc::now().timestamp(),
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": text },
+                "finish_reason": finish_reason,
+                "logprobs": null
+            }],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens
+            }
+        })
     }
 }
 

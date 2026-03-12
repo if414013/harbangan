@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::Instant;
 
 use axum::extract::State;
 use axum::routing::{delete, get, post};
@@ -11,8 +10,19 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::error::ApiError;
+use crate::providers::copilot::CopilotProvider;
+use crate::providers::types::ProviderId;
 use crate::routes::{AppState, SessionInfo};
 use crate::web_ui::config_db::ConfigDb;
+
+/// Get the CopilotProvider from AppState via downcast.
+fn get_copilot(state: &AppState) -> Result<&CopilotProvider, ApiError> {
+    state
+        .providers
+        .get(&ProviderId::Copilot)
+        .and_then(|p| p.as_any().downcast_ref::<CopilotProvider>())
+        .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("CopilotProvider not registered")))
+}
 
 // ── Constants ─────────────────────────────────────────────────────
 
@@ -25,7 +35,7 @@ const GITHUB_USER_URL: &str = "https://api.github.com/user";
 const COPILOT_TOKEN_URL: &str = "https://api.github.com/copilot_internal/v2/token";
 const COPILOT_USER_URL: &str = "https://api.github.com/copilot_internal/user";
 
-const EDITOR_VERSION: &str = "vscode/1.97.2";
+const EDITOR_VERSION: &str = "vscode/1.104.1";
 const EDITOR_PLUGIN_VERSION: &str = "copilot-chat/0.26.7";
 const USER_AGENT_VALUE: &str = "GitHubCopilotChat/0.26.7";
 const GITHUB_API_VERSION: &str = "2025-04-01";
@@ -129,7 +139,8 @@ async fn copilot_device_code(
     State(state): State<AppState>,
     Extension(session): Extension<SessionInfo>,
 ) -> Result<Json<CopilotDeviceCodeResponse>, ApiError> {
-    let pending_map = &state.copilot_device_pending;
+    let copilot = get_copilot(&state)?;
+    let pending_map = copilot.device_pending();
 
     // Cleanup expired entries (10-min TTL)
     let now = Utc::now();
@@ -222,7 +233,8 @@ async fn copilot_device_poll(
     Extension(session): Extension<SessionInfo>,
     axum::extract::Query(params): axum::extract::Query<CopilotDevicePollQuery>,
 ) -> Result<Json<CopilotDevicePollResponse>, ApiError> {
-    let pending_map = &state.copilot_device_pending;
+    let copilot = get_copilot(&state)?;
+    let pending_map = copilot.device_pending();
 
     // Look up pending state (don't remove yet — only remove on success/expiry)
     let pending = pending_map
@@ -311,16 +323,24 @@ async fn copilot_device_poll(
     })?;
 
     // Fetch GitHub username
-    let github_username = fetch_github_username(&http, &github_token).await.map_err(|e| {
-        tracing::error!(error = %e, "Copilot device poll: failed to fetch GitHub username");
-        e
-    })?;
+    let github_username = fetch_github_username(&http, &github_token)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Copilot device poll: failed to fetch GitHub username");
+            e
+        })?;
 
-    // Fetch Copilot bearer token
-    let copilot_resp = fetch_copilot_token(&http, &github_token).await.map_err(|e| {
-        tracing::error!(error = %e, "Copilot device poll: failed to fetch Copilot token");
-        e
-    })?;
+    // Fetch Copilot bearer token (non-fatal: account may not have Copilot access)
+    let copilot_resp = match fetch_copilot_token(&http, &github_token).await {
+        Ok(resp) => Some(resp),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "Copilot token not available — GitHub connected without Copilot access"
+            );
+            None
+        }
+    };
 
     // Detect account type (ok to fail)
     let copilot_plan = fetch_copilot_plan(&http, &github_token).await.ok();
@@ -333,7 +353,8 @@ async fn copilot_device_poll(
 
     // Compute expires_at from epoch timestamp
     let expires_at = copilot_resp
-        .expires_at
+        .as_ref()
+        .and_then(|r| r.expires_at)
         .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0));
 
     // Store in DB
@@ -341,35 +362,49 @@ async fn copilot_device_poll(
         .config_db
         .as_ref()
         .ok_or_else(|| ApiError::ConfigError("Database not configured".to_string()))?;
+    let copilot_token = copilot_resp.as_ref().and_then(|r| r.token.as_deref());
+    let refresh_in = copilot_resp.as_ref().and_then(|r| r.refresh_in);
+
     db.upsert_copilot_tokens(
         session.user_id,
         &github_token,
         Some(&github_username),
-        copilot_resp.token.as_deref(),
+        copilot_token,
         copilot_plan.as_deref(),
         Some(base_url),
         expires_at,
-        copilot_resp.refresh_in,
+        refresh_in,
     )
     .await
     .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to store copilot tokens: {}", e)))?;
 
     // Invalidate cache
-    state.copilot_token_cache.remove(&session.user_id);
+    copilot.token_cache().remove(&session.user_id);
 
     // Clean up pending state
     pending_map.remove(&params.device_code);
 
+    let has_copilot = copilot_token.is_some();
     tracing::info!(
         user_id = %session.user_id,
         github_username = %github_username,
         copilot_plan = ?copilot_plan,
+        has_copilot_token = has_copilot,
         "Copilot connected via device flow"
     );
 
+    let message = if has_copilot {
+        "Copilot connected successfully".to_string()
+    } else {
+        format!(
+            "GitHub connected as {} but Copilot access is not available for this account",
+            github_username
+        )
+    };
+
     Ok(Json(CopilotDevicePollResponse {
         status: "success".to_string(),
-        message: Some("Copilot connected successfully".to_string()),
+        message: Some(message),
     }))
 }
 
@@ -424,7 +459,7 @@ async fn copilot_disconnect(
             ApiError::Internal(anyhow::anyhow!("Failed to delete copilot tokens: {}", e))
         })?;
 
-    state.copilot_token_cache.remove(&session.user_id);
+    get_copilot(&state)?.token_cache().remove(&session.user_id);
 
     tracing::info!(user_id = %session.user_id, "Copilot disconnected");
 
@@ -435,7 +470,7 @@ async fn copilot_disconnect(
 
 pub fn spawn_copilot_token_refresh_task(
     config_db: Arc<ConfigDb>,
-    copilot_token_cache: Arc<DashMap<Uuid, (String, String, Instant)>>,
+    copilot_token_cache: Arc<DashMap<Uuid, (String, String, std::time::Instant)>>,
 ) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(120));

@@ -1739,13 +1739,41 @@ impl ConfigDb {
     }
 
     async fn migrate_to_v11(&self) -> Result<()> {
-        tracing::info!("Running database migration to version 11 (rename openai → openai_codex)...");
+        tracing::info!(
+            "Running database migration to version 11 (rename openai → openai_codex)..."
+        );
 
         let mut tx = self
             .pool
             .begin()
             .await
             .context("Failed to begin v11 migration transaction")?;
+
+        // ── Drop CHECK constraints first (must happen before UPDATEs) ──
+
+        sqlx::query(
+            "ALTER TABLE user_provider_keys
+             DROP CONSTRAINT IF EXISTS user_provider_keys_provider_id_check",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to drop user_provider_keys CHECK constraint")?;
+
+        sqlx::query(
+            "ALTER TABLE user_provider_tokens
+             DROP CONSTRAINT IF EXISTS user_provider_tokens_provider_id_check",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to drop user_provider_tokens CHECK constraint")?;
+
+        sqlx::query(
+            "ALTER TABLE model_routes
+             DROP CONSTRAINT IF EXISTS model_routes_provider_id_check",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to drop model_routes CHECK constraint")?;
 
         // ── Rename provider_id data in all tables ──────────────────
 
@@ -1764,21 +1792,14 @@ impl ConfigDb {
             .await
             .context("Failed to rename provider_id in user_provider_priority")?;
 
-        sqlx::query("UPDATE model_routes SET provider_id = 'openai_codex' WHERE provider_id = 'openai'")
-            .execute(&mut *tx)
-            .await
-            .context("Failed to rename provider_id in model_routes")?;
-
-        // ── Recreate CHECK constraints with 'openai_codex' ─────────
-
-        // user_provider_keys
         sqlx::query(
-            "ALTER TABLE user_provider_keys
-             DROP CONSTRAINT IF EXISTS user_provider_keys_provider_id_check",
+            "UPDATE model_routes SET provider_id = 'openai_codex' WHERE provider_id = 'openai'",
         )
         .execute(&mut *tx)
         .await
-        .context("Failed to drop user_provider_keys CHECK constraint")?;
+        .context("Failed to rename provider_id in model_routes")?;
+
+        // ── Re-add CHECK constraints with 'openai_codex' ─────────
 
         sqlx::query(
             "ALTER TABLE user_provider_keys
@@ -1789,15 +1810,6 @@ impl ConfigDb {
         .await
         .context("Failed to add user_provider_keys CHECK constraint")?;
 
-        // user_provider_tokens
-        sqlx::query(
-            "ALTER TABLE user_provider_tokens
-             DROP CONSTRAINT IF EXISTS user_provider_tokens_provider_id_check",
-        )
-        .execute(&mut *tx)
-        .await
-        .context("Failed to drop user_provider_tokens CHECK constraint")?;
-
         sqlx::query(
             "ALTER TABLE user_provider_tokens
              ADD CONSTRAINT user_provider_tokens_provider_id_check
@@ -1806,15 +1818,6 @@ impl ConfigDb {
         .execute(&mut *tx)
         .await
         .context("Failed to add user_provider_tokens CHECK constraint")?;
-
-        // model_routes
-        sqlx::query(
-            "ALTER TABLE model_routes
-             DROP CONSTRAINT IF EXISTS model_routes_provider_id_check",
-        )
-        .execute(&mut *tx)
-        .await
-        .context("Failed to drop model_routes CHECK constraint")?;
 
         sqlx::query(
             "ALTER TABLE model_routes
@@ -1900,7 +1903,21 @@ impl ConfigDb {
     /// Get all models in the registry.
     #[allow(dead_code)]
     pub async fn get_all_registry_models(&self) -> Result<Vec<RegistryModel>> {
-        let rows: Vec<(Uuid, String, String, String, String, i32, i32, serde_json::Value, bool, String, Option<serde_json::Value>, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
+        let rows: Vec<(
+            Uuid,
+            String,
+            String,
+            String,
+            String,
+            i32,
+            i32,
+            serde_json::Value,
+            bool,
+            String,
+            Option<serde_json::Value>,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        )> = sqlx::query_as(
             "SELECT id, provider_id, model_id, display_name, prefixed_id,
                     context_length, max_output_tokens, capabilities, enabled,
                     source, upstream_meta, created_at, updated_at
@@ -1917,7 +1934,21 @@ impl ConfigDb {
     /// Get only enabled models.
     #[allow(dead_code)]
     pub async fn get_enabled_registry_models(&self) -> Result<Vec<RegistryModel>> {
-        let rows: Vec<(Uuid, String, String, String, String, i32, i32, serde_json::Value, bool, String, Option<serde_json::Value>, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
+        let rows: Vec<(
+            Uuid,
+            String,
+            String,
+            String,
+            String,
+            i32,
+            i32,
+            serde_json::Value,
+            bool,
+            String,
+            Option<serde_json::Value>,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        )> = sqlx::query_as(
             "SELECT id, provider_id, model_id, display_name, prefixed_id,
                     context_length, max_output_tokens, capabilities, enabled,
                     source, upstream_meta, created_at, updated_at
@@ -2017,9 +2048,7 @@ impl ConfigDb {
             count += 1;
         }
 
-        tx.commit()
-            .await
-            .context("Failed to commit bulk upsert")?;
+        tx.commit().await.context("Failed to commit bulk upsert")?;
 
         Ok(count)
     }
@@ -2027,14 +2056,13 @@ impl ConfigDb {
     /// Toggle a model's enabled status.
     #[allow(dead_code)]
     pub async fn update_model_enabled(&self, id: Uuid, enabled: bool) -> Result<bool> {
-        let result = sqlx::query(
-            "UPDATE model_registry SET enabled = $1, updated_at = NOW() WHERE id = $2",
-        )
-        .bind(enabled)
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .context("Failed to update model enabled status")?;
+        let result =
+            sqlx::query("UPDATE model_registry SET enabled = $1, updated_at = NOW() WHERE id = $2")
+                .bind(enabled)
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .context("Failed to update model enabled status")?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -2069,19 +2097,32 @@ impl ConfigDb {
     /// Remove all models for a given provider.
     #[allow(dead_code)]
     pub async fn clear_registry_by_provider(&self, provider_id: &str) -> Result<u64> {
-        let result =
-            sqlx::query("DELETE FROM model_registry WHERE provider_id = $1")
-                .bind(provider_id)
-                .execute(&self.pool)
-                .await
-                .context("Failed to clear registry by provider")?;
+        let result = sqlx::query("DELETE FROM model_registry WHERE provider_id = $1")
+            .bind(provider_id)
+            .execute(&self.pool)
+            .await
+            .context("Failed to clear registry by provider")?;
 
         Ok(result.rows_affected())
     }
 
     /// Convert a query row tuple into a `RegistryModel`.
     fn row_to_registry_model(
-        row: (Uuid, String, String, String, String, i32, i32, serde_json::Value, bool, String, Option<serde_json::Value>, DateTime<Utc>, DateTime<Utc>),
+        row: (
+            Uuid,
+            String,
+            String,
+            String,
+            String,
+            i32,
+            i32,
+            serde_json::Value,
+            bool,
+            String,
+            Option<serde_json::Value>,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        ),
     ) -> RegistryModel {
         RegistryModel {
             id: row.0,
@@ -3288,9 +3329,16 @@ mod tests {
         )
         .await
         .unwrap();
-        db.upsert_user_provider_token(user_id, "openai_codex", "a2", "r2", expires, "me@openai.com")
-            .await
-            .unwrap();
+        db.upsert_user_provider_token(
+            user_id,
+            "openai_codex",
+            "a2",
+            "r2",
+            expires,
+            "me@openai.com",
+        )
+        .await
+        .unwrap();
 
         let providers = db
             .get_user_connected_oauth_providers(user_id)

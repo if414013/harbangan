@@ -310,12 +310,14 @@ mod tests {
             ..Config::with_defaults()
         };
 
+        let config_arc = Arc::new(std::sync::RwLock::new(config));
+
         AppState {
             model_cache: cache,
-            auth_manager,
-            http_client,
+            auth_manager: Arc::clone(&auth_manager),
+            http_client: Arc::clone(&http_client),
             resolver,
-            config: Arc::new(std::sync::RwLock::new(config)),
+            config: Arc::clone(&config_arc),
             setup_complete: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             config_db: None,
             session_cache: Arc::new(dashmap::DashMap::new()),
@@ -325,16 +327,9 @@ mod tests {
             guardrails_engine: None,
             mcp_manager: None,
             provider_registry: Arc::new(crate::providers::registry::ProviderRegistry::new()),
-            anthropic_provider: Arc::new(crate::providers::anthropic::AnthropicProvider::new()),
-            openai_codex_provider: Arc::new(crate::providers::openai_codex::OpenAICodexProvider::new()),
-            gemini_provider: Arc::new(crate::providers::gemini::GeminiProvider::new()),
-            copilot_provider: Arc::new(crate::providers::copilot::CopilotProvider::new()),
-            qwen_provider: Arc::new(crate::providers::qwen::QwenProvider::new()),
+            providers: crate::providers::build_provider_map(http_client, auth_manager, config_arc),
             provider_oauth_pending: Arc::new(dashmap::DashMap::new()),
             token_exchanger: Arc::new(crate::web_ui::provider_oauth::HttpTokenExchanger::new()),
-            copilot_token_cache: Arc::new(dashmap::DashMap::new()),
-            copilot_device_pending: Arc::new(dashmap::DashMap::new()),
-            qwen_device_pending: Arc::new(dashmap::DashMap::new()),
         }
     }
 

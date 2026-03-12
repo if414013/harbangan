@@ -218,7 +218,11 @@ async fn main() -> Result<()> {
                 {
                     Ok(count) => {
                         if count > 0 {
-                            tracing::info!(provider = provider_id, count, "Populated model registry");
+                            tracing::info!(
+                                provider = provider_id,
+                                count,
+                                "Populated model registry"
+                            );
                         }
                     }
                     Err(e) => {
@@ -250,12 +254,15 @@ async fn main() -> Result<()> {
     // Initialise Datadog OTLP metrics pipeline (no-op when DD_AGENT_HOST is unset)
     let otel_metrics_provider = datadog::init_otel_metrics();
 
+    let auth_manager = Arc::new(tokio::sync::RwLock::new(app_auth_manager));
+    let config_arc = Arc::new(RwLock::new(config.clone()));
+
     let mut app_state = routes::AppState {
         model_cache: model_cache.clone(),
-        auth_manager: Arc::new(tokio::sync::RwLock::new(app_auth_manager)),
+        auth_manager: Arc::clone(&auth_manager),
         http_client: http_client.clone(),
         resolver,
-        config: Arc::new(RwLock::new(config.clone())),
+        config: Arc::clone(&config_arc),
         setup_complete: Arc::clone(&setup_complete),
         config_db,
         session_cache: Arc::new(dashmap::DashMap::new()),
@@ -265,16 +272,13 @@ async fn main() -> Result<()> {
         guardrails_engine: None,
         mcp_manager: None,
         provider_registry: Arc::new(providers::registry::ProviderRegistry::new()),
-        anthropic_provider: Arc::new(providers::anthropic::AnthropicProvider::new()),
-        openai_codex_provider: Arc::new(providers::openai_codex::OpenAICodexProvider::new()),
-        gemini_provider: Arc::new(providers::gemini::GeminiProvider::new()),
-        copilot_provider: Arc::new(providers::copilot::CopilotProvider::new()),
-        qwen_provider: Arc::new(providers::qwen::QwenProvider::new()),
+        providers: providers::build_provider_map(
+            http_client.clone(),
+            Arc::clone(&auth_manager),
+            Arc::clone(&config_arc),
+        ),
         provider_oauth_pending: Arc::new(dashmap::DashMap::new()),
         token_exchanger: Arc::new(web_ui::provider_oauth::HttpTokenExchanger::new()),
-        copilot_token_cache: Arc::new(dashmap::DashMap::new()),
-        copilot_device_pending: Arc::new(dashmap::DashMap::new()),
-        qwen_device_pending: Arc::new(dashmap::DashMap::new()),
     };
 
     // ── Guardrails (skip in proxy-only mode) ────────────────────────
@@ -321,10 +325,20 @@ async fn main() -> Result<()> {
     if !is_proxy_only {
         if let Some(ref db) = app_state.config_db {
             web_ui::user_kiro::spawn_token_refresh_task(Arc::clone(db));
-            web_ui::copilot_auth::spawn_copilot_token_refresh_task(
-                Arc::clone(db),
-                Arc::clone(&app_state.copilot_token_cache),
-            );
+            // Get copilot token cache from the CopilotProvider for the refresh task
+            if let Some(copilot) = app_state
+                .providers
+                .get(&providers::types::ProviderId::Copilot)
+                .and_then(|p| {
+                    p.as_any()
+                        .downcast_ref::<providers::copilot::CopilotProvider>()
+                })
+            {
+                web_ui::copilot_auth::spawn_copilot_token_refresh_task(
+                    Arc::clone(db),
+                    Arc::clone(copilot.token_cache()),
+                );
+            }
             web_ui::session::SessionService::spawn_cleanup_task(
                 Arc::clone(db),
                 Arc::clone(&app_state.session_cache),

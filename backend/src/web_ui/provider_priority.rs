@@ -64,7 +64,14 @@ async fn get_priority(
 
 // ── POST /providers/priority ─────────────────────────────────────
 
-const VALID_PROVIDERS: &[&str] = &["kiro", "anthropic", "openai_codex", "gemini", "copilot", "qwen"];
+const VALID_PROVIDERS: &[&str] = &[
+    "kiro",
+    "anthropic",
+    "openai_codex",
+    "gemini",
+    "copilot",
+    "qwen",
+];
 
 async fn update_priority(
     State(state): State<AppState>,

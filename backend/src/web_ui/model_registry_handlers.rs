@@ -138,10 +138,7 @@ async fn update_model(
 }
 
 /// DELETE /admin/models/:id — remove a model from the registry.
-async fn delete_model(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+async fn delete_model(State(state): State<AppState>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let db = match state.require_config_db() {
         Ok(db) => db,
         Err(e) => return e.into_response(),
@@ -208,11 +205,8 @@ async fn populate_models(
             let guard = state.auth_manager.read().await;
             if guard.has_credentials().await {
                 // Fetch kiro models directly
-                match crate::web_ui::model_registry::fetch_kiro_models(
-                    &state.http_client,
-                    &guard,
-                )
-                .await
+                match crate::web_ui::model_registry::fetch_kiro_models(&state.http_client, &guard)
+                    .await
                 {
                     Ok(models) if !models.is_empty() => {
                         drop(guard);

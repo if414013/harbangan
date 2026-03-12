@@ -17,11 +17,14 @@ use futures::stream::{Stream, StreamExt};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use std::sync::Arc;
+
 use crate::error::ApiError;
 use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::ChatCompletionRequest;
 use crate::providers::traits::Provider;
 use crate::providers::types::{ProviderContext, ProviderId, ProviderResponse, ProviderStreamItem};
+use crate::web_ui::qwen_auth::QwenDevicePendingMap;
 
 /// Default Qwen API base URL.
 const DEFAULT_BASE_URL: &str = "https://chat.qwen.ai/api";
@@ -42,6 +45,8 @@ pub struct QwenProvider {
     /// Per-credential sliding window rate limiter: access_token_hash -> timestamps.
     /// TODO: Add periodic cleanup of stale entries to prevent unbounded memory growth.
     rate_limiter: DashMap<String, VecDeque<Instant>>,
+    /// Pending Qwen device flow states: device_code → QwenDevicePending
+    device_pending: QwenDevicePendingMap,
 }
 
 impl QwenProvider {
@@ -52,6 +57,7 @@ impl QwenProvider {
             client: reqwest::Client::new(),
             client_id,
             rate_limiter: DashMap::new(),
+            device_pending: Arc::new(DashMap::new()),
         }
     }
 
@@ -59,6 +65,11 @@ impl QwenProvider {
     #[allow(dead_code)] // Used in Phase 2 device flow
     pub fn client_id(&self) -> &str {
         &self.client_id
+    }
+
+    /// Access the pending device flow map.
+    pub fn device_pending(&self) -> &QwenDevicePendingMap {
+        &self.device_pending
     }
 
     /// Qwen completions URL: `{base_url}/v1/chat/completions`.
@@ -291,6 +302,10 @@ impl Default for QwenProvider {
 
 #[async_trait]
 impl Provider for QwenProvider {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn id(&self) -> ProviderId {
         ProviderId::Qwen
     }
@@ -354,6 +369,12 @@ impl Provider for QwenProvider {
             Err(e) => Err(e),
         });
         Ok(Box::pin(sse))
+    }
+
+    /// Qwen (OpenAI-compatible) responses need conversion for the Anthropic endpoint.
+    fn normalize_response_for_anthropic(&self, model: &str, body: Value) -> Value {
+        // Reuse the same OpenAI→Anthropic conversion as OpenAICodex
+        crate::providers::openai_codex::openai_response_to_anthropic(model, &body)
     }
 }
 

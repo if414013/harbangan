@@ -134,6 +134,10 @@ impl Default for OpenAICodexProvider {
 
 #[async_trait]
 impl Provider for OpenAICodexProvider {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn id(&self) -> ProviderId {
         ProviderId::OpenAICodex
     }
@@ -199,6 +203,56 @@ impl Provider for OpenAICodexProvider {
         });
         Ok(Box::pin(sse))
     }
+
+    /// OpenAI responses need conversion when served through the Anthropic endpoint.
+    fn normalize_response_for_anthropic(&self, model: &str, body: Value) -> Value {
+        openai_response_to_anthropic(model, &body)
+    }
+}
+
+/// Convert an OpenAI API non-streaming response body → Anthropic messages response JSON.
+///
+/// Public so that other OpenAI-compatible providers (Copilot, Qwen) can reuse this.
+pub fn openai_response_to_anthropic(model: &str, body: &Value) -> Value {
+    let text = body
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let stop_reason = body
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("finish_reason"))
+        .and_then(|r| r.as_str())
+        .map(|r| if r == "stop" { "end_turn" } else { r })
+        .unwrap_or("end_turn")
+        .to_string();
+
+    let input_tokens = body
+        .get("usage")
+        .and_then(|u| u.get("prompt_tokens"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as i32;
+    let output_tokens = body
+        .get("usage")
+        .and_then(|u| u.get("completion_tokens"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as i32;
+
+    serde_json::json!({
+        "id": body.get("id").and_then(|v| v.as_str()).unwrap_or("msg-direct"),
+        "type": "message",
+        "role": "assistant",
+        "model": model,
+        "content": [{ "type": "text", "text": text }],
+        "stop_reason": stop_reason,
+        "stop_sequence": null,
+        "usage": { "input_tokens": input_tokens, "output_tokens": output_tokens }
+    })
 }
 
 #[cfg(test)]

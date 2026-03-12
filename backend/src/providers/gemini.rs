@@ -205,6 +205,10 @@ impl Default for GeminiProvider {
 
 #[async_trait]
 impl Provider for GeminiProvider {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn id(&self) -> ProviderId {
         ProviderId::Gemini
     }
@@ -275,6 +279,22 @@ impl Provider for GeminiProvider {
             Err(e) => Err(e),
         });
         Ok(Box::pin(stream))
+    }
+
+    /// Gemini responses need conversion when served through the OpenAI endpoint.
+    fn normalize_response_for_openai(&self, model: &str, body: Value) -> Value {
+        serde_json::to_value(crate::converters::gemini_to_openai::gemini_to_openai(
+            model, &body,
+        ))
+        .unwrap_or_default()
+    }
+
+    /// Gemini responses need conversion when served through the Anthropic endpoint.
+    fn normalize_response_for_anthropic(&self, model: &str, body: Value) -> Value {
+        serde_json::to_value(crate::converters::gemini_to_anthropic::gemini_to_anthropic(
+            model, &body,
+        ))
+        .unwrap_or_default()
     }
 }
 

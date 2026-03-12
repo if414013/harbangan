@@ -236,13 +236,14 @@ impl ProviderRegistry {
         };
 
         // Try explicit prefix first (e.g. "anthropic/claude-opus-4-6")
-        let (native, actual_model) = if let Some((provider, _model_id)) = Self::parse_prefixed_model(model) {
-            (provider, model)
-        } else if let Some(provider) = Self::provider_for_model(model) {
-            (provider, model)
-        } else {
-            return (ProviderId::Kiro, None);
-        };
+        let (native, actual_model) =
+            if let Some((provider, _model_id)) = Self::parse_prefixed_model(model) {
+                (provider, model)
+            } else if let Some(provider) = Self::provider_for_model(model) {
+                (provider, model)
+            } else {
+                return (ProviderId::Kiro, None);
+            };
         // actual_model is used for logging context only; routing uses `native`
         let _ = actual_model;
 
