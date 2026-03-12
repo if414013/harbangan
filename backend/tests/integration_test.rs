@@ -17,7 +17,7 @@ use std::sync::Mutex;
 use std::sync::RwLock;
 use tower::ServiceExt;
 
-use kiro_gateway::{
+use harbangan::{
     auth::AuthManager,
     cache::ModelCache,
     config::Config,
@@ -74,12 +74,12 @@ fn create_test_app_state() -> AppState {
         http_connect_timeout: 30,
         http_request_timeout: 300,
         http_max_retries: 3,
-        debug_mode: kiro_gateway::config::DebugMode::Off,
+        debug_mode: harbangan::config::DebugMode::Off,
         log_level: "info".to_string(),
         tool_description_max_length: 10000,
         fake_reasoning_enabled: true,
         fake_reasoning_max_tokens: 4000,
-        fake_reasoning_handling: kiro_gateway::config::FakeReasoningHandling::AsReasoningContent,
+        fake_reasoning_handling: harbangan::config::FakeReasoningHandling::AsReasoningContent,
         truncation_recovery: true,
         guardrails_enabled: false,
         mcp_enabled: false,

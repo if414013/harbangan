@@ -5,7 +5,7 @@
 //!   cargo bench --features bench -- standalone -c 10,50,100 -d 30 -s
 
 use clap::{Parser, Subcommand};
-use kiro_gateway::bench::{
+use harbangan::bench::{
     BenchmarkConfig, BenchmarkReport, BenchmarkRunner, MockKiroServer, MockServerConfig,
 };
 
@@ -272,8 +272,8 @@ impl MockBenchmarkRunner {
         Ok(())
     }
 
-    async fn run(&self) -> Vec<(usize, kiro_gateway::bench::metrics::MetricsSnapshot)> {
-        use kiro_gateway::bench::MetricsCollector;
+    async fn run(&self) -> Vec<(usize, harbangan::bench::metrics::MetricsSnapshot)> {
+        use harbangan::bench::MetricsCollector;
         use std::sync::Arc;
         use std::time::{Duration, Instant};
         use sysinfo::System;
