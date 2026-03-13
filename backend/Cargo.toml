@@ -34,7 +34,7 @@ serde_json = "1"
 
 # Configuration
 dotenvy = "0.15"
-config = "0.14"
+config = "0.15"
 
 # Logging
 tracing = "0.1"
