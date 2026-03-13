@@ -79,34 +79,6 @@ fn anthropic_config() -> ProviderOAuthConfig {
     }
 }
 
-fn gemini_config() -> Result<ProviderOAuthConfig, ApiError> {
-    let client_id = std::env::var("GEMINI_OAUTH_CLIENT_ID")
-        .or_else(|_| std::env::var("GOOGLE_CLIENT_ID"))
-        .unwrap_or_default();
-    let client_secret = std::env::var("GEMINI_OAUTH_CLIENT_SECRET")
-        .or_else(|_| std::env::var("GOOGLE_CLIENT_SECRET"))
-        .unwrap_or_default();
-    if client_id.is_empty() || client_secret.is_empty() {
-        return Err(ApiError::ValidationError(
-            "Gemini OAuth requires GEMINI_OAUTH_CLIENT_ID/GOOGLE_CLIENT_ID and GEMINI_OAUTH_CLIENT_SECRET/GOOGLE_CLIENT_SECRET environment variables".into(),
-        ));
-    }
-    Ok(ProviderOAuthConfig {
-        client_id,
-        client_secret,
-        token_url: "https://oauth2.googleapis.com/token",
-        auth_url: "https://accounts.google.com/o/oauth2/v2/auth",
-        redirect_uri: "http://localhost:8085/oauth2callback",
-        port: 8085,
-        scopes: &[
-            "openid",
-            "https://www.googleapis.com/auth/generative-language",
-            "https://www.googleapis.com/auth/userinfo.email",
-            "https://www.googleapis.com/auth/userinfo.profile",
-        ],
-    })
-}
-
 fn openai_codex_config() -> ProviderOAuthConfig {
     ProviderOAuthConfig {
         client_id: std::env::var("OPENAI_OAUTH_CLIENT_ID")
@@ -123,7 +95,6 @@ fn openai_codex_config() -> ProviderOAuthConfig {
 fn get_provider_config(provider: &str) -> Result<ProviderOAuthConfig, ApiError> {
     match provider {
         "anthropic" => Ok(anthropic_config()),
-        "gemini" => gemini_config(),
         "openai_codex" => Ok(openai_codex_config()),
         _ => Err(ApiError::ValidationError(format!(
             "Unknown provider: {}",
@@ -135,9 +106,9 @@ fn get_provider_config(provider: &str) -> Result<ProviderOAuthConfig, ApiError> 
 /// Validate that a provider path param is one of the supported providers.
 fn validate_provider(provider: &str) -> Result<(), ApiError> {
     match provider {
-        "anthropic" | "gemini" | "openai_codex" => Ok(()),
+        "anthropic" | "openai_codex" => Ok(()),
         _ => Err(ApiError::ValidationError(format!(
-            "Unknown provider: {}. Must be one of: anthropic, gemini, openai_codex",
+            "Unknown provider: {}. Must be one of: anthropic, openai_codex",
             provider
         ))),
     }
@@ -213,7 +184,7 @@ impl TokenExchanger for HttpTokenExchanger {
     ) -> Result<TokenExchangeResult, ApiError> {
         let config = get_provider_config(provider)?;
 
-        // Anthropic expects JSON body; OpenAI/Gemini expect form-encoded
+        // Anthropic expects JSON body; OpenAI expects form-encoded
         let resp = if provider == "anthropic" {
             // Strip #fragment from code (Anthropic may append state after #)
             let clean_code = code.split('#').next().unwrap_or(code);
@@ -407,45 +378,27 @@ impl HttpTokenExchanger {
         })
     }
 
-    /// Extract email from token response (Anthropic), id_token JWT (OpenAI), or userinfo endpoint (Gemini).
+    /// Extract email from token response (Anthropic) or id_token JWT (OpenAI).
     async fn extract_email(
         &self,
         provider: &str,
         token_response: &serde_json::Value,
-        access_token: &str,
+        _access_token: &str,
     ) -> String {
-        match provider {
-            "anthropic" => {
-                // Anthropic: email is in token response at account.email_address
-                token_response["account"]["email_address"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string()
-            }
-            "gemini" => {
-                // Gemini: call Google userinfo endpoint
-                if let Ok(resp) = self
-                    .client
-                    .get("https://www.googleapis.com/oauth2/v3/userinfo")
-                    .bearer_auth(access_token)
-                    .send()
-                    .await
-                {
-                    if let Ok(info) = resp.json::<serde_json::Value>().await {
-                        return info["email"].as_str().unwrap_or_default().to_string();
-                    }
+        if provider == "anthropic" {
+            // Anthropic: email is in token response at account.email_address
+            token_response["account"]["email_address"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        } else {
+            // OpenAI: decode id_token JWT payload
+            if let Some(id_token) = token_response["id_token"].as_str() {
+                if let Some(email) = decode_jwt_email(id_token) {
+                    return email;
                 }
-                String::new()
             }
-            _ => {
-                // OpenAI: decode id_token JWT payload
-                if let Some(id_token) = token_response["id_token"].as_str() {
-                    if let Some(email) = decode_jwt_email(id_token) {
-                        return email;
-                    }
-                }
-                String::new()
-            }
+            String::new()
         }
     }
 }
@@ -519,7 +472,7 @@ async fn providers_status(
     let connected_map: std::collections::HashMap<String, String> = connected.into_iter().collect();
 
     let mut providers = serde_json::Map::new();
-    for pid in &["anthropic", "gemini", "openai_codex"] {
+    for pid in &["anthropic", "openai_codex"] {
         let email = connected_map.get(*pid).cloned();
         let connected = email.is_some();
         providers.insert(
@@ -550,7 +503,7 @@ async fn provider_connect(
     headers: axum::http::HeaderMap,
 ) -> Result<Json<ConnectResponse>, ApiError> {
     validate_provider(&provider)?;
-    // Validate provider config early (catches missing Gemini env vars)
+    // Validate provider config early
     get_provider_config(&provider)?;
 
     // Derive base URL from request headers (respects reverse proxy)
@@ -700,16 +653,10 @@ async fn relay_script(
     );
 
     // Provider-specific extra params
-    match provider.as_str() {
-        "openai_codex" => {
-            auth_url.push_str(
-                "&prompt=login&id_token_add_organizations=true&codex_cli_simplified_flow=true",
-            );
-        }
-        "gemini" => {
-            auth_url.push_str("&access_type=offline&prompt=consent");
-        }
-        _ => {}
+    if provider.as_str() == "openai_codex" {
+        auth_url.push_str(
+            "&prompt=login&id_token_add_organizations=true&codex_cli_simplified_flow=true",
+        );
     }
 
     let relay_url = format!("{}://{}/_ui/api/providers/{}/relay", scheme, host, provider);
@@ -941,13 +888,13 @@ mod tests {
     #[test]
     fn test_validate_provider_valid() {
         assert!(validate_provider("anthropic").is_ok());
-        assert!(validate_provider("gemini").is_ok());
         assert!(validate_provider("openai_codex").is_ok());
     }
 
     #[test]
     fn test_validate_provider_invalid() {
         assert!(validate_provider("kiro").is_err());
+        assert!(validate_provider("gemini").is_err());
         assert!(validate_provider("foobar").is_err());
         assert!(validate_provider("").is_err());
     }
@@ -1022,23 +969,14 @@ mod tests {
     #[test]
     fn test_get_provider_config_all() {
         assert!(get_provider_config("anthropic").is_ok());
-        // Gemini requires env vars — test that it errors without them
-        std::env::remove_var("GEMINI_OAUTH_CLIENT_ID");
-        assert!(get_provider_config("gemini").is_err());
-        // With env vars set, it should succeed
-        std::env::set_var("GEMINI_OAUTH_CLIENT_ID", "test-id");
-        std::env::set_var("GEMINI_OAUTH_CLIENT_SECRET", "test-secret");
-        assert!(get_provider_config("gemini").is_ok());
         assert!(get_provider_config("openai_codex").is_ok());
+        assert!(get_provider_config("gemini").is_err());
         assert!(get_provider_config("unknown").is_err());
     }
 
     #[test]
     fn test_provider_config_ports() {
         assert_eq!(get_provider_config("anthropic").unwrap().port, 54545);
-        std::env::set_var("GEMINI_OAUTH_CLIENT_ID", "test-id");
-        std::env::set_var("GEMINI_OAUTH_CLIENT_SECRET", "test-secret");
-        assert_eq!(get_provider_config("gemini").unwrap().port, 8085);
         assert_eq!(get_provider_config("openai_codex").unwrap().port, 1455);
     }
 
@@ -1155,7 +1093,7 @@ mod tests {
     #[test]
     fn test_providers_status_response_structure() {
         let mut providers = serde_json::Map::new();
-        for pid in &["anthropic", "gemini", "openai_codex"] {
+        for pid in &["anthropic", "openai_codex"] {
             providers.insert(
                 pid.to_string(),
                 serde_json::to_value(ProviderStatusInfo {
@@ -1171,7 +1109,7 @@ mod tests {
         }
         let resp = ProvidersStatusResponse { providers };
         let json = serde_json::to_value(&resp).unwrap();
-        // All three providers must always be present
+        // Both providers must always be present
         assert!(json["providers"]["anthropic"]["connected"]
             .as_bool()
             .unwrap());
@@ -1179,7 +1117,6 @@ mod tests {
             json["providers"]["anthropic"]["email"],
             "user@anthropic.com"
         );
-        assert!(!json["providers"]["gemini"]["connected"].as_bool().unwrap());
         assert!(!json["providers"]["openai_codex"]["connected"]
             .as_bool()
             .unwrap());

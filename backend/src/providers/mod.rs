@@ -6,7 +6,6 @@ use crate::providers::types::ProviderId;
 
 pub mod anthropic;
 pub mod copilot;
-pub mod gemini;
 pub mod kiro;
 pub mod openai_codex;
 pub mod qwen;
@@ -35,10 +34,6 @@ pub fn build_provider_map(
     map.insert(
         ProviderId::OpenAICodex,
         Arc::new(openai_codex::OpenAICodexProvider::new()) as Arc<dyn Provider>,
-    );
-    map.insert(
-        ProviderId::Gemini,
-        Arc::new(gemini::GeminiProvider::new()) as Arc<dyn Provider>,
     );
     map.insert(
         ProviderId::Copilot,

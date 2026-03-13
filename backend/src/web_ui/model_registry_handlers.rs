@@ -179,7 +179,7 @@ async fn populate_models(
     let providers: Vec<&str> = if let Some(ref pid) = body.provider_id {
         vec![pid.as_str()]
     } else {
-        vec!["anthropic", "openai_codex", "gemini", "qwen", "kiro"]
+        vec!["anthropic", "openai_codex", "qwen", "kiro"]
     };
 
     let mut total_upserted = 0usize;

@@ -8,7 +8,7 @@ import { useToast } from '../components/useToast'
 import { getProvidersStatus, getProviderConnectUrl, disconnectProvider } from '../lib/api'
 import type { ProvidersStatusResponse } from '../lib/api'
 
-const PROVIDERS = ['anthropic', 'gemini', 'openai_codex'] as const
+const PROVIDERS = ['anthropic', 'openai_codex'] as const
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   openai_codex: 'OpenAI Codex',

@@ -64,14 +64,7 @@ async fn get_priority(
 
 // ── POST /providers/priority ─────────────────────────────────────
 
-const VALID_PROVIDERS: &[&str] = &[
-    "kiro",
-    "anthropic",
-    "openai_codex",
-    "gemini",
-    "copilot",
-    "qwen",
-];
+const VALID_PROVIDERS: &[&str] = &["kiro", "anthropic", "openai_codex", "copilot", "qwen"];
 
 async fn update_priority(
     State(state): State<AppState>,
@@ -201,7 +194,7 @@ mod tests {
         assert!(VALID_PROVIDERS.contains(&"kiro"));
         assert!(VALID_PROVIDERS.contains(&"anthropic"));
         assert!(VALID_PROVIDERS.contains(&"openai_codex"));
-        assert!(VALID_PROVIDERS.contains(&"gemini"));
+        assert!(!VALID_PROVIDERS.contains(&"gemini"));
         assert!(VALID_PROVIDERS.contains(&"copilot"));
         assert!(VALID_PROVIDERS.contains(&"qwen"));
         assert!(!VALID_PROVIDERS.contains(&"azure"));
@@ -218,8 +211,8 @@ mod tests {
 
     #[test]
     fn test_valid_providers_count() {
-        // Ensure we have exactly 6 providers (kiro, anthropic, openai_codex, gemini, copilot, qwen)
-        assert_eq!(VALID_PROVIDERS.len(), 6);
+        // Ensure we have exactly 5 providers (kiro, anthropic, openai_codex, copilot, qwen)
+        assert_eq!(VALID_PROVIDERS.len(), 5);
     }
 
     #[test]

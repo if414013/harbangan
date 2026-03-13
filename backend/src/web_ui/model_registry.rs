@@ -216,64 +216,6 @@ pub fn openai_codex_static_models() -> Vec<RegistryModel> {
     )
 }
 
-/// Static Gemini model definitions.
-pub fn gemini_static_models() -> Vec<RegistryModel> {
-    static_to_registry(
-        "gemini",
-        vec![
-            StaticModel {
-                model_id: "gemini-3.1-pro-preview",
-                display_name: "Gemini 3.1 Pro Preview",
-                context_length: 1_048_576,
-                max_output_tokens: 65_536,
-                capabilities: json!({"thinking": true}),
-            },
-            StaticModel {
-                model_id: "gemini-3-pro-preview",
-                display_name: "Gemini 3 Pro Preview",
-                context_length: 1_048_576,
-                max_output_tokens: 65_536,
-                capabilities: json!({"thinking": true}),
-            },
-            StaticModel {
-                model_id: "gemini-3-flash-preview",
-                display_name: "Gemini 3 Flash Preview",
-                context_length: 1_048_576,
-                max_output_tokens: 65_536,
-                capabilities: json!({"thinking": true}),
-            },
-            StaticModel {
-                model_id: "gemini-3-pro-image-preview",
-                display_name: "Gemini 3 Pro Image Preview",
-                context_length: 1_048_576,
-                max_output_tokens: 65_536,
-                capabilities: json!({"thinking": true, "image_generation": true}),
-            },
-            StaticModel {
-                model_id: "gemini-2.5-pro",
-                display_name: "Gemini 2.5 Pro",
-                context_length: 1_048_576,
-                max_output_tokens: 65_536,
-                capabilities: json!({"thinking": true}),
-            },
-            StaticModel {
-                model_id: "gemini-2.5-flash",
-                display_name: "Gemini 2.5 Flash",
-                context_length: 1_048_576,
-                max_output_tokens: 65_536,
-                capabilities: json!({"thinking": true}),
-            },
-            StaticModel {
-                model_id: "gemini-2.5-flash-lite",
-                display_name: "Gemini 2.5 Flash Lite",
-                context_length: 1_048_576,
-                max_output_tokens: 65_536,
-                capabilities: json!({"thinking": true}),
-            },
-        ],
-    )
-}
-
 /// Static Qwen model definitions.
 pub fn qwen_static_models() -> Vec<RegistryModel> {
     static_to_registry(
@@ -317,7 +259,6 @@ pub fn all_static_models() -> Vec<RegistryModel> {
     let mut models = Vec::new();
     models.extend(anthropic_static_models());
     models.extend(openai_codex_static_models());
-    models.extend(gemini_static_models());
     models.extend(qwen_static_models());
     models
 }
@@ -533,79 +474,6 @@ pub async fn fetch_anthropic_models(
         .collect())
 }
 
-/// Fetch Gemini models from `GET /v1beta/models`.
-#[allow(dead_code)]
-pub async fn fetch_gemini_models(
-    http_client: &crate::http_client::KiroHttpClient,
-    api_key: &str,
-) -> Result<Vec<RegistryModel>> {
-    let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models?key={}",
-        api_key
-    );
-
-    let resp = http_client
-        .client()
-        .get(&url)
-        .send()
-        .await
-        .context("Failed to fetch Gemini models")?;
-
-    if !resp.status().is_success() {
-        anyhow::bail!("Gemini models API returned status {}", resp.status());
-    }
-
-    let body = resp
-        .text()
-        .await
-        .context("Failed to read Gemini response")?;
-    let json: serde_json::Value =
-        serde_json::from_str(&body).context("Failed to parse Gemini models JSON")?;
-
-    let now = Utc::now();
-    let models = json
-        .get("models")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-
-    Ok(models
-        .into_iter()
-        .filter_map(|m| {
-            let name = m.get("name")?.as_str()?;
-            // Gemini names are like "models/gemini-2.5-pro" — strip prefix
-            let model_id = name.strip_prefix("models/").unwrap_or(name);
-            let display_name = m
-                .get("displayName")
-                .and_then(|v| v.as_str())
-                .unwrap_or(model_id);
-            let input_limit = m
-                .get("inputTokenLimit")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0) as i32;
-            let output_limit = m
-                .get("outputTokenLimit")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0) as i32;
-            Some(RegistryModel {
-                id: Uuid::new_v4(),
-                provider_id: "gemini".to_string(),
-                model_id: model_id.to_string(),
-                display_name: display_name.to_string(),
-                prefixed_id: generate_prefixed_id("gemini", model_id),
-                context_length: input_limit,
-                max_output_tokens: output_limit,
-                capabilities: json!({}),
-                enabled: true,
-                source: "api".to_string(),
-                upstream_meta: Some(m.clone()),
-                created_at: now,
-                updated_at: now,
-            })
-        })
-        .collect())
-}
-
 /// Parse an OpenAI-format `/models` response into `RegistryModel` entries.
 pub(crate) fn parse_openai_models_response(
     provider_id: &str,
@@ -660,7 +528,7 @@ pub async fn populate_provider(
         }
         "copilot" => fetch_copilot_models(http_client, db).await.ok(),
         "qwen" => None, // static only
-        _ => None,      // anthropic, openai_codex, gemini handled via user keys below
+        _ => None,      // anthropic, openai_codex handled via user keys below
     };
 
     let models = if let Some(api) = api_models {
@@ -695,7 +563,7 @@ pub async fn populate_provider(
     Ok(count)
 }
 
-/// Populate a provider using a user's API key (for anthropic, openai_codex, gemini).
+/// Populate a provider using a user's API key (for anthropic, openai_codex).
 #[allow(dead_code)]
 pub async fn populate_provider_with_key(
     provider_id: &str,
@@ -713,7 +581,6 @@ pub async fn populate_provider_with_key(
         )
         .await
         .ok(),
-        "gemini" => fetch_gemini_models(http_client, api_key).await.ok(),
         _ => None,
     };
 
@@ -745,7 +612,6 @@ fn get_static_for_provider(provider_id: &str) -> Vec<RegistryModel> {
     match provider_id {
         "anthropic" => anthropic_static_models(),
         "openai_codex" => openai_codex_static_models(),
-        "gemini" => gemini_static_models(),
         "qwen" => qwen_static_models(),
         _ => Vec::new(), // kiro, copilot have no static fallback
     }
@@ -791,16 +657,6 @@ mod tests {
     }
 
     #[test]
-    fn test_gemini_static_models_not_empty() {
-        let models = gemini_static_models();
-        assert!(!models.is_empty());
-        for m in &models {
-            assert_eq!(m.provider_id, "gemini");
-            assert!(m.prefixed_id.starts_with("gemini/"));
-        }
-    }
-
-    #[test]
     fn test_qwen_static_models_not_empty() {
         let models = qwen_static_models();
         assert!(!models.is_empty());
@@ -815,12 +671,8 @@ mod tests {
         let all = all_static_models();
         let anthropic_count = anthropic_static_models().len();
         let openai_count = openai_codex_static_models().len();
-        let gemini_count = gemini_static_models().len();
         let qwen_count = qwen_static_models().len();
-        assert_eq!(
-            all.len(),
-            anthropic_count + openai_count + gemini_count + qwen_count
-        );
+        assert_eq!(all.len(), anthropic_count + openai_count + qwen_count);
     }
 
     #[test]
@@ -881,7 +733,6 @@ mod tests {
     fn test_get_static_for_provider_known() {
         assert!(!get_static_for_provider("anthropic").is_empty());
         assert!(!get_static_for_provider("openai_codex").is_empty());
-        assert!(!get_static_for_provider("gemini").is_empty());
         assert!(!get_static_for_provider("qwen").is_empty());
     }
 
@@ -889,6 +740,7 @@ mod tests {
     fn test_get_static_for_provider_unknown() {
         assert!(get_static_for_provider("kiro").is_empty());
         assert!(get_static_for_provider("copilot").is_empty());
+        assert!(get_static_for_provider("gemini").is_empty());
         assert!(get_static_for_provider("nonexistent").is_empty());
     }
 
@@ -929,23 +781,10 @@ mod tests {
                 m.model_id
             );
         }
-
-        let gemini = gemini_static_models();
-        for m in &gemini {
-            assert!(
-                m.model_id.starts_with("gemini-"),
-                "Gemini model_id should start with gemini-: {}",
-                m.model_id
-            );
-        }
     }
 
     #[test]
     fn test_generate_prefixed_id_special_chars() {
-        assert_eq!(
-            generate_prefixed_id("gemini", "gemini-2.5-pro"),
-            "gemini/gemini-2.5-pro"
-        );
         assert_eq!(
             generate_prefixed_id("qwen", "qwen3-coder-plus"),
             "qwen/qwen3-coder-plus"

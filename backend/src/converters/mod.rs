@@ -1,13 +1,9 @@
-pub mod anthropic_to_gemini;
 pub mod anthropic_to_kiro;
 pub mod anthropic_to_openai;
 pub mod core;
-pub mod gemini_to_anthropic;
-pub mod gemini_to_openai;
 pub mod kiro_to_anthropic;
 pub mod kiro_to_openai;
 pub mod openai_to_anthropic;
-pub mod openai_to_gemini;
 pub mod openai_to_kiro;
 
 /// Integration tests: converter round-trips across format boundaries.

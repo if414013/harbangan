@@ -274,6 +274,17 @@ impl ConfigDb {
             self.migrate_to_v12().await?;
         }
 
+        // Re-read max version after v12 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 13 {
+            self.migrate_to_v13().await?;
+        }
+
         Ok(())
     }
 
@@ -1939,6 +1950,110 @@ impl ConfigDb {
         Ok(())
     }
 
+    /// Version 13 migration: remove Gemini provider.
+    async fn migrate_to_v13(&self) -> Result<()> {
+        tracing::info!("Running database migration to version 13 (remove gemini provider)...");
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v13 migration transaction")?;
+
+        // ── Delete Gemini rows from all provider tables ──────────
+
+        sqlx::query("DELETE FROM user_provider_keys WHERE provider_id = 'gemini'")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to delete gemini from user_provider_keys")?;
+
+        sqlx::query("DELETE FROM user_provider_tokens WHERE provider_id = 'gemini'")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to delete gemini from user_provider_tokens")?;
+
+        sqlx::query("DELETE FROM model_routes WHERE provider_id = 'gemini'")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to delete gemini from model_routes")?;
+
+        sqlx::query("DELETE FROM user_provider_priority WHERE provider_id = 'gemini'")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to delete gemini from user_provider_priority")?;
+
+        sqlx::query("DELETE FROM model_registry WHERE provider_id = 'gemini'")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to delete gemini from model_registry")?;
+
+        // ── Drop and re-add CHECK constraints without 'gemini' ──
+
+        sqlx::query(
+            "ALTER TABLE user_provider_keys
+             DROP CONSTRAINT IF EXISTS user_provider_keys_provider_id_check",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to drop user_provider_keys CHECK constraint")?;
+
+        sqlx::query(
+            "ALTER TABLE user_provider_keys
+             ADD CONSTRAINT user_provider_keys_provider_id_check
+             CHECK (provider_id IN ('anthropic', 'openai_codex'))",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to add user_provider_keys CHECK constraint")?;
+
+        sqlx::query(
+            "ALTER TABLE user_provider_tokens
+             DROP CONSTRAINT IF EXISTS user_provider_tokens_provider_id_check",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to drop user_provider_tokens CHECK constraint")?;
+
+        sqlx::query(
+            "ALTER TABLE user_provider_tokens
+             ADD CONSTRAINT user_provider_tokens_provider_id_check
+             CHECK (provider_id IN ('anthropic', 'openai_codex', 'qwen'))",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to add user_provider_tokens CHECK constraint")?;
+
+        sqlx::query(
+            "ALTER TABLE model_routes
+             DROP CONSTRAINT IF EXISTS model_routes_provider_id_check",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to drop model_routes CHECK constraint")?;
+
+        sqlx::query(
+            "ALTER TABLE model_routes
+             ADD CONSTRAINT model_routes_provider_id_check
+             CHECK (provider_id IN ('kiro', 'anthropic', 'openai_codex', 'copilot', 'qwen'))",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to add model_routes CHECK constraint")?;
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(13_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 13")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit v13 migration")?;
+
+        tracing::info!("Database migration to version 13 complete");
+        Ok(())
+    }
+
     // ── Model Registry ───────────────────────────────────────────
 
     /// Get all models in the registry.
@@ -3175,11 +3290,11 @@ mod tests {
         // First insert with a refresh token
         db.upsert_user_provider_token(
             user_id,
-            "gemini",
+            "anthropic",
             "access_1",
             "refresh_original",
             expires,
-            "user@gmail.com",
+            "user@anthropic.com",
         )
         .await
         .unwrap();
@@ -3188,17 +3303,17 @@ mod tests {
         let expires2 = Utc::now() + chrono::Duration::hours(2);
         db.upsert_user_provider_token(
             user_id,
-            "gemini",
+            "anthropic",
             "access_2",
             "",
             expires2,
-            "user@gmail.com",
+            "user@anthropic.com",
         )
         .await
         .unwrap();
 
         let (access, refresh, _, _) = db
-            .get_user_provider_token(user_id, "gemini")
+            .get_user_provider_token(user_id, "anthropic")
             .await
             .unwrap()
             .unwrap();
@@ -3302,7 +3417,7 @@ mod tests {
         let user_id = create_test_user(&db, "nodel@example.com").await;
 
         let deleted = db
-            .delete_user_provider_token(user_id, "gemini")
+            .delete_user_provider_token(user_id, "openai_codex")
             .await
             .unwrap();
         assert_eq!(deleted, 0);

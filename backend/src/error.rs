@@ -109,7 +109,7 @@ pub enum ApiError {
     #[allow(dead_code)]
     NotFound(String),
 
-    /// Error returned by a direct provider API (Anthropic, OpenAI, Gemini)
+    /// Error returned by a direct provider API (Anthropic, OpenAI, etc.)
     #[error("Provider API error ({provider}): {status} - {message}")]
     #[allow(dead_code, clippy::enum_variant_names)]
     ProviderApiError {

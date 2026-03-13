@@ -206,7 +206,7 @@ async fn main() -> Result<()> {
     // then load enabled models into the in-memory registry cache.
     if !is_proxy_only {
         if let Some(ref db) = config_db {
-            let providers = ["anthropic", "openai_codex", "gemini", "qwen"];
+            let providers = ["anthropic", "openai_codex", "qwen"];
             for provider_id in &providers {
                 match web_ui::model_registry::populate_provider(
                     provider_id,

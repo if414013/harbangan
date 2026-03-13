@@ -13,8 +13,6 @@ pub enum ProviderId {
     Anthropic,
     #[serde(rename = "openai_codex")]
     OpenAICodex,
-    #[serde(rename = "gemini")]
-    Gemini,
     #[serde(rename = "copilot")]
     Copilot,
     #[serde(rename = "qwen")]
@@ -28,7 +26,6 @@ impl ProviderId {
             ProviderId::Kiro => "kiro",
             ProviderId::Anthropic => "anthropic",
             ProviderId::OpenAICodex => "openai_codex",
-            ProviderId::Gemini => "gemini",
             ProviderId::Copilot => "copilot",
             ProviderId::Qwen => "qwen",
         }
@@ -49,7 +46,6 @@ impl std::str::FromStr for ProviderId {
             "kiro" => Ok(ProviderId::Kiro),
             "anthropic" => Ok(ProviderId::Anthropic),
             "openai_codex" => Ok(ProviderId::OpenAICodex),
-            "gemini" => Ok(ProviderId::Gemini),
             "copilot" => Ok(ProviderId::Copilot),
             "qwen" => Ok(ProviderId::Qwen),
             other => Err(format!("Unknown provider: {}", other)),
@@ -97,7 +93,6 @@ mod tests {
         assert_eq!(ProviderId::Kiro.as_str(), "kiro");
         assert_eq!(ProviderId::Anthropic.as_str(), "anthropic");
         assert_eq!(ProviderId::OpenAICodex.as_str(), "openai_codex");
-        assert_eq!(ProviderId::Gemini.as_str(), "gemini");
         assert_eq!(ProviderId::Copilot.as_str(), "copilot");
         assert_eq!(ProviderId::Qwen.as_str(), "qwen");
     }
@@ -122,7 +117,6 @@ mod tests {
             ProviderId::from_str("openai_codex").unwrap(),
             ProviderId::OpenAICodex
         );
-        assert_eq!(ProviderId::from_str("gemini").unwrap(), ProviderId::Gemini);
         assert_eq!(
             ProviderId::from_str("copilot").unwrap(),
             ProviderId::Copilot
@@ -176,7 +170,6 @@ mod tests {
             ProviderId::Kiro,
             ProviderId::Anthropic,
             ProviderId::OpenAICodex,
-            ProviderId::Gemini,
             ProviderId::Copilot,
             ProviderId::Qwen,
         ] {
@@ -268,7 +261,6 @@ mod tests {
         assert_ne!(ProviderId::Qwen, ProviderId::Kiro);
         assert_ne!(ProviderId::Qwen, ProviderId::Anthropic);
         assert_ne!(ProviderId::Qwen, ProviderId::OpenAICodex);
-        assert_ne!(ProviderId::Qwen, ProviderId::Gemini);
         assert_ne!(ProviderId::Qwen, ProviderId::Copilot);
     }
 

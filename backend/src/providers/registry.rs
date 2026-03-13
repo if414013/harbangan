@@ -71,8 +71,6 @@ impl ProviderRegistry {
             || model.starts_with("chatgpt-")
         {
             Some(ProviderId::OpenAICodex)
-        } else if model.starts_with("gemini-") {
-            Some(ProviderId::Gemini)
         } else if model.starts_with("qwen-")
             || model.starts_with("qwen3-")
             || model.starts_with("qwq-")
@@ -319,7 +317,7 @@ impl ProviderRegistry {
     ) {
         let mut creds_map = HashMap::new();
         let mut expires_map = HashMap::new();
-        for provider_str in &["anthropic", "openai_codex", "gemini", "qwen"] {
+        for provider_str in &["anthropic", "openai_codex", "qwen"] {
             if let Ok(Some((access_token, _refresh_token, expires_at, _email))) =
                 db.get_user_provider_token(user_id, provider_str).await
             {
@@ -329,7 +327,6 @@ impl ProviderRegistry {
                     let (provider, base_url) = match *provider_str {
                         "anthropic" => (ProviderId::Anthropic, None),
                         "openai_codex" => (ProviderId::OpenAICodex, None),
-                        "gemini" => (ProviderId::Gemini, None),
                         "qwen" => {
                             // Load base_url from DB for Qwen (set by device flow)
                             let url = db
@@ -438,14 +435,12 @@ mod tests {
     }
 
     #[test]
-    fn test_provider_for_model_gemini() {
-        assert_eq!(
-            ProviderRegistry::provider_for_model("gemini-2.5-pro"),
-            Some(ProviderId::Gemini)
-        );
+    fn test_provider_for_model_gemini_now_returns_none() {
+        // Gemini provider removed — gemini-* models should return None (fall through to Kiro)
+        assert_eq!(ProviderRegistry::provider_for_model("gemini-2.5-pro"), None);
         assert_eq!(
             ProviderRegistry::provider_for_model("gemini-2.5-flash"),
-            Some(ProviderId::Gemini)
+            None
         );
     }
 
@@ -991,24 +986,6 @@ mod tests {
     }
 
     #[test]
-    fn test_pick_best_provider_copilot_for_gemini_model() {
-        // Copilot can serve Gemini models too
-        let mut creds = HashMap::new();
-        creds.insert(
-            "copilot".to_string(),
-            ProviderCredentials {
-                provider: ProviderId::Copilot,
-                access_token: "cop-tok".to_string(),
-                base_url: Some("https://api.githubcopilot.com".to_string()),
-            },
-        );
-        let priority = HashMap::new();
-        let (provider, _) =
-            ProviderRegistry::pick_best_provider(&ProviderId::Gemini, &creds, &priority);
-        assert_eq!(provider, ProviderId::Copilot);
-    }
-
-    #[test]
     fn test_pick_best_provider_copilot_base_url_preserved() {
         let mut creds = HashMap::new();
         creds.insert(
@@ -1145,7 +1122,7 @@ mod tests {
         );
         assert_ne!(
             ProviderRegistry::provider_for_model("qwen-coder-plus"),
-            Some(ProviderId::Gemini)
+            Some(ProviderId::Copilot)
         );
     }
 

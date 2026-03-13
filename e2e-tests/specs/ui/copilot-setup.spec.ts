@@ -102,7 +102,6 @@ async function mockProvidersStatus(page: Page) {
       body: JSON.stringify({
         providers: {
           anthropic: { connected: false },
-          gemini: { connected: false },
           openai: { connected: false },
         },
       }),

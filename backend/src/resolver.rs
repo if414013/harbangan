@@ -87,7 +87,7 @@ pub fn extract_model_family(model_name: &str) -> Option<String> {
 ///
 /// This resolver handles Claude model name normalization and resolution
 /// against the Kiro API's model cache. It should NOT be used for
-/// direct-provider models (OpenAI, Anthropic, Gemini, etc.) — those
+/// direct-provider models (OpenAI, Anthropic, etc.) — those
 /// are routed via `ProviderRegistry` and the model registry DB.
 pub struct ModelResolver {
     /// Model cache (Kiro models)
@@ -110,7 +110,7 @@ impl ModelResolver {
     ///
     /// Returns `false` for:
     /// - Prefixed models (e.g. "anthropic/claude-opus-4-6")
-    /// - Models with a known direct-provider prefix (e.g. "gpt-5", "gemini-2.5-pro")
+    /// - Models with a known direct-provider prefix (e.g. "gpt-5", "qwen-coder")
     ///
     /// Returns `true` for Claude models and unknown models that default to Kiro.
     #[allow(dead_code)]

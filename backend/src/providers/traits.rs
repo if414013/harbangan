@@ -53,7 +53,7 @@ pub trait Provider: Send + Sync {
     /// Normalize a non-streaming response for the OpenAI endpoint.
     ///
     /// Called after `execute_openai()`. Providers whose native format isn't OpenAI
-    /// (e.g. Anthropic, Gemini) override this to convert their response body.
+    /// (e.g. Anthropic) override this to convert their response body.
     /// Default: identity (response is already OpenAI format).
     fn normalize_response_for_openai(&self, _model: &str, body: Value) -> Value {
         body
