@@ -19,6 +19,18 @@ use crate::web_ui::config_db::ConfigDb;
 struct KiroStatusResponse {
     has_token: bool,
     expired: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sso_start_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sso_region: Option<String>,
+}
+
+/// Request for POST /kiro/setup (start device code flow)
+#[derive(Deserialize)]
+struct KiroSetupRequest {
+    sso_start_url: String,
+    #[serde(default)]
+    sso_region: Option<String>,
 }
 
 /// Response for POST /kiro/setup (start device code flow)
@@ -64,6 +76,17 @@ async fn kiro_status(
         .await
         .map_err(ApiError::Internal)?;
 
+    // Fetch per-user SSO config
+    let sso_config = config_db
+        .get_user_sso_config(user_id)
+        .await
+        .map_err(ApiError::Internal)?;
+
+    let (sso_start_url, sso_region) = match sso_config {
+        Some((url, region)) => (Some(url), Some(region)),
+        None => (None, None),
+    };
+
     match token {
         Some((_refresh, access, expiry)) => {
             let expired = match expiry {
@@ -73,11 +96,15 @@ async fn kiro_status(
             Ok(Json(KiroStatusResponse {
                 has_token: true,
                 expired,
+                sso_start_url,
+                sso_region,
             }))
         }
         None => Ok(Json(KiroStatusResponse {
             has_token: false,
             expired: false,
+            sso_start_url,
+            sso_region,
         })),
     }
 }
@@ -86,6 +113,7 @@ async fn kiro_status(
 async fn kiro_setup(
     State(state): State<AppState>,
     Extension(session): Extension<SessionInfo>,
+    Json(body): Json<KiroSetupRequest>,
 ) -> Result<Json<KiroSetupResponse>, ApiError> {
     let user_id = session.user_id;
     let config_db = state
@@ -93,29 +121,21 @@ async fn kiro_setup(
         .as_ref()
         .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("Database not configured")))?;
 
-    // Read SSO config from global config
-    let sso_region = config_db
-        .get("oauth_sso_region")
-        .await
-        .map_err(ApiError::Internal)?
-        .unwrap_or_else(|| "us-east-1".to_string());
-    let start_url = config_db
-        .get("oauth_start_url")
-        .await
-        .map_err(ApiError::Internal)?
-        .unwrap_or_default();
+    // Read SSO config from request body
+    let sso_region = body.sso_region.unwrap_or_else(|| "us-east-1".to_string());
 
     // Normalize: strip fragment (#...) and trailing slashes
-    let start_url = start_url
+    let start_url = body
+        .sso_start_url
         .split('#')
         .next()
-        .unwrap_or(&start_url)
+        .unwrap_or(&body.sso_start_url)
         .trim_end_matches('/')
         .to_string();
 
     if start_url.is_empty() {
         return Err(ApiError::ValidationError(
-            "oauth_start_url not configured. Set it in the admin config page (e.g. https://d-xxxxxxxxxx.awsapps.com/start)".into(),
+            "sso_start_url is required (e.g. https://d-xxxxxxxxxx.awsapps.com/start)".into(),
         ));
     }
 
@@ -135,13 +155,14 @@ async fn kiro_setup(
             .await
             .map_err(ApiError::Internal)?;
 
-    // Store per-user OAuth client credentials
+    // Store per-user OAuth client credentials with SSO config
     config_db
         .upsert_user_oauth_client(
             user_id,
             &registration.client_id,
             &registration.client_secret,
             &sso_region,
+            &start_url,
         )
         .await
         .map_err(ApiError::Internal)?;
@@ -429,10 +450,49 @@ mod tests {
         let resp = KiroStatusResponse {
             has_token: true,
             expired: false,
+            sso_start_url: Some("https://d-123.awsapps.com/start".to_string()),
+            sso_region: Some("us-east-1".to_string()),
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["has_token"], true);
         assert_eq!(json["expired"], false);
+        assert_eq!(json["sso_start_url"], "https://d-123.awsapps.com/start");
+        assert_eq!(json["sso_region"], "us-east-1");
+    }
+
+    #[test]
+    fn test_kiro_status_response_without_sso() {
+        let resp = KiroStatusResponse {
+            has_token: false,
+            expired: false,
+            sso_start_url: None,
+            sso_region: None,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["has_token"], false);
+        assert!(json.get("sso_start_url").is_none());
+        assert!(json.get("sso_region").is_none());
+    }
+
+    #[test]
+    fn test_kiro_setup_request_deserialization() {
+        let json = serde_json::json!({
+            "sso_start_url": "https://d-123.awsapps.com/start",
+            "sso_region": "us-west-2"
+        });
+        let req: KiroSetupRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.sso_start_url, "https://d-123.awsapps.com/start");
+        assert_eq!(req.sso_region, Some("us-west-2".to_string()));
+    }
+
+    #[test]
+    fn test_kiro_setup_request_default_region() {
+        let json = serde_json::json!({
+            "sso_start_url": "https://d-123.awsapps.com/start"
+        });
+        let req: KiroSetupRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.sso_start_url, "https://d-123.awsapps.com/start");
+        assert_eq!(req.sso_region, None);
     }
 
     #[test]

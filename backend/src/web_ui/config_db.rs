@@ -285,6 +285,17 @@ impl ConfigDb {
             self.migrate_to_v13().await?;
         }
 
+        // Re-read max version after v13 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 14 {
+            self.migrate_to_v14().await?;
+        }
+
         Ok(())
     }
 
@@ -1408,20 +1419,23 @@ impl ConfigDb {
         client_id: &str,
         client_secret: &str,
         sso_region: &str,
+        start_url: &str,
     ) -> Result<()> {
         sqlx::query(
-            "INSERT INTO user_kiro_tokens (user_id, refresh_token, oauth_client_id, oauth_client_secret, oauth_sso_region, updated_at)
-             VALUES ($1, '', $2, $3, $4, NOW())
+            "INSERT INTO user_kiro_tokens (user_id, refresh_token, oauth_client_id, oauth_client_secret, oauth_sso_region, oauth_start_url, updated_at)
+             VALUES ($1, '', $2, $3, $4, $5, NOW())
              ON CONFLICT (user_id) DO UPDATE SET
                oauth_client_id = EXCLUDED.oauth_client_id,
                oauth_client_secret = EXCLUDED.oauth_client_secret,
                oauth_sso_region = EXCLUDED.oauth_sso_region,
+               oauth_start_url = EXCLUDED.oauth_start_url,
                updated_at = NOW()",
         )
         .bind(user_id)
         .bind(client_id)
         .bind(client_secret)
         .bind(sso_region)
+        .bind(start_url)
         .execute(&self.pool)
         .await
         .context("Failed to upsert user OAuth client")?;
@@ -1457,7 +1471,7 @@ impl ConfigDb {
     pub async fn clear_user_oauth_client(&self, user_id: Uuid) -> Result<()> {
         sqlx::query(
             "UPDATE user_kiro_tokens SET
-               oauth_client_id = NULL, oauth_client_secret = NULL, oauth_sso_region = NULL,
+               oauth_client_id = NULL, oauth_client_secret = NULL, oauth_sso_region = NULL, oauth_start_url = NULL,
                updated_at = NOW()
              WHERE user_id = $1",
         )
@@ -1467,6 +1481,24 @@ impl ConfigDb {
         .context("Failed to clear user OAuth client")?;
 
         Ok(())
+    }
+
+    /// Get per-user SSO configuration (start URL and region).
+    #[allow(dead_code)]
+    pub async fn get_user_sso_config(&self, user_id: Uuid) -> Result<Option<(String, String)>> {
+        let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT oauth_start_url, oauth_sso_region
+             FROM user_kiro_tokens WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to get user SSO config")?;
+
+        Ok(row.and_then(|(url, region)| match (url, region) {
+            (Some(url), Some(region)) => Some((url, region)),
+            _ => None,
+        }))
     }
 
     /// Get expiring tokens with per-user OAuth credentials for refresh.
@@ -2051,6 +2083,46 @@ impl ConfigDb {
             .context("Failed to commit v13 migration")?;
 
         tracing::info!("Database migration to version 13 complete");
+        Ok(())
+    }
+
+    /// Version 14 migration: add per-user oauth_start_url column.
+    async fn migrate_to_v14(&self) -> Result<()> {
+        tracing::info!("Running database migration to version 14 (per-user SSO config)...");
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v14 migration transaction")?;
+
+        // Add oauth_start_url column to user_kiro_tokens
+        sqlx::query("ALTER TABLE user_kiro_tokens ADD COLUMN IF NOT EXISTS oauth_start_url TEXT")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to add oauth_start_url column")?;
+
+        // Backfill from global config table
+        sqlx::query(
+            "UPDATE user_kiro_tokens SET oauth_start_url = (
+                SELECT value FROM config WHERE key = 'oauth_start_url'
+             ) WHERE oauth_start_url IS NULL AND oauth_sso_region IS NOT NULL",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to backfill oauth_start_url from global config")?;
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(14_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 14")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit v14 migration")?;
+
+        tracing::info!("Database migration to version 14 complete");
         Ok(())
     }
 

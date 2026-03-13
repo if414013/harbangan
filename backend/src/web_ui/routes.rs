@@ -66,23 +66,6 @@ pub async fn get_config(State(state): State<AppState>) -> Json<Value> {
     // Clone the config snapshot and drop the read guard before any .await
     let config = state.config.read().unwrap().clone();
 
-    // Fetch DB-only config values (not on the Config struct)
-    let (oauth_start_url, oauth_sso_region) = if let Some(ref db) = state.config_db {
-        let url = db
-            .get("oauth_start_url")
-            .await
-            .unwrap_or(None)
-            .unwrap_or_default();
-        let region = db
-            .get("oauth_sso_region")
-            .await
-            .unwrap_or(None)
-            .unwrap_or_default();
-        (url, region)
-    } else {
-        (String::new(), String::new())
-    };
-
     Json(json!({
         "setup_complete": setup_complete,
         "config": {
@@ -108,8 +91,6 @@ pub async fn get_config(State(state): State<AppState>) -> Json<Value> {
             "mcp_tool_sync_interval": config.mcp_tool_sync_interval,
             "mcp_max_consecutive_failures": config.mcp_max_consecutive_failures,
             "tool_description_max_length": config.tool_description_max_length,
-            "oauth_start_url": oauth_start_url,
-            "oauth_sso_region": oauth_sso_region,
         }
     }))
 }

@@ -32,9 +32,7 @@ pub fn classify_config_change(key: &str) -> ChangeType {
         | "mcp_tool_execution_timeout"
         | "mcp_health_check_interval"
         | "mcp_tool_sync_interval"
-        | "mcp_max_consecutive_failures"
-        | "oauth_start_url"
-        | "oauth_sso_region" => ChangeType::HotReload,
+        | "mcp_max_consecutive_failures" => ChangeType::HotReload,
         "server_host"
         | "server_port"
         | "streaming_timeout"
@@ -195,12 +193,6 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
             }
             Ok(())
         }
-        "oauth_start_url" | "oauth_sso_region" => {
-            value
-                .as_str()
-                .ok_or_else(|| format!("{} must be a string", key))?;
-            Ok(())
-        }
         _ => Err(format!("Unknown config field: '{}'", key)),
     }
 }
@@ -275,8 +267,6 @@ pub fn get_config_field_descriptions() -> HashMap<&'static str, &'static str> {
         "oauth_client_secret_expires_at",
         "When the OAuth client secret expires (re-registration needed)",
     );
-    m.insert("oauth_start_url", "IAM Identity Center start URL");
-    m.insert("oauth_sso_region", "AWS region for SSO OIDC endpoints");
     m.insert(
         "guardrails_enabled",
         "Enable AWS Bedrock guardrails for input/output validation",

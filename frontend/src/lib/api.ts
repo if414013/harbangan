@@ -126,6 +126,8 @@ export interface ApiKeyCreateResponse {
 export interface KiroStatus {
   has_token: boolean
   expired: boolean
+  sso_start_url?: string
+  sso_region?: string
 }
 
 export interface DeviceCodeResponse {

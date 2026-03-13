@@ -80,14 +80,6 @@ const CONFIG_GROUPS: { title: string; icon: string; fields: ConfigField[] }[] = 
     ],
   },
   {
-    title: 'OAuth / SSO',
-    icon: 'lock',
-    fields: [
-      { key: 'oauth_start_url', label: 'SSO Start URL', type: 'text', restart: false },
-      { key: 'oauth_sso_region', label: 'SSO Region', type: 'text', restart: false },
-    ],
-  },
-  {
     title: 'MCP Gateway',
     icon: 'link',
     fields: [
