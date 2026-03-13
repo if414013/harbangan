@@ -1,7 +1,7 @@
 ---
 name: team-feature
 description: Coordinated parallel feature development with automated team spawning, task decomposition, and integration verification. Dynamically adapts to any project stack via project context. Use when user says 'build this feature end to end', 'coordinate frontend and backend', or 'full feature development'.
-argument-hint: "[feature-description] [--preset name] [--plan-first]"
+argument-hint: "[feature-description] [--preset name] [--plan-first] [--worktree] [--no-worktree]"
 allowed-tools:
   - Bash
   - Read
@@ -95,14 +95,40 @@ Break into parallel work streams, one per agent. Rules:
    - Event formats (if services communicate via events/streams)
 4. **Task sizing for context limits** — no single agent should be assigned more than 4-5 subtasks in a single wave. If a wave has more subtasks for one agent, split into sub-waves (e.g., Wave 1a, Wave 1b) so the agent can be respawned between sub-waves if needed. Large phases (7+ subtasks across many files) are the primary cause of context exhaustion.
 
+## Step 4.5: Create GitHub Issues
+
+For each task from Step 4, create a GitHub Issue to establish the persistent tracking layer:
+
+1. **Create issues** for each task:
+   ```bash
+   gh issue create --title "[service]: task description" \
+     --label "service:backend,priority:p1-high,feature" \
+     --body "## Requirements\n...\n\n## Acceptance Criteria\n...\n\n## Dependencies\nDepends on #N\nDepends on #M"
+   ```
+   For issues with open dependency issues, add the `status:blocked` label:
+   ```bash
+   gh issue create --title "[service]: task description" \
+     --label "service:backend,priority:p1-high,feature,status:blocked" \
+     --body "..."
+   ```
+
+2. **Add to project board** and set fields (Status, Priority, Service) using `gh project item-add` and `gh project item-edit`.
+
+3. **Reference in TaskList** — include `[#N]` in each TaskList item description so agents can cross-reference:
+   ```
+   TaskList item: "[#42] [backend]: Add guardrails endpoint — Wave 1"
+   ```
+
+4. **Update board status** to "To Do" for Wave 1 tasks, "Backlog" for later waves.
+
 ## Step 5: Spawn Team (Lazy, Per-Wave)
 
 Spawn agents incrementally by wave, not all at once:
 
 ### 5.1 — Spawn Wave 1 agents immediately
-Use `/team-spawn` with only the Wave 1 agents (core/backend agents whose tasks have no dependencies). Pass agent names explicitly rather than a full preset:
+Use `/team-spawn` with only the Wave 1 agents (core/backend agents whose tasks have no dependencies). Pass `--feature-name` with a sanitized version of the feature description (lowercase, spaces → hyphens, max 50 chars) for worktree branch naming. Forward `--worktree` or `--no-worktree` if provided:
 ```
-/team-spawn {wave1-agent1}, {wave1-agent2}
+/team-spawn {wave1-agent1}, {wave1-agent2} --feature-name "{sanitized-feature-desc}" [--worktree]
 ```
 
 ### 5.2 — Defer Wave 2+ agents
@@ -136,6 +162,7 @@ Send each agent their assignment via `SendMessage`. Include in each assignment:
 4. **Wave number** — when this work stream should begin
 5. **Dependencies** — which other work streams must complete first
 6. **Acceptance criteria** — how to verify this work stream is complete
+7. **Blocked status** — if the agent's tasks have `status:blocked` label (open dependencies), note that the agent should wait or be deferred until dependencies close
 
 Wave execution:
 - Wave 1: Already spawned and assigned in Step 5.1
@@ -164,11 +191,13 @@ After assigning Wave 1, enter a monitoring cycle:
 
 Run verification commands dynamically based on the verification command map built in Step 1.
 
+Determine `{working-dir}` by reading the team config's `worktree.path` field. If set, use `{project-root}/{worktree.path}` as the base directory; otherwise use `{project-root}`.
+
 For each affected service, run its lint, build, and test commands:
 
 ```
 For each service in affected_services:
-  cd {project-root}/{service-subdirectory} && {lint-command} && {test-command}
+  cd {working-dir}/{service-subdirectory} && {lint-command} && {test-command}
 ```
 
 If no commands were found in the Service Map for a service, skip verification for that service and note it in the report.
@@ -186,6 +215,39 @@ Use Grep to verify contract compliance:
 - Search for endpoint paths, function names, or type names from the contracts
 - Confirm they exist on both sides of each service boundary
 
+### Issue Closure
+
+After verification passes, close all GitHub Issues resolved by this feature:
+
+1. For each completed task with a GitHub Issue `[#N]`:
+   ```bash
+   gh issue close N --comment "Resolved in PR #M — all verification checks passed."
+   ```
+
+2. Update project board status to "Done" for closed issues.
+
+3. If a PR was created, ensure the PR body includes `Closes #N` for each resolved issue so merging auto-closes them.
+
+## Step 7.5: PR Creation (Worktree Teams)
+
+If the team has an active worktree (check `worktree` field in team config):
+
+1. **Push the worktree branch:**
+   ```bash
+   cd {working-dir} && git push -u origin {worktree.branch}
+   ```
+
+2. **Create a pull request from the worktree directory:**
+   ```bash
+   cd {working-dir} && gh pr create \
+     --title "feat: {feature-description}" \
+     --body "## Summary\n{feature summary}\n\n## Changes\n{list of changes}\n\nCloses #{issue-numbers}"
+   ```
+
+3. Include the PR URL in the final report.
+
+Skip this step if no worktree is active — the team is working directly on a branch managed outside this workflow.
+
 ### Final Report
 
 ```
@@ -195,6 +257,10 @@ Status: {COMPLETE / NEEDS_ATTENTION}
 
 Work Streams:
   {agent-name}: {status} — {summary}
+
+GitHub Issues:
+  #{N}: {title} — {CLOSED / OPEN}
+  ...
 
 Verification:
   {service-name}: {PASS/FAIL} ({commands run})

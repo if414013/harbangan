@@ -1,7 +1,7 @@
 ---
 name: team-spawn
 description: Initialize agent teams from presets or custom composition. Dynamically loads agent definitions and service mappings from project configuration. Use when user says 'spin up a team', 'create agents', 'need a fullstack team', 'start backend team', or 'spawn agents'.
-argument-hint: "[preset] [--delegate] [--respawn-for agent-name]"
+argument-hint: "[preset] [--delegate] [--respawn-for agent-name] [--worktree] [--no-worktree] [--feature-name name]"
 allowed-tools:
   - Bash
   - Read
@@ -145,12 +145,62 @@ cat /dev/urandom | LC_ALL=C tr -dc 'a-z0-9' | head -c4
 
 > **If the generated team name collides with an existing team** (i.e., `~/.claude/teams/{team-name}/` already exists): Append a random 4-character suffix and retry. If the collision persists after 3 attempts, prompt the user for a custom team name.
 
+## Step 3.5: Worktree Resolution
+
+Determine whether this team should run in a git worktree for filesystem isolation.
+
+### Decision logic
+
+1. **Explicit flags override auto-detect:**
+   - `--worktree` → always create a worktree
+   - `--no-worktree` → never create a worktree (run in `{project-root}`)
+
+2. **Skip auto-detect for read-only/ephemeral presets:** `review`, `debug`, `security`, `research` — these never need worktrees.
+
+3. **Auto-detect (default):** List `~/.claude/teams/` and check each team's `config.json`. If any team has agents with status not in `["replaced", "exited", "shutdown"]`, another team is actively running → create a worktree for this new team to avoid file conflicts. If no active teams exist, run in `{project-root}` directly.
+
+### Worktree creation
+
+1. **Determine branch name:**
+   - If `--feature-name` is provided (from `/team-feature`), use `feat/{feature-name}` (sanitized: lowercase, spaces → hyphens, max 50 chars)
+   - Otherwise, use `feat/{team-name}`
+
+2. **Create worktree:**
+   ```bash
+   git worktree add .trees/{team-name} -b {branch-name}
+   ```
+
+3. **Handle branch conflicts:**
+   - If the branch already exists, retry with `-{short-id}` suffix (4 random chars):
+     ```bash
+     git worktree add .trees/{team-name} -b {branch-name}-{short-id}
+     ```
+
+4. **Handle stale worktree at path:**
+   ```bash
+   git worktree prune && git worktree remove .trees/{team-name} --force
+   ```
+   Then retry the `git worktree add` command.
+
+5. **Auto-setup dependencies (sequential):**
+   ```bash
+   # Step 1: Backend dependencies
+   cd .trees/{team-name}/backend && cargo build
+   # Step 2: Frontend dependencies
+   cd .trees/{team-name}/frontend && npm install
+   ```
+   Report per-step success/failure. On failure: warn and ask user whether to proceed or abort.
+
+6. **Set `working-dir`:**
+   - If worktree created: `working-dir = {project-root}/.trees/{team-name}`
+   - If no worktree: `working-dir = {project-root}`
+
 ## Step 4: Spawn Agents
 
 For each agent in the resolved composition, spawn using the registry data:
 
 ```bash
-cd {project-root} && claude \
+cd {working-dir} && claude \
   --agent-id {agent-name}@{team-name} \
   --agent-name {agent-name} \
   --team-name {team-name} \
@@ -160,6 +210,8 @@ cd {project-root} && claude \
   --dangerously-skip-permissions \
   --model {model-from-registry-or-inherit}
 ```
+
+Where `{working-dir}` is the worktree path (from Step 3.5) or `{project-root}` if no worktree.
 
 For generic presets (research, security, migration) where agents are not from definition files, use the appropriate `subagent_type` from the agent-teams plugin:
 - research: `general-purpose`
@@ -181,7 +233,7 @@ If the spawn command fails with this error:
 1. **First retry**: Run the spawn command again (the plugin sometimes recovers on retry)
 2. **Second retry**: Spawn WITHOUT the `--team-name` parameter to force a new iTerm2 pane, then manually register the agent in the team config file afterward:
    ```bash
-   cd {project-root} && claude \
+   cd {working-dir} && claude \
      --agent-id {agent-name}@{team-name} \
      --agent-name {agent-name} \
      --agent-color "{color}" \
@@ -208,7 +260,7 @@ When respawning an agent to replace a dead or context-exhausted predecessor:
 ### 4.5.3 — Gather context summary for new agent
 Collect a handoff summary by running:
 ```bash
-cd {project-root} && git log --oneline -20
+cd {working-dir} && git log --oneline -20
 ```
 Also check TaskList for the predecessor's in_progress and pending tasks.
 
@@ -257,8 +309,20 @@ Write to `~/.claude/teams/{team-name}/config.json`:
     }
   ],
   "deferred_agents": [],
+  "worktree": null,
   "created_at": "{ISO-8601 timestamp}",
   "parent_session_id": "{CLAUDE_SESSION_ID}"
+}
+```
+
+If a worktree was created in Step 3.5, populate the `worktree` field:
+```json
+{
+  "worktree": {
+    "path": ".trees/{team-name}",
+    "branch": "feat/{feature-or-team-name}",
+    "created_at": "{ISO-8601 timestamp}"
+  }
 }
 ```
 
@@ -272,5 +336,13 @@ Agents:
   ...
 
 Preset: {preset-name}
+Worktree: {path} (branch: {branch}) | none
 Config: ~/.claude/teams/{team-name}/config.json
+```
+
+If a worktree was created, also report dependency build status:
+```
+Worktree Setup:
+  Backend build: {OK / FAILED}
+  Frontend install: {OK / FAILED}
 ```

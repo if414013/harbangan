@@ -40,6 +40,7 @@ perf.data.old
 .auto-claude-status
 .claude_settings.json
 .worktrees/
+.trees/
 .security-key
 logs/security/
 

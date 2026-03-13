@@ -66,6 +66,43 @@ if config.read().await.feature_x_enabled {
 
 ---
 
+### Pattern 4: Worktree Isolation
+
+Each team gets its own git worktree with an independent branch. Teams work in complete filesystem isolation — no file ownership conflicts possible between teams.
+
+```
+main (project root)
+  ├── .trees/fullstack-a1b2/     <- Team A worktree (branch: feat/guardrails-ui)
+  │     ├── backend/src/...      <- Team A's rust-backend-engineer
+  │     └── frontend/src/...     <- Team A's react-frontend-engineer
+  ├── .trees/backend-c3d4/       <- Team B worktree (branch: feat/mcp-health)
+  │     └── backend/src/...      <- Team B's rust-backend-engineer
+  └── (main working dir)         <- First team or solo work (no worktree)
+```
+
+**Merge flow** (sequential PR merges with rebase):
+1. Team A completes work → pushes branch → opens PR
+2. PR reviewed and merged into `main`
+3. Team B rebases onto updated `main`: `cd .trees/backend-c3d4 && git rebase main`
+4. Team B pushes branch → opens PR
+5. If rebase conflicts arise, the team resolves them in their worktree
+
+**Lifecycle:**
+```
+team-spawn (auto-detect or --worktree)
+  → git worktree add .trees/{team-name} -b feat/{feature}
+  → cargo build + npm install in worktree
+  → agents work in worktree directory
+  → team-feature Step 7.5: push + gh pr create
+  → team-shutdown Step 4.5: cleanup worktree + prune
+```
+
+**When to use**: Multiple feature teams running in parallel, features that touch overlapping files across teams, long-running features where `main` continues to evolve.
+
+**Harbangan suitability**: Ideal for parallel multi-feature development. Each team has full filesystem isolation so file ownership rules only matter within a single team — not across teams. Merge conflicts are deferred to PR merge time and handled via rebase. Docker/database state is still shared, so serialize schema migrations across teams.
+
+---
+
 ## Harbangan Conflict Prevention
 
 ### Backend / Frontend Parallel Work

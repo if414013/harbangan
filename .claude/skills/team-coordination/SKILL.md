@@ -192,4 +192,4 @@ Only spawn agents when their tasks become unblocked:
 
 - [Messaging Patterns](references/messaging-patterns.md) — 8 structured message templates for inter-agent communication (task assignment, blocker reports, review findings, etc.)
 - [Dependency Graphs](references/dependency-graphs.md) — 5 task dependency patterns (independent, sequential, diamond, fork-join, pipeline) with Harbangan-specific examples
-- [Merge Strategies](references/merge-strategies.md) — 3 integration patterns (direct, sub-branch, trunk-based) with Harbangan conflict prevention rules for backend/frontend parallel work
+- [Merge Strategies](references/merge-strategies.md) — 4 integration patterns (direct, sub-branch, trunk-based, worktree isolation) with Harbangan conflict prevention rules for backend/frontend parallel work

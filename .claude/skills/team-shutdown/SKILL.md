@@ -34,6 +34,10 @@ Load `~/.claude/teams/{team-name}/config.json`.
 Unless `--force`:
 - Show members and their status
 - Warn about in-progress tasks
+- If team has a worktree (`worktree` field in config), show:
+  - Uncommitted changes: `cd {worktree.path} && git status --short`
+  - Unpushed commits: `cd {worktree.path} && git log --oneline origin/main..HEAD`
+  - PR state: `gh pr list --head {worktree.branch} --json number,state,title`
 - Ask for confirmation
 
 ## Step 3: Terminate Members
@@ -56,6 +60,57 @@ Before removing the team config directory, clean up ghost entries:
    - If not running and status is not `"replaced"`, set status to `"exited"`
 3. This ensures the final config snapshot (if `--keep-config`) accurately reflects reality
 
+### Persist to GitHub
+
+Before cleaning up ephemeral state, sync incomplete work back to GitHub Issues:
+
+1. For each in-progress or pending TaskList item that references a GitHub Issue `[#N]`:
+   ```bash
+   gh issue comment N --body "Session ended with task in-progress. Last known state: {status}. Remaining work: {description of what's left}"
+   ```
+
+2. Update project board status:
+   - In-progress tasks → keep "In Progress" on the board
+   - Pending tasks → move back to "To Do" on the board
+   - Completed tasks → move to "Done" if not already
+
+This ensures no work context is lost when the ephemeral TaskList is cleaned up.
+
+### Step 4.5: Worktree Cleanup
+
+If the team config has a `worktree` field (non-null):
+
+1. **Check for uncommitted changes:**
+   ```bash
+   cd {project-root}/{worktree.path} && git status --short
+   ```
+   If dirty, offer to commit: `git add -A && git commit -m "chore: save uncommitted work from team {team-name}"`
+
+2. **Check for unpushed commits:**
+   ```bash
+   cd {project-root}/{worktree.path} && git log --oneline origin/main..HEAD
+   ```
+   If unpushed commits exist, offer to push: `git push -u origin {worktree.branch}`
+
+3. **Check PR status:**
+   ```bash
+   gh pr list --head {worktree.branch} --json number,state,mergedAt
+   ```
+
+4. **Remove the worktree:**
+   ```bash
+   git worktree remove .trees/{team-name} --force
+   ```
+
+5. **Branch cleanup:**
+   - If PR is merged: delete local branch `git branch -d {worktree.branch}`
+   - If PR is open or no PR exists: preserve the branch (work may still be needed)
+
+6. **Prune stale worktree references:**
+   ```bash
+   git worktree prune
+   ```
+
 ### Team Config
 Unless `--keep-config`:
 ```bash
@@ -76,6 +131,11 @@ Terminated:
   scrum-master — acknowledged
   rust-backend-engineer — acknowledged
   react-frontend-engineer — acknowledged
+
+Worktree:
+  Path: {worktree.path} — {removed / n/a}
+  Branch: {worktree.branch} — {deleted (PR merged) / preserved (PR open) / n/a}
+  PR: #{number} ({state}) | none
 
 Cleanup:
   Team config: {removed / kept}

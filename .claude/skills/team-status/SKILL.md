@@ -44,15 +44,17 @@ ps aux | grep "claude.*--team-name {team-name}" | grep -v grep
 
 For each agent that has a running process but no recent messages:
 
-1. **Check git activity** — look for recent commits or file changes:
+1. **Determine working directory** — read the team config's `worktree.path` field. If set, use `{project-root}/{worktree.path}` as `{working-dir}`; otherwise use `{project-root}`.
+
+2. **Check git activity** — look for recent commits or file changes:
    ```bash
-   cd {project-root} && git log --oneline --since="30 minutes ago" --all
+   cd {working-dir} && git log --oneline --since="30 minutes ago" --all
    ```
 
-2. **Check file modification times** — look for recently modified files in the agent's owned directories:
+3. **Check file modification times** — look for recently modified files in the agent's owned directories:
    ```bash
-   find {project-root}/backend/src -name "*.rs" -mmin -10 2>/dev/null | head -5
-   find {project-root}/frontend/src \( -name "*.ts" -o -name "*.tsx" \) -mmin -10 2>/dev/null | head -5
+   find {working-dir}/backend/src -name "*.rs" -mmin -10 2>/dev/null | head -5
+   find {working-dir}/frontend/src \( -name "*.ts" -o -name "*.tsx" \) -mmin -10 2>/dev/null | head -5
    ```
 
 3. **Classify activity**:
@@ -62,9 +64,29 @@ For each agent that has a running process but no recent messages:
 
 ## Step 4: Compile Task Status
 
-Gather from TaskList and team config.
+Gather from TaskList and team config. Cross-reference with GitHub Issues for persistent state:
 
-> **If TaskList returns empty or no tasks are found:** Report "No active tasks" in the Tasks section of the output rather than failing or omitting the section. This is a normal state for newly spawned teams or teams between assignments.
+```bash
+gh issue list --state open --label "service:backend,service:frontend" --json number,title,state,labels
+```
+
+### Blocked Issue Detection
+
+Check for dependency-blocked issues:
+```bash
+gh issue list --state open --label "status:blocked" --json number,title,labels
+```
+
+Include blocked issues in the output report under a dedicated section:
+```
+Blocked Issues:
+  #42: [backend]: Add converter — blocked (Depends on #40, #41)
+  #45: [frontend]: Config page — blocked (Depends on #42)
+```
+
+Compare TaskList items (ephemeral) against GitHub Issues (persistent) to detect drift — e.g., a TaskList item marked complete but its GitHub Issue still open, or an issue closed without a corresponding TaskList update.
+
+> **If TaskList returns empty or no tasks are found:** Fall back to GitHub Issues as the source of truth. Report open issues from the project board rather than failing or omitting the section. This is a normal state for newly spawned teams or teams between assignments.
 
 ## Step 5: Output Report
 
@@ -73,6 +95,7 @@ Gather from TaskList and team config.
 Team: {team-name}
 Preset: {preset}
 Created: {timestamp}
+Worktree: {worktree.path} (branch: {worktree.branch}, {clean/dirty}) | none
 
 Members ({N} total):
   Agent                        Role              Status    Activity
