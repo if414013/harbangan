@@ -237,41 +237,11 @@ async fn main() -> Result<()> {
     // Add hidden models to cache
     add_hidden_models(&model_cache);
 
-    // ── Model registry population ────────────────────────────────
-    // Populate static models into the DB for each direct provider,
-    // then load enabled models into the in-memory registry cache.
+    // ── Model registry cache ───────────────────────────────────
+    // Load admin-enabled registry models into in-memory cache.
+    // Models are populated on-demand via the admin UI, not on startup.
     if !is_proxy_only {
-        if let Some(ref db) = config_db {
-            let providers = ["anthropic", "openai_codex", "qwen"];
-            for provider_id in &providers {
-                match web_ui::model_registry::populate_provider(
-                    provider_id,
-                    db,
-                    &http_client,
-                    None, // No auth_manager needed for static-only providers
-                )
-                .await
-                {
-                    Ok(count) => {
-                        if count > 0 {
-                            tracing::info!(
-                                provider = provider_id,
-                                count,
-                                "Populated model registry"
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            provider = provider_id,
-                            error = %e,
-                            "Failed to populate model registry"
-                        );
-                    }
-                }
-            }
-
-            // Load enabled registry models into in-memory cache
+        if let Some(ref _db) = config_db {
             match model_cache.load_from_registry().await {
                 Ok(count) => {
                     tracing::info!(count, "Loaded registry models into cache");

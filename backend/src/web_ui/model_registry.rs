@@ -35,7 +35,7 @@ fn static_to_registry(provider_id: &str, models: Vec<StaticModel>) -> Vec<Regist
             context_length: m.context_length,
             max_output_tokens: m.max_output_tokens,
             capabilities: m.capabilities,
-            enabled: true,
+            enabled: false,
             source: "static".to_string(),
             upstream_meta: None,
             created_at: now,
@@ -320,7 +320,7 @@ pub async fn fetch_kiro_models(
                 context_length: 0,
                 max_output_tokens: 0,
                 capabilities: json!({}),
-                enabled: true,
+                enabled: false,
                 source: "api".to_string(),
                 upstream_meta: Some(json!({ "internal_id": internal_id })),
                 created_at: now,
@@ -464,7 +464,7 @@ pub async fn fetch_anthropic_models(
                 context_length: 0,
                 max_output_tokens: 0,
                 capabilities: json!({}),
-                enabled: true,
+                enabled: false,
                 source: "api".to_string(),
                 upstream_meta: Some(m.clone()),
                 created_at: now,
@@ -499,7 +499,7 @@ pub(crate) fn parse_openai_models_response(
                 context_length: 0,
                 max_output_tokens: 0,
                 capabilities: json!({}),
-                enabled: true,
+                enabled: false,
                 source: "api".to_string(),
                 upstream_meta: Some(m.clone()),
                 created_at: now,
@@ -641,7 +641,7 @@ mod tests {
         for m in &models {
             assert_eq!(m.provider_id, "anthropic");
             assert_eq!(m.source, "static");
-            assert!(m.enabled);
+            assert!(!m.enabled);
             assert!(m.prefixed_id.starts_with("anthropic/"));
         }
     }
