@@ -43,7 +43,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # Datadog APM tracing (OpenTelemetry pipeline, enabled at runtime via DD_AGENT_HOST)
 opentelemetry = { version = "0.27", features = ["trace"] }
 opentelemetry_sdk = { version = "0.27", features = ["rt-tokio", "trace"] }
-opentelemetry-datadog = { version = "0.15", features = ["reqwest-client"] }
+opentelemetry-datadog = { version = "0.19", features = ["reqwest-client"] }
 opentelemetry-otlp = { version = "0.27", default-features = false, features = ["http-proto", "reqwest-rustls"] }
 tracing-opentelemetry = "0.28"
 
