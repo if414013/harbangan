@@ -1,10 +1,17 @@
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ApiKeyManager } from '../components/ApiKeyManager'
 import { useSession } from '../components/SessionGate'
+import { getStatus } from '../lib/api'
 
 export function Profile() {
   const { user } = useSession()
   const navigate = useNavigate()
+  const [passwordAuthEnabled, setPasswordAuthEnabled] = useState(false)
+
+  useEffect(() => {
+    getStatus().then(s => setPasswordAuthEnabled(s.auth_password_enabled)).catch(() => {})
+  }, [])
 
   return (
     <>
@@ -51,28 +58,43 @@ export function Profile() {
         <ApiKeyManager />
       </div>
 
-      {user.auth_method === 'password' && (
+      {passwordAuthEnabled && (
         <>
           <h2 className="section-header">SECURITY</h2>
           <div className="card">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                  2FA: {user.totp_enabled ? (
-                    <span style={{ color: 'var(--green)' }}>ENABLED</span>
-                  ) : (
-                    <span style={{ color: 'var(--red)' }}>NOT SET UP</span>
-                  )}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn-save" type="button" onClick={() => navigate('/change-password')}>
-                  $ change password
-                </button>
-                <button className="btn-save" type="button" onClick={() => navigate('/setup-2fa')}>
-                  $ reset 2fa
-                </button>
-              </div>
+              {user.auth_method === 'password' ? (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                      2FA: {user.totp_enabled ? (
+                        <span style={{ color: 'var(--green)' }}>ENABLED</span>
+                      ) : (
+                        <span style={{ color: 'var(--red)' }}>NOT SET UP</span>
+                      )}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn-save" type="button" onClick={() => navigate('/change-password')}>
+                      $ change password
+                    </button>
+                    <button className="btn-save" type="button" onClick={() => navigate('/setup-2fa')}>
+                      $ reset 2fa
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                    set a password to enable 2FA and password login
+                  </span>
+                  <div>
+                    <button className="btn-save" type="button" onClick={() => navigate('/change-password')}>
+                      $ set password
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </>

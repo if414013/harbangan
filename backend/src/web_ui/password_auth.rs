@@ -554,16 +554,16 @@ pub async fn change_password_handler(
         .map_err(ApiError::Internal)?
         .ok_or(ApiError::SessionExpired)?;
 
-    let stored_hash = user
-        .5
-        .ok_or_else(|| ApiError::ValidationError("No password set for this account".to_string()))?;
+    let stored_hash: Option<String> = user.5;
 
-    // Verify current password
-    let valid =
-        verify_password(&payload.current_password, &stored_hash).map_err(ApiError::Internal)?;
-    if !valid {
-        return Err(ApiError::InvalidCredentials);
+    if let Some(ref hash) = stored_hash {
+        // Existing user with password — verify current password
+        let valid = verify_password(&payload.current_password, hash).map_err(ApiError::Internal)?;
+        if !valid {
+            return Err(ApiError::InvalidCredentials);
+        }
     }
+    // else: SSO user setting initial password — no verification needed
 
     // Hash new password
     let new_hash = hash_password(&payload.new_password).map_err(ApiError::Internal)?;
@@ -577,6 +577,7 @@ pub async fn change_password_handler(
     for mut entry in state.session_cache.iter_mut() {
         if entry.value().user_id == session.user_id {
             entry.value_mut().must_change_password = false;
+            entry.value_mut().auth_method = "password".to_string();
         }
     }
 

@@ -1,9 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { changePassword } from '../lib/api'
+import { useSession } from '../components/SessionGate'
 
 export function PasswordChange() {
   const navigate = useNavigate()
+  const { user } = useSession()
+  const isInitialSetup = user.auth_method !== 'password'
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -26,7 +29,7 @@ export function PasswordChange() {
     setError(null)
     setSubmitting(true)
     try {
-      await changePassword(currentPassword, newPassword)
+      await changePassword(isInitialSetup ? '' : currentPassword, newPassword)
       navigate('/', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to change password')
@@ -43,8 +46,8 @@ export function PasswordChange() {
             <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
           </svg>
         </div>
-        <h2><span aria-hidden="true">{'> '}</span>CHANGE PASSWORD<span className="cursor" aria-hidden="true" /></h2>
-        <p>you must update your password to continue</p>
+        <h2><span aria-hidden="true">{'> '}</span>{isInitialSetup ? 'SET PASSWORD' : 'CHANGE PASSWORD'}<span className="cursor" aria-hidden="true" /></h2>
+        <p>{isInitialSetup ? 'create a password for your account' : 'you must update your password to continue'}</p>
 
         {error && (
           <div className="login-error" role="alert" aria-live="assertive">
@@ -53,16 +56,18 @@ export function PasswordChange() {
         )}
 
         <form onSubmit={handleSubmit}>
-          <input
-            className="auth-input"
-            type="password"
-            placeholder="current password"
-            value={currentPassword}
-            onChange={e => setCurrentPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-            autoFocus
-          />
+          {!isInitialSetup && (
+            <input
+              className="auth-input"
+              type="password"
+              placeholder="current password"
+              value={currentPassword}
+              onChange={e => setCurrentPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+              autoFocus
+            />
+          )}
           <input
             className="auth-input"
             type="password"
@@ -84,7 +89,9 @@ export function PasswordChange() {
             minLength={8}
           />
           <button className="auth-submit" type="submit" disabled={submitting}>
-            {submitting ? '$ updating...' : '$ update password'}
+            {submitting
+              ? (isInitialSetup ? '$ setting...' : '$ updating...')
+              : (isInitialSetup ? '$ set password' : '$ update password')}
           </button>
         </form>
       </div>
