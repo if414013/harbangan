@@ -220,7 +220,8 @@ mod tests {
     async fn test_http_transport_close() {
         let mut transport =
             HttpTransport::new("https://example.com/mcp".to_string(), HashMap::new(), 30);
-        transport.connect().await.unwrap();
+        // Set connected directly to avoid DNS resolution in CI
+        transport.connected.store(true, Ordering::Relaxed);
         assert!(transport.is_connected().await);
 
         transport.close().await.unwrap();
