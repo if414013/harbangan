@@ -486,11 +486,11 @@ export interface DeleteModelResponse {
 // --- Model Registry API ---
 
 export function getRegistryModels() {
-  return apiFetch<ModelsListResponse>('/admin/models')
+  return apiFetch<ModelsListResponse>('/models/registry')
 }
 
 export function updateModelEnabled(id: string, enabled: boolean) {
-  return apiFetch<UpdateModelResponse>(`/admin/models/${id}`, {
+  return apiFetch<UpdateModelResponse>(`/models/registry/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enabled }),
@@ -498,11 +498,11 @@ export function updateModelEnabled(id: string, enabled: boolean) {
 }
 
 export function deleteRegistryModel(id: string) {
-  return apiDelete(`/admin/models/${id}`)
+  return apiDelete(`/models/registry/${id}`)
 }
 
 export function populateModels(providerId?: string) {
-  return apiPost<PopulateResponse>('/admin/models/populate', {
+  return apiPost<PopulateResponse>('/models/registry/populate', {
     provider_id: providerId ?? null,
   })
 }

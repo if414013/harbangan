@@ -11,7 +11,7 @@ import { Admin } from './pages/Admin'
 import { UserDetail } from './pages/UserDetail'
 import { Guardrails } from './pages/Guardrails'
 import { McpClients } from './pages/McpClients'
-import { Models } from './pages/Models'
+import { Providers } from './pages/Providers'
 import { TotpSetup } from './pages/TotpSetup'
 import { PasswordChange } from './pages/PasswordChange'
 
@@ -28,7 +28,7 @@ export default function App() {
             <Route path="profile" element={<Profile />} />
             <Route path="guardrails" element={<AdminGuard><Guardrails /></AdminGuard>} />
             <Route path="mcp" element={<AdminGuard><McpClients /></AdminGuard>} />
-            <Route path="models" element={<AdminGuard><Models /></AdminGuard>} />
+            <Route path="providers" element={<Providers />} />
             <Route path="admin" element={<AdminGuard><Admin /></AdminGuard>} />
             <Route path="admin/users/:userId" element={<AdminGuard><UserDetail /></AdminGuard>} />
             <Route path="setup-2fa" element={<TotpSetup />} />
