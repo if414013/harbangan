@@ -1,0 +1,66 @@
+name: Feature Request
+description: Propose a new feature or enhancement
+labels: ["feature", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the feature you'd like to see in Harbangan.
+        **Do not include API keys, passwords, tokens, or other credentials in this issue.**
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this solve? Why is it needed?
+      placeholder: I need this because ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How should this work? Include API changes, UI mockups, or architecture notes.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Other approaches you've thought about and why they're less ideal.
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: List any issues that must be completed before this feature can start.
+      placeholder: |
+        Depends on #N
+        Depends on #M
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: Affected Service
+      options:
+        - Backend (Rust/Axum)
+        - Frontend (React/Web UI)
+        - Infrastructure (Docker/nginx)
+        - E2E Tests (Playwright)
+        - Multiple / Full-stack
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: How large is this change?
+      options:
+        - Small (single file / minor change)
+        - Medium (multiple files / one service)
+        - Large (cross-service / architectural)
+    validations:
+      required: true

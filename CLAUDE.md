@@ -248,6 +248,16 @@ gh pr create --title "feat: ..." --body "..."  # open PR
 - Keep PRs focused — one logical change per PR
 - Run `cargo clippy`, `cargo test --lib`, and `cargo fmt` before opening a PR
 
+## Security Practices
+
+- Never write real credentials, API keys, or tokens into code — use environment variables and placeholder values
+- `.env` files are gitignored; only `.env.example` (with placeholders) is committed
+- Claude Code hooks automatically scan for secret patterns in Write/Edit operations and block staging of sensitive files
+- Gitleaks runs in CI on every PR and push to `main` (see `.gitleaks.toml` for config)
+- Pre-commit hooks available locally: `pip install pre-commit && pre-commit install`
+- See `.claude/rules/secrets.md` for full agent rules on secret handling
+- Report security vulnerabilities per `SECURITY.md` — do not open public issues
+
 ## File Operations
 
 Use Edit (not Write) for existing files, and read large files in chunks. See `.claude/rules/file-operations.md` for details. A PreToolUse hook enforces the Write restriction on files >50KB.

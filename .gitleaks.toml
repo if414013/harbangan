@@ -1,0 +1,24 @@
+title = "Harbangan Gitleaks Config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+  '''\.env\.example$''',
+  '''e2e-tests/.*\.spec\.ts$''',
+  '''backend/src/.*tests?\.rs$''',
+  '''\.gitleaks\.toml$''',
+]
+regexTarget = "match"
+regexes = [
+  # Qwen public OAuth device flow client ID — not a secret
+  '''f0304373b74a44d2b584a3fb70ca9e56''',
+  # Placeholder / example values
+  '''changeme''',
+  '''your[-_](api[-_]key|password|secret|token)''',
+  '''test[-_](key|token|secret|password)''',
+  '''fake[-_](key|token|secret|password)''',
+  '''<(secret|password|token|api[-_]key)>''',
+]

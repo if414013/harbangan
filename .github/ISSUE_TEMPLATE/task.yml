@@ -1,0 +1,61 @@
+name: Task
+description: General task, chore, or refactoring work
+labels: ["task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not include API keys, passwords, tokens, or other credentials in this issue.**
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What needs to be done and why?
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: How do we know this task is complete?
+      placeholder: |
+        - [ ] Criterion 1
+        - [ ] Criterion 2
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: List any issues that must be completed before this task can start.
+      placeholder: |
+        Depends on #N
+        Depends on #M
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: Affected Service
+      options:
+        - Backend (Rust/Axum)
+        - Frontend (React/Web UI)
+        - Infrastructure (Docker/nginx)
+        - E2E Tests (Playwright)
+        - Documentation
+        - Multiple / Full-stack
+    validations:
+      required: true
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Task Type
+      options:
+        - Refactor
+        - Chore / Maintenance
+        - Documentation
+        - CI / Automation
+        - Dependencies

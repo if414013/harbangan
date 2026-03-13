@@ -58,3 +58,7 @@ target/
 # E2E tests
 e2e-tests/node_modules/
 e2e-tests/test-results/
+e2e-tests/.auth/
+
+# Pre-commit
+.pre-commit-cache/

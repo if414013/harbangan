@@ -1,0 +1,8 @@
+# Security-sensitive files require owner review
+
+.env.example                    @if414013
+docker-compose*.yml             @if414013
+.claude/hooks/                  @if414013
+.github/workflows/              @if414013
+backend/src/auth/               @if414013
+backend/src/middleware/          @if414013
