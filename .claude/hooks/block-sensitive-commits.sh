@@ -61,7 +61,7 @@ ENDJSON
 done
 
 # Block 'git add -A' and 'git add .' as they can accidentally include sensitive files
-if echo "$COMMAND" | grep -qE 'git\s+add\s+(-A|--all|\.)'; then
+if echo "$COMMAND" | grep -qE 'git\s+add\s+(-A|--all|\.($|\s|&&|;|\|))'; then
   cat <<ENDJSON
 {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked: 'git add -A' / 'git add .' can accidentally stage sensitive files (.env, certs, auth state). Stage specific files by name instead."}}
 ENDJSON
