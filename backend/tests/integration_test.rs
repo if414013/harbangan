@@ -141,6 +141,7 @@ fn create_test_app_state() -> AppState {
         providers: providers::build_provider_map(http_client, auth_manager, config_arc),
         provider_oauth_pending: Arc::new(dashmap::DashMap::new()),
         token_exchanger: Arc::new(HttpTokenExchanger::new()),
+        login_rate_limiter: Arc::new(dashmap::DashMap::new()),
     }
 }
 
