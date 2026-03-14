@@ -9,12 +9,15 @@ paths = [
   '''\.env\.example$''',
   '''e2e-tests/.*\.spec\.ts$''',
   '''backend/src/.*tests?\.rs$''',
+  '''backend/tests/.*\.rs$''',
   '''\.gitleaks\.toml$''',
 ]
 regexTarget = "match"
 regexes = [
-  # Qwen public OAuth device flow client ID — not a secret
+  # Public OAuth device flow client IDs — not secrets
   '''f0304373b74a44d2b584a3fb70ca9e56''',
+  '''9d1c250a-e61b-44d9-88ed-5944d1962f5e''',
+  '''app_EMoamEEZ73f0CkXaXp7hrann''',
   # Placeholder / example values
   '''changeme''',
   '''your[-_](api[-_]key|password|secret|token)''',

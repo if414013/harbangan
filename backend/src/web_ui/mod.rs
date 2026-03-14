@@ -2,6 +2,7 @@ pub mod api_keys;
 pub mod config_api;
 pub mod config_db;
 pub mod copilot_auth;
+pub mod crypto;
 pub mod google_auth;
 pub mod model_registry;
 pub mod model_registry_handlers;

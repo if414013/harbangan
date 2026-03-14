@@ -67,45 +67,33 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    let is_proxy_only = config.is_proxy_only();
+    tracing::info!("Kiro Gateway starting...");
 
-    if is_proxy_only {
-        tracing::info!("Kiro Gateway starting in PROXY-ONLY mode...");
-    } else {
-        tracing::info!("Kiro Gateway starting...");
-    }
-
-    // ── Database (skip in proxy-only mode) ──────────────────────────
-    let config_db = if !is_proxy_only {
-        if let Some(ref url) = config.database_url {
-            match web_ui::config_db::ConfigDb::connect(url).await {
-                Ok(db) => {
-                    tracing::info!("Connected to PostgreSQL database");
-                    Some(Arc::new(db))
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to connect to database: {}", e);
-                    None
-                }
+    // ── Database ─────────────────────────────────────────────────
+    let config_db = if let Some(ref url) = config.database_url {
+        match web_ui::config_db::ConfigDb::connect(url).await {
+            Ok(db) => {
+                tracing::info!("Connected to PostgreSQL database");
+                Some(Arc::new(db))
             }
-        } else {
-            None
+            Err(e) => {
+                tracing::warn!("Failed to connect to database: {}", e);
+                None
+            }
         }
     } else {
         None
     };
 
     // ── Setup state ─────────────────────────────────────────────────
-    let mut setup_complete_flag = if is_proxy_only {
-        true // proxy-only is always "setup complete"
-    } else if let Some(ref db) = config_db {
+    let mut setup_complete_flag = if let Some(ref db) = config_db {
         db.is_setup_complete().await
     } else {
         false
     };
 
     // Seed initial admin user from env vars (only on first run, before any users exist)
-    if !is_proxy_only && !setup_complete_flag {
+    if !setup_complete_flag {
         if let Some(ref db) = config_db {
             let initial_email = std::env::var("INITIAL_ADMIN_EMAIL").ok();
             let initial_password = std::env::var("INITIAL_ADMIN_PASSWORD").ok();
@@ -210,18 +198,16 @@ async fn main() -> Result<()> {
 
     let setup_complete = Arc::new(AtomicBool::new(setup_complete_flag));
 
-    if !is_proxy_only {
-        if setup_complete_flag {
-            if let Some(ref db) = config_db {
-                db.load_into_config(&mut config)
-                    .await
-                    .context("Failed to load config from database")?;
-                tracing::info!("Configuration loaded from database");
-            }
-        } else {
-            tracing::warn!("Setup not complete — starting in setup-only mode");
-            tracing::warn!("Visit the web UI to complete initial setup");
+    if setup_complete_flag {
+        if let Some(ref db) = config_db {
+            db.load_into_config(&mut config)
+                .await
+                .context("Failed to load config from database")?;
+            tracing::info!("Configuration loaded from database");
         }
+    } else {
+        tracing::warn!("Setup not complete — starting in setup-only mode");
+        tracing::warn!("Visit the web UI to complete initial setup");
     }
 
     tracing::info!(
@@ -232,15 +218,7 @@ async fn main() -> Result<()> {
     tracing::debug!("Debug mode: {:?}", config.debug_mode);
 
     // ── Auth manager ────────────────────────────────────────────────
-    let app_auth_manager = if is_proxy_only {
-        let am = auth::AuthManager::new_from_env(&config)
-            .context("Failed to create auth manager from env vars")?;
-        tracing::info!("Bootstrapping proxy-only credentials...");
-        am.bootstrap_proxy_credentials().await.context(
-            "Failed to bootstrap proxy credentials. Check KIRO_REFRESH_TOKEN and KIRO_SSO_REGION.",
-        )?;
-        am
-    } else if setup_complete_flag {
+    let app_auth_manager = if setup_complete_flag {
         init_app_auth_from_config_db(&config, &config_db).await?
     } else {
         auth::AuthManager::new_placeholder(
@@ -307,15 +285,13 @@ async fn main() -> Result<()> {
     // ── Model registry cache ───────────────────────────────────
     // Load admin-enabled registry models into in-memory cache.
     // Models are populated on-demand via the admin UI, not on startup.
-    if !is_proxy_only {
-        if let Some(ref _db) = config_db {
-            match model_cache.load_from_registry().await {
-                Ok(count) => {
-                    tracing::info!(count, "Loaded registry models into cache");
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to load registry models into cache");
-                }
+    if let Some(ref _db) = config_db {
+        match model_cache.load_from_registry().await {
+            Ok(count) => {
+                tracing::info!(count, "Loaded registry models into cache");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to load registry models into cache");
             }
         }
     }
@@ -350,58 +326,53 @@ async fn main() -> Result<()> {
             Arc::clone(&config_arc),
         ),
         provider_oauth_pending: Arc::new(dashmap::DashMap::new()),
-        token_exchanger: Arc::new(web_ui::provider_oauth::HttpTokenExchanger::new()),
+        token_exchanger: Arc::new(web_ui::provider_oauth::HttpTokenExchanger::with_config(
+            Arc::clone(&config_arc),
+        )),
         login_rate_limiter: Arc::new(dashmap::DashMap::new()),
     };
 
-    // ── Guardrails (skip in proxy-only mode) ────────────────────────
-    if !is_proxy_only {
-        if let Some(ref db) = app_state.config_db {
-            let guardrails_db = guardrails::db::GuardrailsDb::new(db.pool().clone());
-            match guardrails::engine::GuardrailsEngine::new(
-                &guardrails_db,
-                config.guardrails_enabled,
-            )
+    // ── Guardrails ────────────────────────────────────────────────
+    if let Some(ref db) = app_state.config_db {
+        let guardrails_db = guardrails::db::GuardrailsDb::new(db.pool().clone());
+        match guardrails::engine::GuardrailsEngine::new(&guardrails_db, config.guardrails_enabled)
             .await
-            {
-                Ok(engine) => {
-                    app_state.guardrails_engine = Some(Arc::new(engine));
-                    tracing::info!(
-                        "Guardrails engine initialized (enabled: {})",
-                        config.guardrails_enabled
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to initialize guardrails engine: {}", e);
-                }
+        {
+            Ok(engine) => {
+                app_state.guardrails_engine = Some(Arc::new(engine));
+                tracing::info!(
+                    "Guardrails engine initialized (enabled: {})",
+                    config.guardrails_enabled
+                );
+            }
+            Err(e) => {
+                tracing::warn!("Failed to initialize guardrails engine: {}", e);
             }
         }
     }
 
-    // ── Background tasks (skip in proxy-only mode) ──────────────────
-    if !is_proxy_only {
-        if let Some(ref db) = app_state.config_db {
-            web_ui::user_kiro::spawn_token_refresh_task(Arc::clone(db));
-            // Get copilot token cache from the CopilotProvider for the refresh task
-            if let Some(copilot) = app_state
-                .providers
-                .get(&providers::types::ProviderId::Copilot)
-                .and_then(|p| {
-                    p.as_any()
-                        .downcast_ref::<providers::copilot::CopilotProvider>()
-                })
-            {
-                web_ui::copilot_auth::spawn_copilot_token_refresh_task(
-                    Arc::clone(db),
-                    Arc::clone(copilot.token_cache()),
-                );
-            }
-            web_ui::session::SessionService::spawn_cleanup_task(
+    // ── Background tasks ─────────────────────────────────────────
+    if let Some(ref db) = app_state.config_db {
+        web_ui::user_kiro::spawn_token_refresh_task(Arc::clone(db));
+        // Get copilot token cache from the CopilotProvider for the refresh task
+        if let Some(copilot) = app_state
+            .providers
+            .get(&providers::types::ProviderId::Copilot)
+            .and_then(|p| {
+                p.as_any()
+                    .downcast_ref::<providers::copilot::CopilotProvider>()
+            })
+        {
+            web_ui::copilot_auth::spawn_copilot_token_refresh_task(
                 Arc::clone(db),
-                Arc::clone(&app_state.session_cache),
+                Arc::clone(copilot.token_cache()),
             );
-            tracing::info!("Background tasks started (token refresh, session cleanup)");
         }
+        web_ui::session::SessionService::spawn_cleanup_task(
+            Arc::clone(db),
+            Arc::clone(&app_state.session_cache),
+        );
+        tracing::info!("Background tasks started (token refresh, session cleanup)");
     }
 
     let app = build_app(app_state);
@@ -614,12 +585,10 @@ fn print_startup_banner(config: &config::Config) {
         },
         config.fake_reasoning_max_tokens
     );
-    if !config.is_proxy_only() {
-        println!(
-            "  Web UI:      http://{}:{}/_ui/",
-            config.server_host, config.server_port
-        );
-    }
+    println!(
+        "  Web UI:      http://{}:{}/_ui/",
+        config.server_host, config.server_port
+    );
     println!();
 }
 

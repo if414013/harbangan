@@ -50,9 +50,7 @@ pub struct QwenProvider {
 }
 
 impl QwenProvider {
-    pub fn new() -> Self {
-        let client_id =
-            std::env::var("QWEN_OAUTH_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
+    pub fn new(client_id: String) -> Self {
         Self {
             client: reqwest::Client::new(),
             client_id,
@@ -293,7 +291,7 @@ impl QwenProvider {
 
 impl Default for QwenProvider {
     fn default() -> Self {
-        Self::new()
+        Self::new(DEFAULT_CLIENT_ID.to_string())
     }
 }
 
@@ -383,7 +381,10 @@ mod tests {
 
     #[test]
     fn test_qwen_provider_id() {
-        assert_eq!(QwenProvider::new().id(), ProviderId::Qwen);
+        assert_eq!(
+            QwenProvider::new(DEFAULT_CLIENT_ID.to_string()).id(),
+            ProviderId::Qwen
+        );
     }
 
     #[test]
@@ -577,7 +578,7 @@ mod tests {
     #[test]
     fn test_client_id_default() {
         // When env var is not set, should use the hardcoded default
-        let provider = QwenProvider::new();
+        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
         // Can't assert exact value since env var might be set, but it should be non-empty
         assert!(!provider.client_id().is_empty());
     }
@@ -586,7 +587,7 @@ mod tests {
 
     #[test]
     fn test_rate_limit_allows_under_limit() {
-        let provider = QwenProvider::new();
+        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
         for _ in 0..59 {
             assert!(provider.check_rate_limit("test-token-abcdef").is_ok());
         }
@@ -594,7 +595,7 @@ mod tests {
 
     #[test]
     fn test_rate_limit_blocks_at_limit() {
-        let provider = QwenProvider::new();
+        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
         for _ in 0..RATE_LIMIT_MAX_REQUESTS {
             provider.check_rate_limit("test-token-abcdef").unwrap();
         }
@@ -614,7 +615,7 @@ mod tests {
 
     #[test]
     fn test_rate_limit_different_credentials_independent() {
-        let provider = QwenProvider::new();
+        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
         // Fill up one credential
         for _ in 0..RATE_LIMIT_MAX_REQUESTS {
             provider.check_rate_limit("credential-aaaa").unwrap();
@@ -626,7 +627,7 @@ mod tests {
 
     #[test]
     fn test_rate_limit_sliding_window_eviction() {
-        let provider = QwenProvider::new();
+        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
         let key = "test-token-abcdef"[..16].to_string();
 
         // Manually insert old timestamps that are past the window
@@ -991,7 +992,7 @@ mod tests {
 
     #[test]
     fn test_rate_limit_exact_boundary() {
-        let provider = QwenProvider::new();
+        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
         // 60th request should succeed (fills the window)
         for i in 0..RATE_LIMIT_MAX_REQUESTS {
             let result = provider.check_rate_limit("test-token-abcdef");
@@ -1004,20 +1005,20 @@ mod tests {
     #[test]
     fn test_rate_limit_short_token() {
         // Token shorter than 16 chars should still work (uses min(len, 16))
-        let provider = QwenProvider::new();
+        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
         assert!(provider.check_rate_limit("short").is_ok());
     }
 
     #[test]
     fn test_rate_limit_single_char_token() {
-        let provider = QwenProvider::new();
+        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
         assert!(provider.check_rate_limit("x").is_ok());
     }
 
     #[test]
     fn test_rate_limit_tokens_sharing_prefix_share_bucket() {
         // Two tokens with the same first 16 chars share a rate limit bucket
-        let provider = QwenProvider::new();
+        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
         let token_a = "abcdefghijklmnop_suffix_a";
         let token_b = "abcdefghijklmnop_suffix_b";
         for _ in 0..RATE_LIMIT_MAX_REQUESTS {
@@ -1029,7 +1030,7 @@ mod tests {
 
     #[test]
     fn test_rate_limit_retry_after_is_positive() {
-        let provider = QwenProvider::new();
+        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
         for _ in 0..RATE_LIMIT_MAX_REQUESTS {
             provider.check_rate_limit("test-token-abcdef").unwrap();
         }

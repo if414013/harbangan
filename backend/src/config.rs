@@ -46,13 +46,13 @@ pub struct Config {
     // Database
     pub database_url: Option<String>,
 
-    // Proxy-only mode (no DB, no SSO, single API key)
-    pub proxy_api_key: Option<String>,
-    pub kiro_refresh_token: Option<String>,
-    pub kiro_client_id: Option<String>,
-    pub kiro_client_secret: Option<String>,
-    pub kiro_sso_url: Option<String>,
-    pub kiro_sso_region: Option<String>,
+    // Provider OAuth client IDs (defaults for public device-flow / PKCE clients)
+    #[allow(dead_code)]
+    pub qwen_oauth_client_id: String,
+    #[allow(dead_code)]
+    pub anthropic_oauth_client_id: String,
+    #[allow(dead_code)]
+    pub openai_oauth_client_id: String,
 
     // Google SSO (bootstrap from env vars)
     pub google_client_id: String,
@@ -103,12 +103,9 @@ impl Config {
             guardrails_enabled: false,
             default_provider: "kiro".to_string(),
             database_url: None,
-            proxy_api_key: None,
-            kiro_refresh_token: None,
-            kiro_client_id: None,
-            kiro_client_secret: None,
-            kiro_sso_url: None,
-            kiro_sso_region: None,
+            qwen_oauth_client_id: "f0304373b74a44d2b584a3fb70ca9e56".to_string(),
+            anthropic_oauth_client_id: "9d1c250a-e61b-44d9-88ed-5944d1962f5e".to_string(),
+            openai_oauth_client_id: "app_EMoamEEZ73f0CkXaXp7hrann".to_string(),
             google_client_id: String::new(),
             google_client_secret: String::new(),
             google_callback_url: String::new(),
@@ -135,13 +132,6 @@ impl Config {
         // Database
         config.database_url = std::env::var("DATABASE_URL").ok();
 
-        // Proxy-only mode
-        config.proxy_api_key = std::env::var("PROXY_API_KEY").ok();
-        config.kiro_refresh_token = std::env::var("KIRO_REFRESH_TOKEN").ok();
-        config.kiro_client_id = std::env::var("KIRO_CLIENT_ID").ok();
-        config.kiro_client_secret = std::env::var("KIRO_CLIENT_SECRET").ok();
-        config.kiro_sso_url = std::env::var("KIRO_SSO_URL").ok();
-        config.kiro_sso_region = std::env::var("KIRO_SSO_REGION").ok();
         if let Ok(v) = std::env::var("KIRO_REGION") {
             config.kiro_region = v;
         }
@@ -150,6 +140,17 @@ impl Config {
         }
         if let Ok(v) = std::env::var("DEBUG_MODE") {
             config.debug_mode = parse_debug_mode(&v);
+        }
+
+        // Provider OAuth client IDs (env var override for backward compat)
+        if let Ok(v) = std::env::var("QWEN_OAUTH_CLIENT_ID") {
+            config.qwen_oauth_client_id = v;
+        }
+        if let Ok(v) = std::env::var("ANTHROPIC_OAUTH_CLIENT_ID") {
+            config.anthropic_oauth_client_id = v;
+        }
+        if let Ok(v) = std::env::var("OPENAI_OAUTH_CLIENT_ID") {
+            config.openai_oauth_client_id = v;
         }
 
         // Google SSO
@@ -162,17 +163,11 @@ impl Config {
 
     /// Validate configuration.
     pub fn validate(&self) -> Result<()> {
-        // Proxy-only mode: skip Google SSO validation
-        if self.proxy_api_key.is_some() {
-            return Ok(());
-        }
-
         // Google SSO is the only auth path — required for the web UI
         if self.google_client_id.is_empty() {
             anyhow::bail!(
                 "GOOGLE_CLIENT_ID is required. \
-                 Google SSO is the only auth path — the gateway is unusable without it. \
-                 Set PROXY_API_KEY for proxy-only mode without SSO."
+                 Google SSO is the only auth path — the gateway is unusable without it."
             );
         }
         if self.google_callback_url.is_empty() {
@@ -186,11 +181,6 @@ impl Config {
         }
 
         Ok(())
-    }
-
-    /// Returns true if running in proxy-only mode (no DB, no SSO).
-    pub fn is_proxy_only(&self) -> bool {
-        self.proxy_api_key.is_some()
     }
 }
 

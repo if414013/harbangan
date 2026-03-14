@@ -6,6 +6,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::config::{Config, DebugMode};
+use crate::web_ui::crypto;
 
 /// Query row for expiring Kiro tokens with OAuth credentials.
 type KiroTokenOAuthRow = (Uuid, String, Option<String>, Option<String>, Option<String>);
@@ -645,7 +646,95 @@ impl ConfigDb {
         Ok(())
     }
 
+    /// Upsert an encrypted config value. Encrypts the plaintext and stores with `value_type='encrypted'`.
+    #[allow(dead_code)]
+    pub async fn set_encrypted(
+        &self,
+        key: &str,
+        plaintext: &str,
+        encryption_key: &aes_gcm::Key<aes_gcm::Aes256Gcm>,
+        source: &str,
+    ) -> Result<()> {
+        let encrypted = crypto::encrypt_value(plaintext, encryption_key)
+            .with_context(|| format!("Failed to encrypt config value for '{}'", key))?;
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin transaction for encrypted config set")?;
+
+        let old_value: Option<String> =
+            sqlx::query_scalar("SELECT value FROM config WHERE key = $1")
+                .bind(key)
+                .fetch_optional(&mut *tx)
+                .await
+                .context("Failed to fetch old config value")?;
+
+        sqlx::query(
+            "INSERT INTO config (key, value, value_type, updated_at)
+             VALUES ($1, $2, 'encrypted', NOW())
+             ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, value_type = 'encrypted', updated_at = EXCLUDED.updated_at",
+        )
+        .bind(key)
+        .bind(&encrypted)
+        .execute(&mut *tx)
+        .await
+        .with_context(|| format!("Failed to upsert encrypted config key '{}'", key))?;
+
+        sqlx::query(
+            "INSERT INTO config_history (key, old_value, new_value, source)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(key)
+        .bind(&old_value)
+        .bind("[encrypted]")
+        .bind(source)
+        .execute(&mut *tx)
+        .await
+        .with_context(|| format!("Failed to record config history for '{}'", key))?;
+
+        sqlx::query(
+            "DELETE FROM config_history WHERE id NOT IN (SELECT id FROM config_history ORDER BY id DESC LIMIT 1000)",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to prune config history")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit encrypted config set transaction")?;
+
+        Ok(())
+    }
+
+    /// Read and decrypt a config value that was stored with `value_type='encrypted'`.
+    #[allow(dead_code)]
+    pub async fn get_decrypted(
+        &self,
+        key: &str,
+        encryption_key: &aes_gcm::Key<aes_gcm::Aes256Gcm>,
+    ) -> Result<Option<String>> {
+        let row: Option<(String, String)> =
+            sqlx::query_as("SELECT value, value_type FROM config WHERE key = $1")
+                .bind(key)
+                .fetch_optional(&self.pool)
+                .await
+                .context("Failed to query config value")?;
+
+        match row {
+            Some((value, vtype)) if vtype == "encrypted" => {
+                let plaintext = crypto::decrypt_value(&value, encryption_key)
+                    .with_context(|| format!("Failed to decrypt config key '{}'", key))?;
+                Ok(Some(plaintext))
+            }
+            Some((value, _)) => Ok(Some(value)),
+            None => Ok(None),
+        }
+    }
+
     /// Get all config key-value pairs.
+    #[allow(dead_code)]
     pub async fn get_all(&self) -> Result<HashMap<String, String>> {
         let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM config")
             .fetch_all(&self.pool)
@@ -719,15 +808,45 @@ impl ConfigDb {
             };
         }
 
-        let all = self.get_all().await?;
+        let rows: Vec<(String, String, String)> =
+            sqlx::query_as("SELECT key, value, value_type FROM config")
+                .fetch_all(&self.pool)
+                .await
+                .context("Failed to query all config for load_into_config")?;
 
-        for (key, value) in &all {
+        let encryption_key = crypto::load_encryption_key().ok();
+
+        for (key, raw_value, value_type) in &rows {
+            let value = if value_type == "encrypted" {
+                match &encryption_key {
+                    Some(ek) => match crypto::decrypt_value(raw_value, ek) {
+                        Ok(plaintext) => plaintext,
+                        Err(e) => {
+                            tracing::warn!(
+                                key = %key,
+                                "Failed to decrypt config value, skipping: {}",
+                                e
+                            );
+                            continue;
+                        }
+                    },
+                    None => {
+                        tracing::warn!(
+                            key = %key,
+                            "Encrypted config value found but CONFIG_ENCRYPTION_KEY not set, skipping"
+                        );
+                        continue;
+                    }
+                }
+            } else {
+                raw_value.clone()
+            };
+
             match key.as_str() {
                 "server_host" => config.server_host = value.clone(),
                 "server_port" => {
                     parse_ranged!(key, value, config.server_port, u16, 1, 65535);
                 }
-                "proxy_api_key" => { /* removed — no longer in Config */ }
                 "kiro_region" => config.kiro_region = value.clone(),
                 "log_level" => config.log_level = value.clone(),
                 "debug_mode" => {
@@ -811,6 +930,9 @@ impl ConfigDb {
                 "http_max_retries" => {
                     parse_ranged!(key, value, config.http_max_retries, u32, 0, 10);
                 }
+                "qwen_oauth_client_id" => config.qwen_oauth_client_id = value.clone(),
+                "anthropic_oauth_client_id" => config.anthropic_oauth_client_id = value.clone(),
+                "openai_oauth_client_id" => config.openai_oauth_client_id = value.clone(),
                 _ => {}
             }
         }
@@ -831,147 +953,9 @@ impl ConfigDb {
         result.unwrap_or(false)
     }
 
-    /// Save initial setup configuration (proxy key, refresh token, region).
-    /// All writes are wrapped in a single transaction for atomicity.
-    #[allow(dead_code)]
-    pub async fn save_initial_setup(
-        &self,
-        proxy_key: &str,
-        refresh_token: &str,
-        region: &str,
-    ) -> Result<()> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .context("Failed to begin transaction for initial setup")?;
-
-        let keys_values: &[(&str, &str)] = &[
-            ("proxy_api_key", proxy_key),
-            ("kiro_refresh_token", refresh_token),
-            ("kiro_region", region),
-            ("setup_complete", "true"),
-        ];
-
-        for &(key, value) in keys_values {
-            let old_value: Option<String> =
-                sqlx::query_scalar("SELECT value FROM config WHERE key = $1")
-                    .bind(key)
-                    .fetch_optional(&mut *tx)
-                    .await
-                    .context("Failed to fetch old config value during setup")?;
-
-            sqlx::query(
-                "INSERT INTO config (key, value, updated_at)
-                 VALUES ($1, $2, NOW())
-                 ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
-            )
-            .bind(key)
-            .bind(value)
-            .execute(&mut *tx)
-            .await
-            .with_context(|| format!("Failed to upsert config key '{}' during setup", key))?;
-
-            sqlx::query(
-                "INSERT INTO config_history (key, old_value, new_value, source)
-                 VALUES ($1, $2, $3, $4)",
-            )
-            .bind(key)
-            .bind(&old_value)
-            .bind(value)
-            .bind("setup")
-            .execute(&mut *tx)
-            .await
-            .with_context(|| {
-                format!("Failed to record config history for '{}' during setup", key)
-            })?;
-        }
-
-        tx.commit()
-            .await
-            .context("Failed to commit initial setup transaction")?;
-
-        Ok(())
-    }
-
     /// Get the stored Kiro refresh token.
     pub async fn get_refresh_token(&self) -> Result<Option<String>> {
         self.get("kiro_refresh_token").await
-    }
-
-    /// Save OAuth-based setup (all fields in one transaction).
-    #[allow(clippy::too_many_arguments)]
-    #[allow(dead_code)]
-    pub async fn save_oauth_setup(
-        &self,
-        proxy_key: &str,
-        refresh_token: &str,
-        region: &str,
-        client_id: &str,
-        client_secret: &str,
-        client_secret_expires_at: &str,
-        start_url: &str,
-    ) -> Result<()> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .context("Failed to begin transaction for OAuth setup")?;
-
-        let keys_values: &[(&str, &str)] = &[
-            ("proxy_api_key", proxy_key),
-            ("kiro_refresh_token", refresh_token),
-            ("kiro_region", "us-east-1"),
-            ("oauth_sso_region", region),
-            ("oauth_client_id", client_id),
-            ("oauth_client_secret", client_secret),
-            ("oauth_client_secret_expires_at", client_secret_expires_at),
-            ("oauth_start_url", start_url),
-            ("setup_complete", "true"),
-        ];
-
-        for &(key, value) in keys_values {
-            let old_value: Option<String> =
-                sqlx::query_scalar("SELECT value FROM config WHERE key = $1")
-                    .bind(key)
-                    .fetch_optional(&mut *tx)
-                    .await
-                    .context("Failed to fetch old config value during OAuth setup")?;
-
-            sqlx::query(
-                "INSERT INTO config (key, value, updated_at)
-                 VALUES ($1, $2, NOW())
-                 ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
-            )
-            .bind(key)
-            .bind(value)
-            .execute(&mut *tx)
-            .await
-            .with_context(|| format!("Failed to upsert config key '{}' during OAuth setup", key))?;
-
-            sqlx::query(
-                "INSERT INTO config_history (key, old_value, new_value, source)
-                 VALUES ($1, $2, $3, $4)",
-            )
-            .bind(key)
-            .bind(&old_value)
-            .bind(value)
-            .bind("oauth_setup")
-            .execute(&mut *tx)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to record config history for '{}' during OAuth setup",
-                    key
-                )
-            })?;
-        }
-
-        tx.commit()
-            .await
-            .context("Failed to commit OAuth setup transaction")?;
-
-        Ok(())
     }
 
     /// Get OAuth client credentials from config.
@@ -3443,6 +3427,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_set_encrypted_get_decrypted_roundtrip() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let key = *aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(&[0x42u8; 32]);
+        db.set_encrypted("secret_key", "my-secret-value", &key, "test")
+            .await
+            .unwrap();
+
+        let decrypted = db.get_decrypted("secret_key", &key).await.unwrap();
+        assert_eq!(decrypted, Some("my-secret-value".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_decrypted_plain_value() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let key = *aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(&[0x42u8; 32]);
+        db.set("plain_key", "plain-value", "test").await.unwrap();
+
+        let result = db.get_decrypted("plain_key", &key).await.unwrap();
+        assert_eq!(result, Some("plain-value".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_decrypted_nonexistent() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let key = *aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(&[0x42u8; 32]);
+        let result = db.get_decrypted("no_such_key", &key).await.unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn test_set_encrypted_wrong_key_fails_decrypt() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let key1 = *aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(&[0x42u8; 32]);
+        let key2 = *aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(&[0x99u8; 32]);
+        db.set_encrypted("wrong_key_test", "secret", &key1, "test")
+            .await
+            .unwrap();
+
+        let result = db.get_decrypted("wrong_key_test", &key2).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_set_encrypted_overwrites_plain() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let key = *aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(&[0x42u8; 32]);
+        db.set("upgrade_key", "old-plain", "test").await.unwrap();
+        db.set_encrypted("upgrade_key", "new-secret", &key, "test")
+            .await
+            .unwrap();
+
+        let decrypted = db.get_decrypted("upgrade_key", &key).await.unwrap();
+        assert_eq!(decrypted, Some("new-secret".to_string()));
+    }
+
+    #[tokio::test]
     async fn test_get_history() {
         let Some(db) = setup_test_db().await else {
             eprintln!("Skipping: DATABASE_URL not set");
@@ -3554,35 +3609,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(role, "admin");
-        assert!(db.is_setup_complete().await);
-    }
-
-    #[tokio::test]
-    async fn test_save_initial_setup() {
-        let Some(db) = setup_test_db().await else {
-            eprintln!("Skipping: DATABASE_URL not set");
-            return;
-        };
-        db.save_initial_setup("my-key", "my-token", "us-west-2")
-            .await
-            .unwrap();
-
-        assert_eq!(
-            db.get("proxy_api_key").await.unwrap(),
-            Some("my-key".to_string())
-        );
-        assert_eq!(
-            db.get("kiro_refresh_token").await.unwrap(),
-            Some("my-token".to_string())
-        );
-        assert_eq!(
-            db.get("kiro_region").await.unwrap(),
-            Some("us-west-2".to_string())
-        );
-        assert_eq!(
-            db.get("setup_complete").await.unwrap(),
-            Some("true".to_string())
-        );
         assert!(db.is_setup_complete().await);
     }
 
