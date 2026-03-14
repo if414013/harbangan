@@ -50,6 +50,7 @@ use axum::body::Body;
 use axum::http::Request;
 use axum::middleware::Next;
 use axum::response::Response;
+use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use tracing::Subscriber;
 use tracing_opentelemetry::OpenTelemetryLayer;
@@ -126,7 +127,7 @@ pub fn dd_agent_configured() -> bool {
 ///
 /// Returns `Some(layer)` when `DD_AGENT_HOST` is set and the pipeline
 /// initialises successfully; `None` otherwise (zero overhead).
-pub fn init_datadog<S>() -> Option<OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>>
+pub fn init_datadog<S>() -> Option<OpenTelemetryLayer<S, opentelemetry_sdk::trace::SdkTracer>>
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
 {
@@ -164,16 +165,19 @@ where
 fn build_trace_pipeline<S>(
     service_name: &str,
     agent_endpoint: &str,
-) -> anyhow::Result<OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>>
+) -> anyhow::Result<OpenTelemetryLayer<S, opentelemetry_sdk::trace::SdkTracer>>
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
 {
-    let tracer = opentelemetry_datadog::new_pipeline()
+    let provider = opentelemetry_datadog::new_pipeline()
         .with_service_name(service_name)
         .with_agent_endpoint(agent_endpoint)
         .with_api_version(opentelemetry_datadog::ApiVersion::Version05)
-        .install_batch(opentelemetry_sdk::runtime::Tokio)
+        .install_batch()
         .context("Failed to install Datadog tracing pipeline")?;
+
+    let tracer = provider.tracer("harbangan");
+    opentelemetry::global::set_tracer_provider(provider);
 
     Ok(tracing_opentelemetry::layer().with_tracer(tracer))
 }
@@ -230,7 +234,7 @@ fn build_metrics_pipeline(endpoint: &str) -> anyhow::Result<SdkMeterProvider> {
         .build()
         .context("Failed to create OTLP metrics exporter")?;
 
-    let reader = PeriodicReader::builder(exporter, opentelemetry_sdk::runtime::Tokio)
+    let reader = PeriodicReader::builder(exporter)
         .with_interval(Duration::from_secs(60))
         .build();
 
@@ -253,7 +257,8 @@ pub fn shutdown(metrics_provider: Option<&SdkMeterProvider>) {
             eprintln!("[WARN] Datadog metrics shutdown error: {e}");
         }
     }
-    opentelemetry::global::shutdown_tracer_provider();
+    // Tracer provider shutdown is handled by Drop on the global provider
+    // (set via set_tracer_provider in build_trace_pipeline)
 }
 
 #[cfg(test)]
@@ -263,7 +268,12 @@ mod tests {
     #[test]
     fn test_init_datadog_returns_none_when_no_env() {
         temp_env::with_var_unset("DD_AGENT_HOST", || {
-            let layer: Option<OpenTelemetryLayer<tracing_subscriber::Registry, _>> = init_datadog();
+            let layer: Option<
+                OpenTelemetryLayer<
+                    tracing_subscriber::Registry,
+                    opentelemetry_sdk::trace::SdkTracer,
+                >,
+            > = init_datadog();
             assert!(layer.is_none());
         });
     }
@@ -279,7 +289,12 @@ mod tests {
     #[test]
     fn test_init_datadog_returns_none_on_invalid_host() {
         temp_env::with_var("DD_AGENT_HOST", Some("http://evil@host/path"), || {
-            let layer: Option<OpenTelemetryLayer<tracing_subscriber::Registry, _>> = init_datadog();
+            let layer: Option<
+                OpenTelemetryLayer<
+                    tracing_subscriber::Registry,
+                    opentelemetry_sdk::trace::SdkTracer,
+                >,
+            > = init_datadog();
             assert!(layer.is_none());
         });
     }
