@@ -30,9 +30,10 @@ pub fn classify_config_change(key: &str) -> ChangeType {
         | "guardrails_enabled"
         | "auth_google_enabled"
         | "auth_password_enabled" => ChangeType::HotReload,
-        "qwen_oauth_client_id" | "anthropic_oauth_client_id" | "openai_oauth_client_id" => {
-            ChangeType::HotReload
-        }
+        "anthropic_oauth_client_id" | "openai_oauth_client_id" => ChangeType::HotReload,
+        // QwenProvider holds a snapshot of the client ID at construction time,
+        // so changes require a restart to take effect.
+        "qwen_oauth_client_id" => ChangeType::RequiresRestart,
         "server_host"
         | "server_port"
         | "streaming_timeout"
@@ -181,6 +182,12 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
                 .ok_or_else(|| format!("{} must be a string", key))?;
             if s.is_empty() {
                 return Err(format!("{} must not be empty", key));
+            }
+            if s.len() > 256 {
+                return Err(format!("{} must be at most 256 characters", key));
+            }
+            if s.chars().any(|c| c.is_control()) {
+                return Err(format!("{} must not contain control characters", key));
             }
             Ok(())
         }
@@ -862,6 +869,11 @@ mod tests {
             "http_connect_timeout",
             "http_request_timeout",
             "http_max_retries",
+            "auth_google_enabled",
+            "auth_password_enabled",
+            "qwen_oauth_client_id",
+            "anthropic_oauth_client_id",
+            "openai_oauth_client_id",
         ];
         for key in expected_keys {
             assert!(descs.contains_key(key), "Missing description for '{}'", key);
@@ -902,5 +914,68 @@ mod tests {
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["count"], 0);
         assert!(json["domains"].is_array());
+    }
+
+    #[test]
+    fn test_validate_provider_oauth_client_ids() {
+        // Valid
+        assert!(validate_config_field("qwen_oauth_client_id", &json!("some-id")).is_ok());
+        assert!(validate_config_field("anthropic_oauth_client_id", &json!("some-id")).is_ok());
+        assert!(validate_config_field("openai_oauth_client_id", &json!("some-id")).is_ok());
+        // Invalid: empty
+        assert!(validate_config_field("qwen_oauth_client_id", &json!("")).is_err());
+        assert!(validate_config_field("anthropic_oauth_client_id", &json!("")).is_err());
+        assert!(validate_config_field("openai_oauth_client_id", &json!("")).is_err());
+        // Invalid: non-string
+        assert!(validate_config_field("qwen_oauth_client_id", &json!(123)).is_err());
+        assert!(validate_config_field("anthropic_oauth_client_id", &json!(123)).is_err());
+        assert!(validate_config_field("openai_oauth_client_id", &json!(123)).is_err());
+    }
+
+    #[test]
+    fn test_validate_provider_oauth_control_chars_rejected() {
+        // Control characters rejected
+        assert!(
+            validate_config_field("qwen_oauth_client_id", &json!("id\nwith\nnewlines")).is_err()
+        );
+        assert!(validate_config_field("qwen_oauth_client_id", &json!("id\x00null")).is_err());
+        assert!(
+            validate_config_field("anthropic_oauth_client_id", &json!("id\twith\ttabs")).is_err()
+        );
+        assert!(validate_config_field("openai_oauth_client_id", &json!("id\rnewline")).is_err());
+    }
+
+    #[test]
+    fn test_validate_provider_oauth_max_length() {
+        // Too long rejected
+        assert!(validate_config_field("qwen_oauth_client_id", &json!("a".repeat(257))).is_err());
+        assert!(
+            validate_config_field("anthropic_oauth_client_id", &json!("a".repeat(257))).is_err()
+        );
+        assert!(validate_config_field("openai_oauth_client_id", &json!("a".repeat(257))).is_err());
+        // Max length OK
+        assert!(validate_config_field("qwen_oauth_client_id", &json!("a".repeat(256))).is_ok());
+        assert!(
+            validate_config_field("anthropic_oauth_client_id", &json!("a".repeat(256))).is_ok()
+        );
+        assert!(validate_config_field("openai_oauth_client_id", &json!("a".repeat(256))).is_ok());
+    }
+
+    #[test]
+    fn test_classify_provider_oauth_change_types() {
+        // qwen_oauth_client_id requires restart (QwenProvider holds a snapshot)
+        assert!(matches!(
+            classify_config_change("qwen_oauth_client_id"),
+            ChangeType::RequiresRestart
+        ));
+        // anthropic and openai use HttpTokenExchanger which reads live Config
+        assert!(matches!(
+            classify_config_change("anthropic_oauth_client_id"),
+            ChangeType::HotReload
+        ));
+        assert!(matches!(
+            classify_config_change("openai_oauth_client_id"),
+            ChangeType::HotReload
+        ));
     }
 }
