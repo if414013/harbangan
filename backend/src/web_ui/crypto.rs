@@ -63,6 +63,7 @@ pub fn decrypt_value(encrypted_base64: &str, key: &Key<Aes256Gcm>) -> Result<Str
 }
 
 /// Mask a sensitive value for display: "xxxx...last4"
+#[allow(dead_code)]
 pub fn mask_value(value: &str) -> String {
     if value.len() <= 4 {
         "****".to_string()
@@ -131,7 +132,7 @@ mod tests {
     #[test]
     fn test_decrypt_too_short_fails() {
         let key = test_key();
-        let short = BASE64.encode(&[0u8; 10]);
+        let short = BASE64.encode([0u8; 10]);
         let result = decrypt_value(&short, &key);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("too short"));
@@ -184,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_load_encryption_key_wrong_length() {
-        std::env::set_var("CONFIG_ENCRYPTION_KEY", BASE64.encode(&[0u8; 16]));
+        std::env::set_var("CONFIG_ENCRYPTION_KEY", BASE64.encode([0u8; 16]));
         let result = load_encryption_key();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("32 bytes"));
