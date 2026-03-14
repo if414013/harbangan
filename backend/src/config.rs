@@ -46,6 +46,14 @@ pub struct Config {
     // Database
     pub database_url: Option<String>,
 
+    // Provider OAuth client IDs (defaults for public device-flow / PKCE clients)
+    #[allow(dead_code)]
+    pub qwen_oauth_client_id: String,
+    #[allow(dead_code)]
+    pub anthropic_oauth_client_id: String,
+    #[allow(dead_code)]
+    pub openai_oauth_client_id: String,
+
     // Google SSO (bootstrap from env vars)
     pub google_client_id: String,
     pub google_client_secret: String,
@@ -95,6 +103,9 @@ impl Config {
             guardrails_enabled: false,
             default_provider: "kiro".to_string(),
             database_url: None,
+            qwen_oauth_client_id: "f0304373b74a44d2b584a3fb70ca9e56".to_string(),
+            anthropic_oauth_client_id: "9d1c250a-e61b-44d9-88ed-5944d1962f5e".to_string(),
+            openai_oauth_client_id: "app_EMoamEEZ73f0CkXaXp7hrann".to_string(),
             google_client_id: String::new(),
             google_client_secret: String::new(),
             google_callback_url: String::new(),
@@ -129,6 +140,17 @@ impl Config {
         }
         if let Ok(v) = std::env::var("DEBUG_MODE") {
             config.debug_mode = parse_debug_mode(&v);
+        }
+
+        // Provider OAuth client IDs (env var override for backward compat)
+        if let Ok(v) = std::env::var("QWEN_OAUTH_CLIENT_ID") {
+            config.qwen_oauth_client_id = v;
+        }
+        if let Ok(v) = std::env::var("ANTHROPIC_OAUTH_CLIENT_ID") {
+            config.anthropic_oauth_client_id = v;
+        }
+        if let Ok(v) = std::env::var("OPENAI_OAUTH_CLIENT_ID") {
+            config.openai_oauth_client_id = v;
         }
 
         // Google SSO
