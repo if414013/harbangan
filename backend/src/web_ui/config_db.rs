@@ -930,6 +930,9 @@ impl ConfigDb {
                 "http_max_retries" => {
                     parse_ranged!(key, value, config.http_max_retries, u32, 0, 10);
                 }
+                "qwen_oauth_client_id" => config.qwen_oauth_client_id = value.clone(),
+                "anthropic_oauth_client_id" => config.anthropic_oauth_client_id = value.clone(),
+                "openai_oauth_client_id" => config.openai_oauth_client_id = value.clone(),
                 _ => {}
             }
         }
