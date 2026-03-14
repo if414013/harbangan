@@ -30,10 +30,9 @@ pub fn classify_config_change(key: &str) -> ChangeType {
         | "guardrails_enabled"
         | "auth_google_enabled"
         | "auth_password_enabled" => ChangeType::HotReload,
-        "anthropic_oauth_client_id" | "openai_oauth_client_id" => ChangeType::HotReload,
-        // QwenProvider holds a snapshot of the client ID at construction time,
-        // so changes require a restart to take effect.
-        "qwen_oauth_client_id" => ChangeType::RequiresRestart,
+        "anthropic_oauth_client_id" | "openai_oauth_client_id" | "qwen_oauth_client_id" => {
+            ChangeType::HotReload
+        }
         "server_host"
         | "server_port"
         | "streaming_timeout"
@@ -963,10 +962,10 @@ mod tests {
 
     #[test]
     fn test_classify_provider_oauth_change_types() {
-        // qwen_oauth_client_id requires restart (QwenProvider holds a snapshot)
+        // qwen_oauth_client_id is hot-reloadable (qwen_auth reads from Config each time)
         assert!(matches!(
             classify_config_change("qwen_oauth_client_id"),
-            ChangeType::RequiresRestart
+            ChangeType::HotReload
         ));
         // anthropic and openai use HttpTokenExchanger which reads live Config
         assert!(matches!(

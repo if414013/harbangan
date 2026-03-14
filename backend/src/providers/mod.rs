@@ -23,11 +23,6 @@ pub fn build_provider_map(
     config: Arc<std::sync::RwLock<crate::config::Config>>,
 ) -> ProviderMap {
     let mut map = HashMap::new();
-    let qwen_client_id = config
-        .read()
-        .unwrap_or_else(|p| p.into_inner())
-        .qwen_oauth_client_id
-        .clone();
     map.insert(
         ProviderId::Kiro,
         Arc::new(kiro::KiroProvider::new(http_client, auth_manager, config)) as Arc<dyn Provider>,
@@ -46,7 +41,7 @@ pub fn build_provider_map(
     );
     map.insert(
         ProviderId::Qwen,
-        Arc::new(qwen::QwenProvider::new(qwen_client_id)) as Arc<dyn Provider>,
+        Arc::new(qwen::QwenProvider::new()) as Arc<dyn Provider>,
     );
     Arc::new(map)
 }

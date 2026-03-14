@@ -29,9 +29,6 @@ use crate::web_ui::qwen_auth::QwenDevicePendingMap;
 /// Default Qwen API base URL.
 const DEFAULT_BASE_URL: &str = "https://chat.qwen.ai/api";
 
-/// Default OAuth client ID (public, no secret needed for device flow).
-const DEFAULT_CLIENT_ID: &str = "f0304373b74a44d2b584a3fb70ca9e56";
-
 /// Maximum requests per credential per sliding window.
 const RATE_LIMIT_MAX_REQUESTS: usize = 60;
 
@@ -40,8 +37,6 @@ const RATE_LIMIT_WINDOW_SECS: u64 = 60;
 
 pub struct QwenProvider {
     client: reqwest::Client,
-    #[allow(dead_code)] // Used in Phase 2 device flow
-    client_id: String,
     /// Per-credential sliding window rate limiter: access_token_hash -> timestamps.
     /// TODO: Add periodic cleanup of stale entries to prevent unbounded memory growth.
     rate_limiter: DashMap<String, VecDeque<Instant>>,
@@ -50,19 +45,12 @@ pub struct QwenProvider {
 }
 
 impl QwenProvider {
-    pub fn new(client_id: String) -> Self {
+    pub fn new() -> Self {
         Self {
             client: reqwest::Client::new(),
-            client_id,
             rate_limiter: DashMap::new(),
             device_pending: Arc::new(DashMap::new()),
         }
-    }
-
-    /// Returns the OAuth client ID for device flow.
-    #[allow(dead_code)] // Used in Phase 2 device flow
-    pub fn client_id(&self) -> &str {
-        &self.client_id
     }
 
     /// Access the pending device flow map.
@@ -291,7 +279,7 @@ impl QwenProvider {
 
 impl Default for QwenProvider {
     fn default() -> Self {
-        Self::new(DEFAULT_CLIENT_ID.to_string())
+        Self::new()
     }
 }
 
@@ -381,10 +369,7 @@ mod tests {
 
     #[test]
     fn test_qwen_provider_id() {
-        assert_eq!(
-            QwenProvider::new(DEFAULT_CLIENT_ID.to_string()).id(),
-            ProviderId::Qwen
-        );
+        assert_eq!(QwenProvider::new().id(), ProviderId::Qwen);
     }
 
     #[test]
@@ -575,19 +560,11 @@ mod tests {
         assert_eq!(provider.id(), ProviderId::Qwen);
     }
 
-    #[test]
-    fn test_client_id_default() {
-        // When env var is not set, should use the hardcoded default
-        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
-        // Can't assert exact value since env var might be set, but it should be non-empty
-        assert!(!provider.client_id().is_empty());
-    }
-
     // ── Rate limiter tests ──────────────────────────────────────────
 
     #[test]
     fn test_rate_limit_allows_under_limit() {
-        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
+        let provider = QwenProvider::new();
         for _ in 0..59 {
             assert!(provider.check_rate_limit("test-token-abcdef").is_ok());
         }
@@ -595,7 +572,7 @@ mod tests {
 
     #[test]
     fn test_rate_limit_blocks_at_limit() {
-        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
+        let provider = QwenProvider::new();
         for _ in 0..RATE_LIMIT_MAX_REQUESTS {
             provider.check_rate_limit("test-token-abcdef").unwrap();
         }
@@ -615,7 +592,7 @@ mod tests {
 
     #[test]
     fn test_rate_limit_different_credentials_independent() {
-        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
+        let provider = QwenProvider::new();
         // Fill up one credential
         for _ in 0..RATE_LIMIT_MAX_REQUESTS {
             provider.check_rate_limit("credential-aaaa").unwrap();
@@ -627,7 +604,7 @@ mod tests {
 
     #[test]
     fn test_rate_limit_sliding_window_eviction() {
-        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
+        let provider = QwenProvider::new();
         let key = "test-token-abcdef"[..16].to_string();
 
         // Manually insert old timestamps that are past the window
@@ -992,7 +969,7 @@ mod tests {
 
     #[test]
     fn test_rate_limit_exact_boundary() {
-        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
+        let provider = QwenProvider::new();
         // 60th request should succeed (fills the window)
         for i in 0..RATE_LIMIT_MAX_REQUESTS {
             let result = provider.check_rate_limit("test-token-abcdef");
@@ -1005,20 +982,20 @@ mod tests {
     #[test]
     fn test_rate_limit_short_token() {
         // Token shorter than 16 chars should still work (uses min(len, 16))
-        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
+        let provider = QwenProvider::new();
         assert!(provider.check_rate_limit("short").is_ok());
     }
 
     #[test]
     fn test_rate_limit_single_char_token() {
-        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
+        let provider = QwenProvider::new();
         assert!(provider.check_rate_limit("x").is_ok());
     }
 
     #[test]
     fn test_rate_limit_tokens_sharing_prefix_share_bucket() {
         // Two tokens with the same first 16 chars share a rate limit bucket
-        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
+        let provider = QwenProvider::new();
         let token_a = "abcdefghijklmnop_suffix_a";
         let token_b = "abcdefghijklmnop_suffix_b";
         for _ in 0..RATE_LIMIT_MAX_REQUESTS {
@@ -1030,7 +1007,7 @@ mod tests {
 
     #[test]
     fn test_rate_limit_retry_after_is_positive() {
-        let provider = QwenProvider::new(DEFAULT_CLIENT_ID.to_string());
+        let provider = QwenProvider::new();
         for _ in 0..RATE_LIMIT_MAX_REQUESTS {
             provider.check_rate_limit("test-token-abcdef").unwrap();
         }
