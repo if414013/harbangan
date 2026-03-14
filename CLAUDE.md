@@ -48,10 +48,10 @@ cd frontend && npm run dev      # dev server (port 5173, proxies /_ui/api → lo
 ### E2E Tests
 
 ```bash
-cd e2e-tests && npm test                # Run all tests (API + browser)
+cd e2e-tests && npm test                # Run all tests (API + browser, auto-authenticates via password+TOTP)
 cd e2e-tests && npm run test:api        # Backend API tests only (no browser)
 cd e2e-tests && npm run test:ui         # Frontend browser tests only
-cd e2e-tests && npm run test:setup      # Capture auth session interactively
+cd e2e-tests && npm run test:setup      # Capture auth session interactively (manual fallback)
 ```
 
 ### Docker
@@ -73,6 +73,7 @@ Set in `.env` (see `.env.example`):
 | `GOOGLE_CALLBACK_URL` | Yes | OAuth callback (e.g. `http://localhost:9999/_ui/api/auth/google/callback`) |
 | `INITIAL_ADMIN_EMAIL` | No | Seed admin email for password auth (first-run only) |
 | `INITIAL_ADMIN_PASSWORD` | No | Seed admin password for password auth (first-run only) |
+| `INITIAL_ADMIN_TOTP_SECRET` | No | TOTP secret (base32) for admin 2FA — enables automated E2E auth |
 
 Auto-set by docker-compose: `DATABASE_URL`, `SERVER_HOST` (0.0.0.0), `SERVER_PORT` (9999).
 
@@ -115,7 +116,7 @@ Two separate auth systems:
 
 2. **Web UI auth** (for `/_ui/api/*`): Two methods supported, configured via admin UI:
    - **Google SSO** (default): PKCE + OpenID Connect flow
-   - **Username/Password + mandatory 2FA**: Argon2 password hashing, TOTP-based 2FA (mandatory for all password users), recovery codes
+   - **Username/Password + mandatory 2FA**: Argon2 password hashing, TOTP-based 2FA (mandatory for all password users), recovery codes. `INITIAL_ADMIN_TOTP_SECRET` env var can pre-configure TOTP during admin seeding for headless/automated setup
    - Session cookie `kgw_session` (24h TTL), CSRF token, Admin vs User roles
    - First user auto-promoted to admin (regardless of auth method)
 

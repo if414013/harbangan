@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-require('dotenv').config();
+require('dotenv').config({ path: '../.env' });
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:9999';
 const BASE_UI_URL = process.env.BASE_UI_URL || 'http://localhost:5173/_ui';

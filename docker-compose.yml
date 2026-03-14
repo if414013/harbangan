@@ -37,6 +37,7 @@ services:
       QWEN_OAUTH_CLIENT_ID: "${QWEN_OAUTH_CLIENT_ID:-}"
       INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      INITIAL_ADMIN_TOTP_SECRET: ${INITIAL_ADMIN_TOTP_SECRET:-}
     depends_on:
       db:
         condition: service_healthy
