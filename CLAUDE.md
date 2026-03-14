@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## GitHub
+
+- **Owner**: `if414013` — use this account for `gh` CLI operations
+- **Repo**: `if414013/harbangan`
+
 ## Project Structure
 
 ```
