@@ -160,6 +160,7 @@ const CONFIG_GROUPS: { title: string; icon: string; fields: ConfigField[] }[] =
           key: "qwen_oauth_client_id",
           label: "Qwen OAuth Client ID",
           type: "text",
+          restart: true,
         },
         {
           key: "anthropic_oauth_client_id",
