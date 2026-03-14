@@ -56,12 +56,39 @@ pub struct AnthropicMessage {
 // Tool Models
 // ==================================================================================================
 
+/// Anthropic tool definition — either a regular custom tool or a server-side tool.
+///
+/// Regular tools have `name`, `description`, `input_schema`.
+/// Server-side tools (web_search, web_fetch, bash, text_editor, etc.) have a `type`
+/// field like `web_search_20250305` and no `input_schema`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AnthropicTool {
+#[serde(untagged)]
+pub enum AnthropicTool {
+    /// Regular custom tool with input_schema
+    Custom(AnthropicCustomTool),
+    /// Server-side tool (web_search, web_fetch, bash, text_editor, etc.)
+    ServerSide(AnthropicServerSideTool),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnthropicCustomTool {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub input_schema: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnthropicServerSideTool {
+    /// Versioned type identifier (e.g., "web_search_20250305", "web_fetch_20250910")
+    #[serde(rename = "type")]
+    pub tool_type: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_uses: Option<i32>,
+    /// All other fields (allowed_domains, blocked_domains, user_location, etc.)
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

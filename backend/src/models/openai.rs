@@ -84,11 +84,33 @@ pub struct ToolFunction {
     pub parameters: Option<serde_json::Value>,
 }
 
+/// OpenAI tool definition — either a function tool or a server-side tool.
+///
+/// Function tools have `type: "function"` and a `function` field.
+/// Server-side tools (e.g., `web_search_preview`) have a different type and no `function` field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Tool {
+#[serde(untagged)]
+pub enum Tool {
+    /// Regular function tool
+    Function(FunctionTool),
+    /// Server-side/built-in tool (web_search_preview, etc.)
+    ServerSide(ServerSideTool),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionTool {
     #[serde(rename = "type")]
     pub tool_type: String,
     pub function: ToolFunction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerSideTool {
+    #[serde(rename = "type")]
+    pub tool_type: String,
+    /// All other fields vary by tool type
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

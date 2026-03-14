@@ -252,17 +252,91 @@ pub fn convert_anthropic_messages(messages: &[AnthropicMessage]) -> Vec<UnifiedM
 }
 
 /// Converts Anthropic tools to unified format.
+///
+/// Handles both regular custom tools and server-side tools (web_search, web_fetch, etc.).
+/// Server-side tools are converted to regular tool definitions with a synthetic input_schema
+/// so they can be passed to the Kiro API as standard tool definitions.
 pub fn convert_anthropic_tools(tools: &Option<Vec<AnthropicTool>>) -> Option<Vec<UnifiedTool>> {
     tools.as_ref().map(|tools| {
         tools
             .iter()
-            .map(|tool| UnifiedTool {
-                name: tool.name.clone(),
-                description: tool.description.clone(),
-                input_schema: Some(tool.input_schema.clone()),
+            .map(|tool| match tool {
+                AnthropicTool::Custom(custom) => UnifiedTool {
+                    name: custom.name.clone(),
+                    description: custom.description.clone(),
+                    input_schema: Some(custom.input_schema.clone()),
+                },
+                AnthropicTool::ServerSide(server_tool) => {
+                    debug!(
+                        "Converting Anthropic server-side tool '{}' (type={}) to regular tool definition",
+                        server_tool.name, server_tool.tool_type
+                    );
+                    let (description, schema) =
+                        server_side_tool_to_schema(&server_tool.tool_type, &server_tool.name);
+                    UnifiedTool {
+                        name: server_tool.name.clone(),
+                        description: Some(description),
+                        input_schema: Some(schema),
+                    }
+                }
             })
             .collect()
     })
+}
+
+/// Generates a description and synthetic input schema for a server-side tool.
+fn server_side_tool_to_schema(tool_type: &str, name: &str) -> (String, serde_json::Value) {
+    // Match on the tool name prefix since versions vary
+    if name == "web_search" || tool_type.starts_with("web_search_") {
+        (
+            "Search the web for real-time information. Returns up to 10 search results."
+                .to_string(),
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query to look up on the web"
+                    }
+                },
+                "required": ["query"]
+            }),
+        )
+    } else if name == "web_fetch" || tool_type.starts_with("web_fetch_") {
+        (
+            "Fetch and retrieve content from a specific URL.".to_string(),
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to fetch content from"
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "Fetch mode: selective (default), truncated, or full",
+                        "enum": ["selective", "truncated", "full"]
+                    }
+                },
+                "required": ["url"]
+            }),
+        )
+    } else {
+        // Generic fallback for other server-side tools (bash, text_editor, etc.)
+        (
+            format!("Server-side tool: {} (type: {})", name, tool_type),
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "input": {
+                        "type": "string",
+                        "description": "Input for the tool"
+                    }
+                },
+                "required": ["input"]
+            }),
+        )
+    }
 }
 
 // ==================================================================================================
@@ -320,6 +394,7 @@ pub fn build_kiro_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::anthropic::{AnthropicCustomTool, AnthropicServerSideTool};
     use serde_json::json;
 
     // ==================================================================================================
@@ -751,11 +826,11 @@ mod tests {
 
     #[test]
     fn test_convert_anthropic_tools() {
-        let tools = vec![AnthropicTool {
+        let tools = vec![AnthropicTool::Custom(AnthropicCustomTool {
             name: "get_weather".to_string(),
             description: Some("Get weather".to_string()),
             input_schema: json!({"type": "object"}),
-        }];
+        })];
 
         let unified = convert_anthropic_tools(&Some(tools));
         assert!(unified.is_some());
@@ -780,16 +855,16 @@ mod tests {
     #[test]
     fn test_convert_anthropic_tools_multiple() {
         let tools = vec![
-            AnthropicTool {
+            AnthropicTool::Custom(AnthropicCustomTool {
                 name: "tool_a".to_string(),
                 description: Some("Tool A".to_string()),
                 input_schema: json!({"type": "object", "properties": {"x": {"type": "string"}}}),
-            },
-            AnthropicTool {
+            }),
+            AnthropicTool::Custom(AnthropicCustomTool {
                 name: "tool_b".to_string(),
                 description: None,
                 input_schema: json!({"type": "object"}),
-            },
+            }),
         ];
 
         let unified = convert_anthropic_tools(&Some(tools));
@@ -800,5 +875,44 @@ mod tests {
         assert!(tools[0].description.is_some());
         assert_eq!(tools[1].name, "tool_b");
         assert!(tools[1].description.is_none());
+    }
+
+    #[test]
+    fn test_convert_anthropic_server_side_web_search_tool() {
+        let tools = vec![AnthropicTool::ServerSide(AnthropicServerSideTool {
+            tool_type: "web_search_20250305".to_string(),
+            name: "web_search".to_string(),
+            max_uses: Some(5),
+            extra: std::collections::HashMap::new(),
+        })];
+
+        let unified = convert_anthropic_tools(&Some(tools));
+        assert!(unified.is_some());
+        let tools = unified.unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "web_search");
+        assert!(tools[0].description.is_some());
+        assert!(tools[0].input_schema.is_some());
+        // Should have a query parameter in the schema
+        let schema = tools[0].input_schema.as_ref().unwrap();
+        assert!(schema["properties"]["query"].is_object());
+    }
+
+    #[test]
+    fn test_convert_anthropic_server_side_web_fetch_tool() {
+        let tools = vec![AnthropicTool::ServerSide(AnthropicServerSideTool {
+            tool_type: "web_fetch_20250910".to_string(),
+            name: "web_fetch".to_string(),
+            max_uses: None,
+            extra: std::collections::HashMap::new(),
+        })];
+
+        let unified = convert_anthropic_tools(&Some(tools));
+        assert!(unified.is_some());
+        let tools = unified.unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "web_fetch");
+        let schema = tools[0].input_schema.as_ref().unwrap();
+        assert!(schema["properties"]["url"].is_object());
     }
 }

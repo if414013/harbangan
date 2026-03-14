@@ -253,15 +253,36 @@ pub fn convert_openai_messages_to_unified(
 }
 
 /// Converts OpenAI tools to unified format.
+///
+/// Handles both regular function tools and server-side tools (web_search_preview, etc.).
+/// Server-side tools are converted to regular tool definitions with a synthetic schema.
 pub fn convert_openai_tools_to_unified(tools: &Option<Vec<Tool>>) -> Option<Vec<UnifiedTool>> {
     tools.as_ref().map(|tools| {
         tools
             .iter()
-            .filter(|tool| tool.tool_type == "function")
-            .map(|tool| UnifiedTool {
-                name: tool.function.name.clone(),
-                description: tool.function.description.clone(),
-                input_schema: tool.function.parameters.clone(),
+            .filter_map(|tool| match tool {
+                Tool::Function(ft) if ft.tool_type == "function" => Some(UnifiedTool {
+                    name: ft.function.name.clone(),
+                    description: ft.function.description.clone(),
+                    input_schema: ft.function.parameters.clone(),
+                }),
+                Tool::Function(_) => None, // non-function FunctionTool (shouldn't happen)
+                Tool::ServerSide(st) => {
+                    debug!(
+                        "Converting OpenAI server-side tool type='{}' to regular tool definition",
+                        st.tool_type
+                    );
+                    let name = st.tool_type.clone();
+                    let description = format!("Server-side tool: {}", st.tool_type);
+                    Some(UnifiedTool {
+                        name,
+                        description: Some(description),
+                        input_schema: Some(serde_json::json!({
+                            "type": "object",
+                            "properties": {},
+                        })),
+                    })
+                }
             })
             .collect()
     })
@@ -566,7 +587,7 @@ pub fn build_kiro_payload_core(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::openai::{FunctionCall, ToolCall, ToolFunction};
+    use crate::models::openai::{FunctionCall, FunctionTool, ToolCall, ToolFunction};
     use serde_json::json;
 
     fn create_test_config() -> Config {
@@ -603,14 +624,14 @@ mod tests {
 
     #[test]
     fn test_convert_openai_tools() {
-        let tools = vec![Tool {
+        let tools = vec![Tool::Function(FunctionTool {
             tool_type: "function".to_string(),
             function: ToolFunction {
                 name: "get_weather".to_string(),
                 description: Some("Get weather".to_string()),
                 parameters: Some(json!({"type": "object"})),
             },
-        }];
+        })];
 
         let unified = convert_openai_tools_to_unified(&Some(tools));
         assert!(unified.is_some());
@@ -881,7 +902,7 @@ mod tests {
             stop: None,
             presence_penalty: None,
             frequency_penalty: None,
-            tools: Some(vec![Tool {
+            tools: Some(vec![Tool::Function(FunctionTool {
                 tool_type: "function".to_string(),
                 function: ToolFunction {
                     name: "get_weather".to_string(),
@@ -893,7 +914,7 @@ mod tests {
                         }
                     })),
                 },
-            }]),
+            })]),
             tool_choice: None,
             stream_options: None,
             logit_bias: None,
@@ -1314,7 +1335,7 @@ mod tests {
             stop: None,
             presence_penalty: None,
             frequency_penalty: None,
-            tools: Some(vec![Tool {
+            tools: Some(vec![Tool::Function(FunctionTool {
                 // Tools ARE defined
                 tool_type: "function".to_string(),
                 function: ToolFunction {
@@ -1322,7 +1343,7 @@ mod tests {
                     description: Some("Read a file".to_string()),
                     parameters: Some(json!({"type": "object"})),
                 },
-            }]),
+            })]),
             tool_choice: None,
             stream_options: None,
             logit_bias: None,

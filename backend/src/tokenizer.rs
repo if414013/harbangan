@@ -174,16 +174,23 @@ pub fn count_tools_tokens(tools: Option<&Vec<Tool>>, apply_claude_correction: bo
 
     for tool in tools_list {
         total_tokens += TOKENS_PER_TOOL;
-        total_tokens += count_tokens(&tool.tool_type, false);
-        total_tokens += count_tokens(&tool.function.name, false);
+        match tool {
+            Tool::Function(ft) => {
+                total_tokens += count_tokens(&ft.tool_type, false);
+                total_tokens += count_tokens(&ft.function.name, false);
 
-        if let Some(ref desc) = tool.function.description {
-            total_tokens += count_tokens(desc, false);
-        }
+                if let Some(ref desc) = ft.function.description {
+                    total_tokens += count_tokens(desc, false);
+                }
 
-        if let Some(ref params) = tool.function.parameters {
-            let params_str = serde_json::to_string(params).unwrap_or_default();
-            total_tokens += count_tokens(&params_str, false);
+                if let Some(ref params) = ft.function.parameters {
+                    let params_str = serde_json::to_string(params).unwrap_or_default();
+                    total_tokens += count_tokens(&params_str, false);
+                }
+            }
+            Tool::ServerSide(st) => {
+                total_tokens += count_tokens(&st.tool_type, false);
+            }
         }
     }
 
@@ -319,12 +326,21 @@ pub fn count_anthropic_message_tokens(
         for tool in tools_list {
             total_tokens += 4; // Service tokens
 
-            total_tokens += count_tokens(&tool.name, false);
-            if let Some(ref desc) = tool.description {
-                total_tokens += count_tokens(desc, false);
+            match tool {
+                AnthropicTool::Custom(custom) => {
+                    total_tokens += count_tokens(&custom.name, false);
+                    if let Some(ref desc) = custom.description {
+                        total_tokens += count_tokens(desc, false);
+                    }
+                    let schema_str =
+                        serde_json::to_string(&custom.input_schema).unwrap_or_default();
+                    total_tokens += count_tokens(&schema_str, false);
+                }
+                AnthropicTool::ServerSide(server) => {
+                    total_tokens += count_tokens(&server.name, false);
+                    total_tokens += count_tokens(&server.tool_type, false);
+                }
             }
-            let schema_str = serde_json::to_string(&tool.input_schema).unwrap_or_default();
-            total_tokens += count_tokens(&schema_str, false);
         }
     }
 
@@ -339,7 +355,7 @@ pub fn count_anthropic_message_tokens(
 mod tests {
     use super::*;
     use crate::models::anthropic::AnthropicMessage;
-    use crate::models::openai::{FunctionCall, ToolCall, ToolFunction};
+    use crate::models::openai::{FunctionCall, FunctionTool, ToolCall, ToolFunction};
     use serde_json::json;
 
     #[test]
@@ -483,7 +499,7 @@ mod tests {
 
     #[test]
     fn test_count_tools_tokens_simple() {
-        let tools = vec![Tool {
+        let tools = vec![Tool::Function(FunctionTool {
             tool_type: "function".to_string(),
             function: ToolFunction {
                 name: "get_weather".to_string(),
@@ -499,7 +515,7 @@ mod tests {
                     "required": ["location"]
                 })),
             },
-        }];
+        })];
         let tokens = count_tools_tokens(Some(&tools), false);
         // Should include: TOKENS_PER_TOOL (4) + type + name + description + parameters
         assert!(tokens > 10);
@@ -507,7 +523,7 @@ mod tests {
 
     #[test]
     fn test_count_tools_tokens_with_correction() {
-        let tools = vec![Tool {
+        let tools = vec![Tool::Function(FunctionTool {
             tool_type: "function".to_string(),
             function: ToolFunction {
                 name: "search_database".to_string(),
@@ -520,7 +536,7 @@ mod tests {
                     }
                 })),
             },
-        }];
+        })];
         let without_correction = count_tools_tokens(Some(&tools), false);
         let with_correction = count_tools_tokens(Some(&tools), true);
         assert!(with_correction > without_correction);
@@ -529,22 +545,22 @@ mod tests {
     #[test]
     fn test_count_tools_tokens_multiple() {
         let tools = vec![
-            Tool {
+            Tool::Function(FunctionTool {
                 tool_type: "function".to_string(),
                 function: ToolFunction {
                     name: "tool_one".to_string(),
                     description: Some("First tool".to_string()),
                     parameters: None,
                 },
-            },
-            Tool {
+            }),
+            Tool::Function(FunctionTool {
                 tool_type: "function".to_string(),
                 function: ToolFunction {
                     name: "tool_two".to_string(),
                     description: Some("Second tool".to_string()),
                     parameters: None,
                 },
-            },
+            }),
         ];
         let tokens = count_tools_tokens(Some(&tools), false);
         // Should be roughly double a single tool
