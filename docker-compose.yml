@@ -31,21 +31,14 @@ services:
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "9999"
       DATABASE_URL: postgres://kiro:${POSTGRES_PASSWORD:-kiro_secret}@db:5432/kiro_gateway
-      DD_AGENT_HOST: datadog-agent
       GITHUB_COPILOT_CLIENT_ID: "${GITHUB_COPILOT_CLIENT_ID:-}"
       GITHUB_COPILOT_CLIENT_SECRET: "${GITHUB_COPILOT_CLIENT_SECRET:-}"
       GITHUB_COPILOT_CALLBACK_URL: "${GITHUB_COPILOT_CALLBACK_URL:-}"
       QWEN_OAUTH_CLIENT_ID: "${QWEN_OAUTH_CLIENT_ID:-}"
       INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
-    labels:
-      com.datadoghq.ad.logs: '[{"source": "rust", "service": "harbangan-backend"}]'
-      com.datadoghq.tags.env: "${DD_ENV:-production}"
-      com.datadoghq.tags.service: "harbangan-backend"
     depends_on:
       db:
-        condition: service_healthy
-      datadog-agent:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:9999/health"]
@@ -62,12 +55,6 @@ services:
     restart: unless-stopped
     ports:
       - "5173:5173"
-    environment:
-      VITE_DD_CLIENT_TOKEN: ${VITE_DD_CLIENT_TOKEN:-}
-      VITE_DD_APPLICATION_ID: ${VITE_DD_APPLICATION_ID:-}
-      VITE_DD_ENV: ${VITE_DD_ENV:-production}
-      VITE_DD_SERVICE: ${VITE_DD_SERVICE:-harbangan-frontend}
-      VITE_DD_SITE: ${VITE_DD_SITE:-datadoghq.com}
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
@@ -75,26 +62,5 @@ services:
       backend:
         condition: service_healthy
 
-  datadog-agent:
-    image: datadog/agent:latest
-    restart: unless-stopped
-    environment:
-      DD_API_KEY: ${DD_API_KEY}
-      DD_SITE: ${DD_SITE:-us5.datadoghq.com}
-      DD_ENV: ${DD_ENV:-production}
-      DD_APM_ENABLED: "true"
-      DD_APM_NON_LOCAL_TRAFFIC: "true"
-      DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT: "0.0.0.0:4317"
-      DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT: "0.0.0.0:4318"
-      DD_LOGS_ENABLED: "true"
-      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
-      DD_CONTAINER_EXCLUDE_LOGS: "name:datadog-agent"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /proc/:/host/proc/:ro
-      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
-      - datadog-run:/opt/datadog-agent/run:rw
-
 volumes:
   pgdata:
-  datadog-run:
