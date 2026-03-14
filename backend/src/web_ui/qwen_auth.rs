@@ -39,9 +39,6 @@ fn get_qwen(state: &AppState) -> Result<&QwenProvider, ApiError> {
 const QWEN_DEVICE_CODE_URL: &str = "https://chat.qwen.ai/api/v1/oauth2/device/code";
 const QWEN_TOKEN_URL: &str = "https://chat.qwen.ai/api/v1/oauth2/token";
 
-/// Default OAuth client ID (public, no secret needed for device flow).
-const DEFAULT_CLIENT_ID: &str = "f0304373b74a44d2b584a3fb70ca9e56";
-
 /// OAuth scope for Qwen device flow.
 const QWEN_OAUTH_SCOPE: &str = "openid profile email model.completion";
 
@@ -136,11 +133,8 @@ fn pkce_challenge(verifier: &str) -> String {
     URL_SAFE_NO_PAD.encode(digest)
 }
 
-fn get_client_id() -> String {
-    std::env::var("QWEN_OAUTH_CLIENT_ID")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| DEFAULT_CLIENT_ID.to_string())
+fn get_client_id(config: &crate::config::Config) -> String {
+    config.qwen_oauth_client_id.clone()
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────
@@ -163,7 +157,8 @@ async fn qwen_device_code(
         )));
     }
 
-    let client_id = get_client_id();
+    let app_config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
+    let client_id = get_client_id(&app_config);
     let code_verifier = generate_pkce_verifier();
     let code_challenge = pkce_challenge(&code_verifier);
 
@@ -287,7 +282,8 @@ async fn qwen_device_poll(
         }));
     }
 
-    let client_id = get_client_id();
+    let app_config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
+    let client_id = get_client_id(&app_config);
     let http = reqwest::Client::new();
 
     let resp = http
@@ -656,8 +652,9 @@ mod tests {
 
     #[test]
     fn test_get_client_id_default() {
-        // When env var is not set, should return the default
-        let id = get_client_id();
+        // When using defaults, should return the default client ID
+        let cfg = crate::config::Config::with_defaults();
+        let id = get_client_id(&cfg);
         assert!(!id.is_empty());
     }
 
