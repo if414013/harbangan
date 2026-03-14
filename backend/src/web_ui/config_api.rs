@@ -30,6 +30,9 @@ pub fn classify_config_change(key: &str) -> ChangeType {
         | "guardrails_enabled"
         | "auth_google_enabled"
         | "auth_password_enabled" => ChangeType::HotReload,
+        "qwen_oauth_client_id"
+        | "anthropic_oauth_client_id"
+        | "openai_oauth_client_id" => ChangeType::HotReload,
         "server_host"
         | "server_port"
         | "streaming_timeout"
@@ -172,6 +175,15 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
             }
             Ok(())
         }
+        "qwen_oauth_client_id" | "anthropic_oauth_client_id" | "openai_oauth_client_id" => {
+            let s = value
+                .as_str()
+                .ok_or_else(|| format!("{} must be a string", key))?;
+            if s.is_empty() {
+                return Err(format!("{} must not be empty", key));
+            }
+            Ok(())
+        }
         _ => Err(format!("Unknown config field: '{}'", key)),
     }
 }
@@ -254,6 +266,18 @@ pub fn get_config_field_descriptions() -> HashMap<&'static str, &'static str> {
     m.insert(
         "auth_password_enabled",
         "Enable username/password authentication",
+    );
+    m.insert(
+        "qwen_oauth_client_id",
+        "Qwen/Alibaba Cloud OAuth client ID for device code flow",
+    );
+    m.insert(
+        "anthropic_oauth_client_id",
+        "Anthropic OAuth client ID for PKCE flow",
+    );
+    m.insert(
+        "openai_oauth_client_id",
+        "OpenAI OAuth client ID for PKCE flow",
     );
     m
 }
