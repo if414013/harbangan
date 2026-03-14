@@ -12,7 +12,7 @@
 //!
 //! Requires the gateway to be running locally. Configure via env vars:
 //! - `GATEWAY_URL` - Gateway base URL (default: http://127.0.0.1:8000)
-//! - `PROXY_API_KEY` - Gateway API key (required)
+//! - `API_KEY` - Gateway API key (required)
 
 use std::time::Duration;
 
@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
     let mode = Mode::parse()?;
     let gateway_url =
         std::env::var("GATEWAY_URL").unwrap_or_else(|_| DEFAULT_GATEWAY_URL.to_string());
-    let api_key = std::env::var("PROXY_API_KEY").context("PROXY_API_KEY env var required")?;
+    let api_key = std::env::var("API_KEY").context("API_KEY env var required")?;
 
     let client = Client::builder()
         .timeout(Duration::from_secs(120))
