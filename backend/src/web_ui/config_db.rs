@@ -6,6 +6,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::config::{Config, DebugMode};
+use crate::web_ui::crypto;
 
 /// Query row for expiring Kiro tokens with OAuth credentials.
 type KiroTokenOAuthRow = (Uuid, String, Option<String>, Option<String>, Option<String>);
@@ -645,7 +646,95 @@ impl ConfigDb {
         Ok(())
     }
 
+    /// Upsert an encrypted config value. Encrypts the plaintext and stores with `value_type='encrypted'`.
+    #[allow(dead_code)]
+    pub async fn set_encrypted(
+        &self,
+        key: &str,
+        plaintext: &str,
+        encryption_key: &aes_gcm::Key<aes_gcm::Aes256Gcm>,
+        source: &str,
+    ) -> Result<()> {
+        let encrypted = crypto::encrypt_value(plaintext, encryption_key)
+            .with_context(|| format!("Failed to encrypt config value for '{}'", key))?;
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin transaction for encrypted config set")?;
+
+        let old_value: Option<String> =
+            sqlx::query_scalar("SELECT value FROM config WHERE key = $1")
+                .bind(key)
+                .fetch_optional(&mut *tx)
+                .await
+                .context("Failed to fetch old config value")?;
+
+        sqlx::query(
+            "INSERT INTO config (key, value, value_type, updated_at)
+             VALUES ($1, $2, 'encrypted', NOW())
+             ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, value_type = 'encrypted', updated_at = EXCLUDED.updated_at",
+        )
+        .bind(key)
+        .bind(&encrypted)
+        .execute(&mut *tx)
+        .await
+        .with_context(|| format!("Failed to upsert encrypted config key '{}'", key))?;
+
+        sqlx::query(
+            "INSERT INTO config_history (key, old_value, new_value, source)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(key)
+        .bind(&old_value)
+        .bind("[encrypted]")
+        .bind(source)
+        .execute(&mut *tx)
+        .await
+        .with_context(|| format!("Failed to record config history for '{}'", key))?;
+
+        sqlx::query(
+            "DELETE FROM config_history WHERE id NOT IN (SELECT id FROM config_history ORDER BY id DESC LIMIT 1000)",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to prune config history")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit encrypted config set transaction")?;
+
+        Ok(())
+    }
+
+    /// Read and decrypt a config value that was stored with `value_type='encrypted'`.
+    #[allow(dead_code)]
+    pub async fn get_decrypted(
+        &self,
+        key: &str,
+        encryption_key: &aes_gcm::Key<aes_gcm::Aes256Gcm>,
+    ) -> Result<Option<String>> {
+        let row: Option<(String, String)> =
+            sqlx::query_as("SELECT value, value_type FROM config WHERE key = $1")
+                .bind(key)
+                .fetch_optional(&self.pool)
+                .await
+                .context("Failed to query config value")?;
+
+        match row {
+            Some((value, vtype)) if vtype == "encrypted" => {
+                let plaintext = crypto::decrypt_value(&value, encryption_key)
+                    .with_context(|| format!("Failed to decrypt config key '{}'", key))?;
+                Ok(Some(plaintext))
+            }
+            Some((value, _)) => Ok(Some(value)),
+            None => Ok(None),
+        }
+    }
+
     /// Get all config key-value pairs.
+    #[allow(dead_code)]
     pub async fn get_all(&self) -> Result<HashMap<String, String>> {
         let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM config")
             .fetch_all(&self.pool)
@@ -719,9 +808,40 @@ impl ConfigDb {
             };
         }
 
-        let all = self.get_all().await?;
+        let rows: Vec<(String, String, String)> =
+            sqlx::query_as("SELECT key, value, value_type FROM config")
+                .fetch_all(&self.pool)
+                .await
+                .context("Failed to query all config for load_into_config")?;
 
-        for (key, value) in &all {
+        let encryption_key = crypto::load_encryption_key().ok();
+
+        for (key, raw_value, value_type) in &rows {
+            let value = if value_type == "encrypted" {
+                match &encryption_key {
+                    Some(ek) => match crypto::decrypt_value(raw_value, ek) {
+                        Ok(plaintext) => plaintext,
+                        Err(e) => {
+                            tracing::warn!(
+                                key = %key,
+                                "Failed to decrypt config value, skipping: {}",
+                                e
+                            );
+                            continue;
+                        }
+                    },
+                    None => {
+                        tracing::warn!(
+                            key = %key,
+                            "Encrypted config value found but CONFIG_ENCRYPTION_KEY not set, skipping"
+                        );
+                        continue;
+                    }
+                }
+            } else {
+                raw_value.clone()
+            };
+
             match key.as_str() {
                 "server_host" => config.server_host = value.clone(),
                 "server_port" => {
@@ -3301,6 +3421,77 @@ mod tests {
         assert_eq!(all.len(), 2);
         assert_eq!(all.get("key1").unwrap(), "val1");
         assert_eq!(all.get("key2").unwrap(), "val2");
+    }
+
+    #[tokio::test]
+    async fn test_set_encrypted_get_decrypted_roundtrip() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let key = *aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(&[0x42u8; 32]);
+        db.set_encrypted("secret_key", "my-secret-value", &key, "test")
+            .await
+            .unwrap();
+
+        let decrypted = db.get_decrypted("secret_key", &key).await.unwrap();
+        assert_eq!(decrypted, Some("my-secret-value".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_decrypted_plain_value() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let key = *aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(&[0x42u8; 32]);
+        db.set("plain_key", "plain-value", "test").await.unwrap();
+
+        let result = db.get_decrypted("plain_key", &key).await.unwrap();
+        assert_eq!(result, Some("plain-value".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_decrypted_nonexistent() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let key = *aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(&[0x42u8; 32]);
+        let result = db.get_decrypted("no_such_key", &key).await.unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn test_set_encrypted_wrong_key_fails_decrypt() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let key1 = *aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(&[0x42u8; 32]);
+        let key2 = *aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(&[0x99u8; 32]);
+        db.set_encrypted("wrong_key_test", "secret", &key1, "test")
+            .await
+            .unwrap();
+
+        let result = db.get_decrypted("wrong_key_test", &key2).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_set_encrypted_overwrites_plain() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let key = *aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(&[0x42u8; 32]);
+        db.set("upgrade_key", "old-plain", "test").await.unwrap();
+        db.set_encrypted("upgrade_key", "new-secret", &key, "test")
+            .await
+            .unwrap();
+
+        let decrypted = db.get_decrypted("upgrade_key", &key).await.unwrap();
+        assert_eq!(decrypted, Some("new-secret".to_string()));
     }
 
     #[tokio::test]
