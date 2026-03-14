@@ -9,8 +9,11 @@ on:
 jobs:
   add-to-project:
     runs-on: ubuntu-latest
+    permissions:
+      issues: read
+      pull-requests: read
     steps:
-      - uses: actions/add-to-project@v1
+      - uses: actions/add-to-project@v1.0.2
         with:
           project-url: https://github.com/users/if414013/projects/1
           github-token: ${{ secrets.PROJECT_TOKEN }}
