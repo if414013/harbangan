@@ -133,8 +133,13 @@ fn pkce_challenge(verifier: &str) -> String {
     URL_SAFE_NO_PAD.encode(digest)
 }
 
-fn get_client_id(config: &crate::config::Config) -> String {
-    config.qwen_oauth_client_id.clone()
+fn get_client_id(config: &crate::config::Config) -> Result<String, crate::error::ApiError> {
+    if config.qwen_oauth_client_id.is_empty() {
+        return Err(crate::error::ApiError::ConfigError(
+            "Qwen OAuth client ID not configured \u{2014} set it via the admin UI".into(),
+        ));
+    }
+    Ok(config.qwen_oauth_client_id.clone())
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────
@@ -162,7 +167,7 @@ async fn qwen_device_code(
         .read()
         .unwrap_or_else(|p| p.into_inner())
         .clone();
-    let client_id = get_client_id(&app_config);
+    let client_id = get_client_id(&app_config)?;
     let code_verifier = generate_pkce_verifier();
     let code_challenge = pkce_challenge(&code_verifier);
 
@@ -291,7 +296,7 @@ async fn qwen_device_poll(
         .read()
         .unwrap_or_else(|p| p.into_inner())
         .clone();
-    let client_id = get_client_id(&app_config);
+    let client_id = get_client_id(&app_config)?;
     let http = reqwest::Client::new();
 
     let resp = http
@@ -659,11 +664,19 @@ mod tests {
     }
 
     #[test]
-    fn test_get_client_id_default() {
-        // When using defaults, should return the default client ID
+    fn test_get_client_id_empty_returns_error() {
+        // With defaults (empty string), get_client_id should return an error
         let cfg = crate::config::Config::with_defaults();
-        let id = get_client_id(&cfg);
-        assert!(!id.is_empty());
+        let result = get_client_id(&cfg);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_client_id_configured() {
+        let mut cfg = crate::config::Config::with_defaults();
+        cfg.qwen_oauth_client_id = "test-client-id".to_string();
+        let id = get_client_id(&cfg).unwrap();
+        assert_eq!(id, "test-client-id");
     }
 
     // ── 6.5: PKCE additional tests ──────────────────────────────────

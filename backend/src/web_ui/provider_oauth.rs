@@ -56,6 +56,7 @@ pub trait TokenExchanger: Send + Sync {
 // ── Provider Config ──────────────────────────────────────────────────
 
 /// OAuth configuration for a single provider.
+#[derive(Debug)]
 struct ProviderOAuthConfig {
     client_id: String,
     client_secret: String,
@@ -95,8 +96,23 @@ fn get_provider_config(
     app_config: &crate::config::Config,
 ) -> Result<ProviderOAuthConfig, ApiError> {
     match provider {
-        "anthropic" => Ok(anthropic_config(&app_config.anthropic_oauth_client_id)),
-        "openai_codex" => Ok(openai_codex_config(&app_config.openai_oauth_client_id)),
+        "anthropic" => {
+            if app_config.anthropic_oauth_client_id.is_empty() {
+                return Err(ApiError::ConfigError(
+                    "Anthropic OAuth client ID not configured \u{2014} set it via the admin UI"
+                        .into(),
+                ));
+            }
+            Ok(anthropic_config(&app_config.anthropic_oauth_client_id))
+        }
+        "openai_codex" => {
+            if app_config.openai_oauth_client_id.is_empty() {
+                return Err(ApiError::ConfigError(
+                    "OpenAI OAuth client ID not configured \u{2014} set it via the admin UI".into(),
+                ));
+            }
+            Ok(openai_codex_config(&app_config.openai_oauth_client_id))
+        }
         _ => Err(ApiError::ValidationError(format!(
             "Unknown provider: {}",
             provider
@@ -357,6 +373,12 @@ impl HttpTokenExchanger {
             .unwrap_or_else(|p| p.into_inner())
             .qwen_oauth_client_id
             .clone();
+
+        if client_id.is_empty() {
+            return Err(ApiError::ConfigError(
+                "Qwen OAuth client ID not configured \u{2014} set it via the admin UI".into(),
+            ));
+        }
 
         let resp = self
             .client
@@ -1008,7 +1030,9 @@ mod tests {
 
     #[test]
     fn test_get_provider_config_all() {
-        let cfg = crate::config::Config::with_defaults();
+        let mut cfg = crate::config::Config::with_defaults();
+        cfg.anthropic_oauth_client_id = "test-anthropic-id".to_string();
+        cfg.openai_oauth_client_id = "test-openai-id".to_string();
         assert!(get_provider_config("anthropic", &cfg).is_ok());
         assert!(get_provider_config("openai_codex", &cfg).is_ok());
         assert!(get_provider_config("gemini", &cfg).is_err());
@@ -1016,8 +1040,24 @@ mod tests {
     }
 
     #[test]
-    fn test_provider_config_ports() {
+    fn test_get_provider_config_empty_client_id_returns_error() {
         let cfg = crate::config::Config::with_defaults();
+        // With defaults (empty client IDs), should return ConfigError
+        let err = get_provider_config("anthropic", &cfg).unwrap_err();
+        assert!(
+            matches!(err, crate::error::ApiError::ConfigError(_)),
+            "Expected ConfigError, got: {:?}",
+            err
+        );
+        let err = get_provider_config("openai_codex", &cfg).unwrap_err();
+        assert!(matches!(err, crate::error::ApiError::ConfigError(_)));
+    }
+
+    #[test]
+    fn test_provider_config_ports() {
+        let mut cfg = crate::config::Config::with_defaults();
+        cfg.anthropic_oauth_client_id = "test-anthropic-id".to_string();
+        cfg.openai_oauth_client_id = "test-openai-id".to_string();
         assert_eq!(get_provider_config("anthropic", &cfg).unwrap().port, 54545);
         assert_eq!(
             get_provider_config("openai_codex", &cfg).unwrap().port,

@@ -121,8 +121,14 @@ async fn kiro_setup(
         .as_ref()
         .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("Database not configured")))?;
 
-    // Read SSO config from request body
-    let sso_region = body.sso_region.unwrap_or_else(|| "us-east-1".to_string());
+    // Read SSO config from request body, falling back to the configured kiro_region
+    let default_region = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .kiro_region
+        .clone();
+    let sso_region = body.sso_region.unwrap_or(default_region);
 
     // Normalize: strip fragment (#...) and trailing slashes
     let start_url = body
@@ -322,12 +328,15 @@ pub fn spawn_token_refresh_task(config_db: Arc<ConfigDb>) {
             // Fallback: load global OAuth creds for users without per-user creds
             let global_client_id = config_db.get("oauth_client_id").await.ok().flatten();
             let global_client_secret = config_db.get("oauth_client_secret").await.ok().flatten();
-            let global_sso_region = config_db
-                .get("oauth_sso_region")
-                .await
-                .ok()
-                .flatten()
-                .unwrap_or_else(|| "us-east-1".to_string());
+            let global_sso_region = match config_db.get("oauth_sso_region").await.ok().flatten() {
+                Some(region) => region,
+                None => config_db
+                    .get("kiro_region")
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| "us-east-1".to_string()),
+            };
 
             for (user_id, refresh_token, oauth_cid, oauth_csec, oauth_region) in &expiring {
                 // Prefer per-user OAuth creds, fall back to global

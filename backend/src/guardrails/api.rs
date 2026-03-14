@@ -195,6 +195,13 @@ async fn create_profile(
         ));
     }
 
+    let default_region = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .kiro_region
+        .clone();
+
     let db = require_guardrails_db(&state)?;
     let profile = db
         .create_profile(
@@ -203,7 +210,7 @@ async fn create_profile(
             body.enabled.unwrap_or(true),
             body.guardrail_id.trim(),
             body.guardrail_version.as_deref().unwrap_or("1"),
-            body.region.as_deref().unwrap_or("us-east-1"),
+            body.region.as_deref().unwrap_or(&default_region),
             body.access_key.trim(),
             body.secret_key.trim(),
         )
@@ -245,6 +252,13 @@ async fn update_profile(
         ));
     }
 
+    let default_region = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .kiro_region
+        .clone();
+
     let db = require_guardrails_db(&state)?;
     let updated = db
         .update_profile(
@@ -254,7 +268,7 @@ async fn update_profile(
             body.enabled.unwrap_or(true),
             body.guardrail_id.trim(),
             body.guardrail_version.as_deref().unwrap_or("1"),
-            body.region.as_deref().unwrap_or("us-east-1"),
+            body.region.as_deref().unwrap_or(&default_region),
             body.access_key.trim(),
             body.secret_key.as_deref(),
         )

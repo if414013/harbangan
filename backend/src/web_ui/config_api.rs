@@ -179,8 +179,9 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
             let s = value
                 .as_str()
                 .ok_or_else(|| format!("{} must be a string", key))?;
+            // Empty string is valid — the provider is simply unconfigured.
             if s.is_empty() {
-                return Err(format!("{} must not be empty", key));
+                return Ok(());
             }
             if s.len() > 256 {
                 return Err(format!("{} must be at most 256 characters", key));
@@ -921,10 +922,10 @@ mod tests {
         assert!(validate_config_field("qwen_oauth_client_id", &json!("some-id")).is_ok());
         assert!(validate_config_field("anthropic_oauth_client_id", &json!("some-id")).is_ok());
         assert!(validate_config_field("openai_oauth_client_id", &json!("some-id")).is_ok());
-        // Invalid: empty
-        assert!(validate_config_field("qwen_oauth_client_id", &json!("")).is_err());
-        assert!(validate_config_field("anthropic_oauth_client_id", &json!("")).is_err());
-        assert!(validate_config_field("openai_oauth_client_id", &json!("")).is_err());
+        // Empty string is valid (provider unconfigured)
+        assert!(validate_config_field("qwen_oauth_client_id", &json!("")).is_ok());
+        assert!(validate_config_field("anthropic_oauth_client_id", &json!("")).is_ok());
+        assert!(validate_config_field("openai_oauth_client_id", &json!("")).is_ok());
         // Invalid: non-string
         assert!(validate_config_field("qwen_oauth_client_id", &json!(123)).is_err());
         assert!(validate_config_field("anthropic_oauth_client_id", &json!(123)).is_err());

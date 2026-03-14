@@ -330,6 +330,17 @@ impl ConfigDb {
             self.migrate_to_v17().await?;
         }
 
+        // Re-read max version after v17 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 18 {
+            self.migrate_to_v18().await?;
+        }
+
         Ok(())
     }
 
@@ -2655,6 +2666,58 @@ impl ConfigDb {
             .context("Failed to commit v17 migration")?;
 
         tracing::info!("Database migration to version 17 complete");
+        Ok(())
+    }
+
+    /// Version 18 migration: seed provider OAuth client ID defaults into the
+    /// config table for existing installations so they don't lose their working
+    /// config after the hardcoded defaults were removed from `Config::with_defaults()`.
+    async fn migrate_to_v18(&self) -> Result<()> {
+        tracing::info!(
+            "Running database migration to version 18 (seed provider OAuth client IDs)..."
+        );
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v18 migration transaction")?;
+
+        // INSERT ... ON CONFLICT DO NOTHING — only seed if the key is absent.
+        let defaults = [
+            ("qwen_oauth_client_id", "f0304373b74a44d2b584a3fb70ca9e56"),
+            (
+                "anthropic_oauth_client_id",
+                "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+            ),
+            ("openai_oauth_client_id", "app_EMoamEEZ73f0CkXaXp7hrann"),
+        ];
+
+        for (key, value) in &defaults {
+            sqlx::query(
+                "INSERT INTO config (key, value, value_type, description)
+                 VALUES ($1, $2, 'string', $3)
+                 ON CONFLICT (key) DO NOTHING",
+            )
+            .bind(key)
+            .bind(value)
+            .bind(format!("Default {} (seeded by v18 migration)", key))
+            .execute(&mut *tx)
+            .await
+            .context(format!("Failed to seed config key '{}'", key))?;
+        }
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(18_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 18")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit v18 migration")?;
+
+        tracing::info!("Database migration to version 18 complete");
         Ok(())
     }
 
