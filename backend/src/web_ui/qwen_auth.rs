@@ -157,7 +157,11 @@ async fn qwen_device_code(
         )));
     }
 
-    let app_config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
+    let app_config = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
     let client_id = get_client_id(&app_config);
     let code_verifier = generate_pkce_verifier();
     let code_challenge = pkce_challenge(&code_verifier);
@@ -282,7 +286,11 @@ async fn qwen_device_poll(
         }));
     }
 
-    let app_config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
+    let app_config = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
     let client_id = get_client_id(&app_config);
     let http = reqwest::Client::new();
 

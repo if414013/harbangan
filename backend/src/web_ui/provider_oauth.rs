@@ -177,9 +177,7 @@ impl HttpTokenExchanger {
         Self::default()
     }
 
-    pub fn with_config(
-        config: std::sync::Arc<std::sync::RwLock<crate::config::Config>>,
-    ) -> Self {
+    pub fn with_config(config: std::sync::Arc<std::sync::RwLock<crate::config::Config>>) -> Self {
         Self {
             client: reqwest::Client::new(),
             config,
@@ -197,7 +195,11 @@ impl TokenExchanger for HttpTokenExchanger {
         pkce_verifier: &str,
         redirect_uri: &str,
     ) -> Result<TokenExchangeResult, ApiError> {
-        let app_config = self.config.read().unwrap_or_else(|p| p.into_inner()).clone();
+        let app_config = self
+            .config
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
         let config = get_provider_config(provider, &app_config)?;
 
         // Anthropic expects JSON body; OpenAI expects form-encoded
@@ -286,7 +288,11 @@ impl TokenExchanger for HttpTokenExchanger {
             return self.refresh_qwen_token(refresh_token).await;
         }
 
-        let app_config = self.config.read().unwrap_or_else(|p| p.into_inner()).clone();
+        let app_config = self
+            .config
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
         let config = get_provider_config(provider, &app_config)?;
 
         let mut params = vec![
@@ -525,7 +531,11 @@ async fn provider_connect(
 ) -> Result<Json<ConnectResponse>, ApiError> {
     validate_provider(&provider)?;
     // Validate provider config early
-    let app_config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
+    let app_config = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
     get_provider_config(&provider, &app_config)?;
 
     // Derive base URL from request headers (respects reverse proxy)
@@ -633,7 +643,11 @@ async fn relay_script(
         return Err(ApiError::AuthError("Relay token expired".into()));
     }
 
-    let app_config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
+    let app_config = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
     let config = get_provider_config(&provider, &app_config)?;
 
     // Derive base URL from request headers (same logic as provider_connect)
@@ -788,7 +802,11 @@ async fn relay_callback(
         return Err(ApiError::ValidationError("State parameter mismatch".into()));
     }
 
-    let app_config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
+    let app_config = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
     let config = get_provider_config(&provider, &app_config)?;
     let result = state
         .token_exchanger
@@ -1001,7 +1019,10 @@ mod tests {
     fn test_provider_config_ports() {
         let cfg = crate::config::Config::with_defaults();
         assert_eq!(get_provider_config("anthropic", &cfg).unwrap().port, 54545);
-        assert_eq!(get_provider_config("openai_codex", &cfg).unwrap().port, 1455);
+        assert_eq!(
+            get_provider_config("openai_codex", &cfg).unwrap().port,
+            1455
+        );
     }
 
     #[test]

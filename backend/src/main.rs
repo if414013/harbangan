@@ -335,11 +335,8 @@ async fn main() -> Result<()> {
     // ── Guardrails ────────────────────────────────────────────────
     if let Some(ref db) = app_state.config_db {
         let guardrails_db = guardrails::db::GuardrailsDb::new(db.pool().clone());
-        match guardrails::engine::GuardrailsEngine::new(
-            &guardrails_db,
-            config.guardrails_enabled,
-        )
-        .await
+        match guardrails::engine::GuardrailsEngine::new(&guardrails_db, config.guardrails_enabled)
+            .await
         {
             Ok(engine) => {
                 app_state.guardrails_engine = Some(Arc::new(engine));

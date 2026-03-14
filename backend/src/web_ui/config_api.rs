@@ -30,9 +30,9 @@ pub fn classify_config_change(key: &str) -> ChangeType {
         | "guardrails_enabled"
         | "auth_google_enabled"
         | "auth_password_enabled" => ChangeType::HotReload,
-        "qwen_oauth_client_id"
-        | "anthropic_oauth_client_id"
-        | "openai_oauth_client_id" => ChangeType::HotReload,
+        "qwen_oauth_client_id" | "anthropic_oauth_client_id" | "openai_oauth_client_id" => {
+            ChangeType::HotReload
+        }
         "server_host"
         | "server_port"
         | "streaming_timeout"

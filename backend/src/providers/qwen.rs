@@ -381,7 +381,10 @@ mod tests {
 
     #[test]
     fn test_qwen_provider_id() {
-        assert_eq!(QwenProvider::new(DEFAULT_CLIENT_ID.to_string()).id(), ProviderId::Qwen);
+        assert_eq!(
+            QwenProvider::new(DEFAULT_CLIENT_ID.to_string()).id(),
+            ProviderId::Qwen
+        );
     }
 
     #[test]
