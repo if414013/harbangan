@@ -727,7 +727,6 @@ impl ConfigDb {
                 "server_port" => {
                     parse_ranged!(key, value, config.server_port, u16, 1, 65535);
                 }
-                "proxy_api_key" => { /* removed — no longer in Config */ }
                 "kiro_region" => config.kiro_region = value.clone(),
                 "log_level" => config.log_level = value.clone(),
                 "debug_mode" => {
@@ -831,147 +830,9 @@ impl ConfigDb {
         result.unwrap_or(false)
     }
 
-    /// Save initial setup configuration (proxy key, refresh token, region).
-    /// All writes are wrapped in a single transaction for atomicity.
-    #[allow(dead_code)]
-    pub async fn save_initial_setup(
-        &self,
-        proxy_key: &str,
-        refresh_token: &str,
-        region: &str,
-    ) -> Result<()> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .context("Failed to begin transaction for initial setup")?;
-
-        let keys_values: &[(&str, &str)] = &[
-            ("proxy_api_key", proxy_key),
-            ("kiro_refresh_token", refresh_token),
-            ("kiro_region", region),
-            ("setup_complete", "true"),
-        ];
-
-        for &(key, value) in keys_values {
-            let old_value: Option<String> =
-                sqlx::query_scalar("SELECT value FROM config WHERE key = $1")
-                    .bind(key)
-                    .fetch_optional(&mut *tx)
-                    .await
-                    .context("Failed to fetch old config value during setup")?;
-
-            sqlx::query(
-                "INSERT INTO config (key, value, updated_at)
-                 VALUES ($1, $2, NOW())
-                 ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
-            )
-            .bind(key)
-            .bind(value)
-            .execute(&mut *tx)
-            .await
-            .with_context(|| format!("Failed to upsert config key '{}' during setup", key))?;
-
-            sqlx::query(
-                "INSERT INTO config_history (key, old_value, new_value, source)
-                 VALUES ($1, $2, $3, $4)",
-            )
-            .bind(key)
-            .bind(&old_value)
-            .bind(value)
-            .bind("setup")
-            .execute(&mut *tx)
-            .await
-            .with_context(|| {
-                format!("Failed to record config history for '{}' during setup", key)
-            })?;
-        }
-
-        tx.commit()
-            .await
-            .context("Failed to commit initial setup transaction")?;
-
-        Ok(())
-    }
-
     /// Get the stored Kiro refresh token.
     pub async fn get_refresh_token(&self) -> Result<Option<String>> {
         self.get("kiro_refresh_token").await
-    }
-
-    /// Save OAuth-based setup (all fields in one transaction).
-    #[allow(clippy::too_many_arguments)]
-    #[allow(dead_code)]
-    pub async fn save_oauth_setup(
-        &self,
-        proxy_key: &str,
-        refresh_token: &str,
-        region: &str,
-        client_id: &str,
-        client_secret: &str,
-        client_secret_expires_at: &str,
-        start_url: &str,
-    ) -> Result<()> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .context("Failed to begin transaction for OAuth setup")?;
-
-        let keys_values: &[(&str, &str)] = &[
-            ("proxy_api_key", proxy_key),
-            ("kiro_refresh_token", refresh_token),
-            ("kiro_region", "us-east-1"),
-            ("oauth_sso_region", region),
-            ("oauth_client_id", client_id),
-            ("oauth_client_secret", client_secret),
-            ("oauth_client_secret_expires_at", client_secret_expires_at),
-            ("oauth_start_url", start_url),
-            ("setup_complete", "true"),
-        ];
-
-        for &(key, value) in keys_values {
-            let old_value: Option<String> =
-                sqlx::query_scalar("SELECT value FROM config WHERE key = $1")
-                    .bind(key)
-                    .fetch_optional(&mut *tx)
-                    .await
-                    .context("Failed to fetch old config value during OAuth setup")?;
-
-            sqlx::query(
-                "INSERT INTO config (key, value, updated_at)
-                 VALUES ($1, $2, NOW())
-                 ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
-            )
-            .bind(key)
-            .bind(value)
-            .execute(&mut *tx)
-            .await
-            .with_context(|| format!("Failed to upsert config key '{}' during OAuth setup", key))?;
-
-            sqlx::query(
-                "INSERT INTO config_history (key, old_value, new_value, source)
-                 VALUES ($1, $2, $3, $4)",
-            )
-            .bind(key)
-            .bind(&old_value)
-            .bind(value)
-            .bind("oauth_setup")
-            .execute(&mut *tx)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to record config history for '{}' during OAuth setup",
-                    key
-                )
-            })?;
-        }
-
-        tx.commit()
-            .await
-            .context("Failed to commit OAuth setup transaction")?;
-
-        Ok(())
     }
 
     /// Get OAuth client credentials from config.
@@ -3554,35 +3415,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(role, "admin");
-        assert!(db.is_setup_complete().await);
-    }
-
-    #[tokio::test]
-    async fn test_save_initial_setup() {
-        let Some(db) = setup_test_db().await else {
-            eprintln!("Skipping: DATABASE_URL not set");
-            return;
-        };
-        db.save_initial_setup("my-key", "my-token", "us-west-2")
-            .await
-            .unwrap();
-
-        assert_eq!(
-            db.get("proxy_api_key").await.unwrap(),
-            Some("my-key".to_string())
-        );
-        assert_eq!(
-            db.get("kiro_refresh_token").await.unwrap(),
-            Some("my-token".to_string())
-        );
-        assert_eq!(
-            db.get("kiro_region").await.unwrap(),
-            Some("us-west-2".to_string())
-        );
-        assert_eq!(
-            db.get("setup_complete").await.unwrap(),
-            Some("true".to_string())
-        );
         assert!(db.is_setup_complete().await);
     }
 
