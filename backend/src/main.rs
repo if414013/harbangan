@@ -326,7 +326,9 @@ async fn main() -> Result<()> {
             Arc::clone(&config_arc),
         ),
         provider_oauth_pending: Arc::new(dashmap::DashMap::new()),
-        token_exchanger: Arc::new(web_ui::provider_oauth::HttpTokenExchanger::new()),
+        token_exchanger: Arc::new(web_ui::provider_oauth::HttpTokenExchanger::with_config(
+            Arc::clone(&config_arc),
+        )),
         login_rate_limiter: Arc::new(dashmap::DashMap::new()),
     };
 

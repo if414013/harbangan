@@ -66,10 +66,9 @@ struct ProviderOAuthConfig {
     scopes: &'static [&'static str],
 }
 
-fn anthropic_config() -> ProviderOAuthConfig {
+fn anthropic_config(client_id: &str) -> ProviderOAuthConfig {
     ProviderOAuthConfig {
-        client_id: std::env::var("ANTHROPIC_OAUTH_CLIENT_ID")
-            .unwrap_or_else(|_| "9d1c250a-e61b-44d9-88ed-5944d1962f5e".to_string()),
+        client_id: client_id.to_string(),
         client_secret: String::new(),
         token_url: "https://api.anthropic.com/v1/oauth/token",
         auth_url: "https://claude.ai/oauth/authorize",
@@ -79,10 +78,9 @@ fn anthropic_config() -> ProviderOAuthConfig {
     }
 }
 
-fn openai_codex_config() -> ProviderOAuthConfig {
+fn openai_codex_config(client_id: &str) -> ProviderOAuthConfig {
     ProviderOAuthConfig {
-        client_id: std::env::var("OPENAI_OAUTH_CLIENT_ID")
-            .unwrap_or_else(|_| "app_EMoamEEZ73f0CkXaXp7hrann".to_string()),
+        client_id: client_id.to_string(),
         client_secret: String::new(),
         token_url: "https://auth.openai.com/oauth/token",
         auth_url: "https://auth.openai.com/oauth/authorize",
@@ -92,10 +90,13 @@ fn openai_codex_config() -> ProviderOAuthConfig {
     }
 }
 
-fn get_provider_config(provider: &str) -> Result<ProviderOAuthConfig, ApiError> {
+fn get_provider_config(
+    provider: &str,
+    app_config: &crate::config::Config,
+) -> Result<ProviderOAuthConfig, ApiError> {
     match provider {
-        "anthropic" => Ok(anthropic_config()),
-        "openai_codex" => Ok(openai_codex_config()),
+        "anthropic" => Ok(anthropic_config(&app_config.anthropic_oauth_client_id)),
+        "openai_codex" => Ok(openai_codex_config(&app_config.openai_oauth_client_id)),
         _ => Err(ApiError::ValidationError(format!(
             "Unknown provider: {}",
             provider
@@ -156,19 +157,33 @@ fn pkce_challenge(verifier: &str) -> String {
 /// Production implementation that makes real HTTP calls to provider token endpoints.
 pub struct HttpTokenExchanger {
     client: reqwest::Client,
+    config: std::sync::Arc<std::sync::RwLock<crate::config::Config>>,
 }
 
 impl Default for HttpTokenExchanger {
     fn default() -> Self {
         Self {
             client: reqwest::Client::new(),
+            config: std::sync::Arc::new(std::sync::RwLock::new(
+                crate::config::Config::with_defaults(),
+            )),
         }
     }
 }
 
 impl HttpTokenExchanger {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_config(
+        config: std::sync::Arc<std::sync::RwLock<crate::config::Config>>,
+    ) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            config,
+        }
     }
 }
 
@@ -182,7 +197,8 @@ impl TokenExchanger for HttpTokenExchanger {
         pkce_verifier: &str,
         redirect_uri: &str,
     ) -> Result<TokenExchangeResult, ApiError> {
-        let config = get_provider_config(provider)?;
+        let app_config = self.config.read().unwrap_or_else(|p| p.into_inner()).clone();
+        let config = get_provider_config(provider, &app_config)?;
 
         // Anthropic expects JSON body; OpenAI expects form-encoded
         let resp = if provider == "anthropic" {
@@ -270,7 +286,8 @@ impl TokenExchanger for HttpTokenExchanger {
             return self.refresh_qwen_token(refresh_token).await;
         }
 
-        let config = get_provider_config(provider)?;
+        let app_config = self.config.read().unwrap_or_else(|p| p.into_inner()).clone();
+        let config = get_provider_config(provider, &app_config)?;
 
         let mut params = vec![
             ("grant_type", "refresh_token"),
@@ -328,8 +345,12 @@ impl HttpTokenExchanger {
         &self,
         refresh_token: &str,
     ) -> Result<TokenExchangeResult, ApiError> {
-        let client_id = std::env::var("QWEN_OAUTH_CLIENT_ID")
-            .unwrap_or_else(|_| "f0304373b74a44d2b584a3fb70ca9e56".to_string());
+        let client_id = self
+            .config
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .qwen_oauth_client_id
+            .clone();
 
         let resp = self
             .client
@@ -504,7 +525,8 @@ async fn provider_connect(
 ) -> Result<Json<ConnectResponse>, ApiError> {
     validate_provider(&provider)?;
     // Validate provider config early
-    get_provider_config(&provider)?;
+    let app_config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
+    get_provider_config(&provider, &app_config)?;
 
     // Derive base URL from request headers (respects reverse proxy)
     // Priority: Origin (browser-set) > X-Forwarded-Host > Host
@@ -611,7 +633,8 @@ async fn relay_script(
         return Err(ApiError::AuthError("Relay token expired".into()));
     }
 
-    let config = get_provider_config(&provider)?;
+    let app_config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
+    let config = get_provider_config(&provider, &app_config)?;
 
     // Derive base URL from request headers (same logic as provider_connect)
     let (scheme, host) = if let Some(origin) = headers.get("origin").and_then(|v| v.to_str().ok()) {
@@ -765,9 +788,8 @@ async fn relay_callback(
         return Err(ApiError::ValidationError("State parameter mismatch".into()));
     }
 
-    let config = get_provider_config(&provider)?;
-
-    // Exchange code for tokens
+    let app_config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
+    let config = get_provider_config(&provider, &app_config)?;
     let result = state
         .token_exchanger
         .exchange_code(
@@ -968,16 +990,18 @@ mod tests {
 
     #[test]
     fn test_get_provider_config_all() {
-        assert!(get_provider_config("anthropic").is_ok());
-        assert!(get_provider_config("openai_codex").is_ok());
-        assert!(get_provider_config("gemini").is_err());
-        assert!(get_provider_config("unknown").is_err());
+        let cfg = crate::config::Config::with_defaults();
+        assert!(get_provider_config("anthropic", &cfg).is_ok());
+        assert!(get_provider_config("openai_codex", &cfg).is_ok());
+        assert!(get_provider_config("gemini", &cfg).is_err());
+        assert!(get_provider_config("unknown", &cfg).is_err());
     }
 
     #[test]
     fn test_provider_config_ports() {
-        assert_eq!(get_provider_config("anthropic").unwrap().port, 54545);
-        assert_eq!(get_provider_config("openai_codex").unwrap().port, 1455);
+        let cfg = crate::config::Config::with_defaults();
+        assert_eq!(get_provider_config("anthropic", &cfg).unwrap().port, 54545);
+        assert_eq!(get_provider_config("openai_codex", &cfg).unwrap().port, 1455);
     }
 
     #[test]
