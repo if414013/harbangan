@@ -65,7 +65,7 @@ If no error description is provided, ask:
 Collect all available artifacts:
 - Stack traces and panic messages
 - Error messages and HTTP status codes
-- Log snippets (`tracing` output, nginx logs, Docker logs)
+- Log snippets (`tracing` output, Docker logs)
 - API request/response pairs
 - Recent git changes (`git log --oneline -10`, `git diff HEAD~3`)
 
@@ -83,7 +83,7 @@ Route to the appropriate investigator agent(s) based on error indicators.
 | MCP connection failure, tool execution error, JSON-RPC error | Backend (MCP) | rust-backend-engineer |
 | React error, TypeScript error, component crash, blank page | Frontend | react-frontend-engineer |
 | SSE not connecting, metrics not updating, apiFetch error | Frontend | react-frontend-engineer |
-| Docker build failure, nginx 502/504, container crash, port conflict | Infrastructure | devops-engineer |
+| Docker build failure, container crash, port conflict | Infrastructure | devops-engineer |
 | PostgreSQL connection error, migration failure, query timeout | Backend (Database) | rust-backend-engineer |
 
 ### Debug Presets
@@ -133,7 +133,7 @@ Use these as starting points when generating hypotheses for common Harbangan iss
 | Model alias not in resolver, no fallback | Configuration Error | `backend/src/resolver.rs`, `backend/src/cache.rs` |
 | Frontend useSSE hook loses connection, no reconnect | Logic Error | `frontend/src/lib/useSSE.ts` |
 | CORS middleware blocks legitimate request | Configuration Error | `backend/src/middleware/` |
-| Backend not reachable from nginx, wrong port | Configuration Error | `docker-compose.yml`, `frontend/nginx.conf` |
+| Backend not reachable from frontend, wrong port | Configuration Error | `docker-compose.yml`, `frontend/vite.config.ts` |
 | Runtime config change lost on restart | State Corruption | `backend/src/web_ui/config_db.rs` |
 | Guardrails CEL rule rejects valid content | Logic Error | `backend/src/guardrails/` |
 | Session cache grows unbounded, no eviction | Resource Exhaustion | AppState `session_cache` |

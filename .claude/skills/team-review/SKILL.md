@@ -121,7 +121,7 @@ Provide each reviewer with relevant context so they know where to look:
 
 - **Backend modules**: `backend/src/` -- `auth/`, `converters/`, `streaming/`, `routes/`, `middleware/`, `guardrails/`, `web_ui/`, `models/`, `metrics/`
 - **Frontend**: `frontend/src/` -- `pages/`, `components/`, `lib/`, `styles/`
-- **Infrastructure**: `docker-compose.yml`, `docker-compose.gateway.yml`, `Dockerfile`, `init-certs.sh`
+- **Infrastructure**: `docker-compose.yml`, `docker-compose.gateway.yml`, `Dockerfile`
 - **Error handling**: `thiserror` enums + `anyhow::Result` with `.context()`
 - **Logging**: `tracing` macros with structured fields
 - **Tests**: `#[cfg(test)] mod tests` at bottom of each file, `test_<fn>_<scenario>` naming

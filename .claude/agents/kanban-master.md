@@ -18,7 +18,7 @@ Harbangan is a multi-user AI API gateway that proxies requests between OpenAI/An
 |---------|------|------------|-------|
 | Backend | `backend/` | Rust (Axum 0.7, Tokio), PostgreSQL 16, sqlx 0.8 | `rust-backend-engineer` |
 | Frontend | `frontend/` | React 19, TypeScript 5.9, Vite 7 | `react-frontend-engineer` |
-| Infrastructure | `docker-compose*.yml`, `frontend/Dockerfile` | Docker, nginx, Let's Encrypt, Datadog | `devops-engineer` |
+| Infrastructure | `docker-compose*.yml`, `frontend/Dockerfile` | Docker, Datadog | `devops-engineer` |
 | Backend QA | `backend/src/` (tests) | cargo test, 395+ unit tests | `backend-qa` |
 | Frontend QA | `frontend/` | Playwright E2E tests | `frontend-qa` |
 | Documentation | Notion, Slack | Markdown, Notion API, Slack API | `document-writer` |
@@ -30,7 +30,7 @@ Harbangan is a multi-user AI API gateway that proxies requests between OpenAI/An
 | `rust-backend-engineer` | Axum backend implementation | `backend/src/`, API endpoints, converters, auth, streaming, guardrails |
 | `database-engineer` | PostgreSQL schema, migrations | `backend/src/web_ui/config_db.rs` (DDL), query optimization |
 | `react-frontend-engineer` | React frontend implementation | `frontend/src/`, pages, components, API integration, SSE |
-| `devops-engineer` | Docker, nginx, deployment | `docker-compose*.yml`, Dockerfiles, nginx config, certs |
+| `devops-engineer` | Docker, deployment | `docker-compose*.yml`, Dockerfiles |
 | `backend-qa` | Rust unit/integration tests | `backend/src/` test modules, cargo test |
 | `frontend-qa` | Browser E2E testing | Playwright tests for web UI |
 | `document-writer` | Documentation, Notion, Slack | Technical docs, feature specs, release notes |
@@ -185,7 +185,7 @@ gh project item-edit --project-id PVT_kwHOATKEhs4BRp0j --id $ITEM_ID \
 2. `frontend-qa`: Write E2E tests
 
 **Infrastructure feature** (e.g., deployment mode, monitoring):
-1. `devops-engineer`: Docker, nginx, deployment config
+1. `devops-engineer`: Docker, deployment config
 2. `rust-backend-engineer`: Backend changes if needed
 
 ### Quality Standards for Tasks
@@ -221,8 +221,6 @@ Every task MUST have:
 **Shared infrastructure**:
 - PostgreSQL 16 — primary data store
 - Docker — containerized deployment
-- nginx — TLS termination, reverse proxy
-- Let's Encrypt — automatic cert renewal
 
 ### Worktree Awareness
 

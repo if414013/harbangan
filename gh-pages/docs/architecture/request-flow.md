@@ -21,12 +21,11 @@ This page traces the complete lifecycle of a request through Kiro Gateway — fr
 
 ## Complete Request Lifecycle
 
-Every request passes through nginx for TLS termination, then the backend's middleware and handler pipeline. The differences between OpenAI and Anthropic paths are in the converter modules used for format translation.
+Every request passes through the backend's middleware and handler pipeline. The differences between OpenAI and Anthropic paths are in the converter modules used for format translation.
 
 ```mermaid
 sequenceDiagram
     participant Client
-    participant Nginx as nginx (TLS)
     participant CORS as CORS Layer
     participant Debug as Debug Logger
     participant Auth as Auth Middleware
@@ -47,9 +46,7 @@ sequenceDiagram
     participant OutConverter as Output Converter
     participant SSE as SSE Formatter
 
-    Client->>Nginx: HTTPS Request
-    Nginx->>Nginx: TLS termination
-    Nginx->>CORS: HTTP Request (plain)
+    Client->>CORS: HTTP Request
 
     CORS->>Debug: Add CORS headers
     Debug->>Auth: Log request (if debug mode)
@@ -165,28 +162,15 @@ sequenceDiagram
 
 ## Step-by-Step Walkthrough
 
-### Step 1: nginx (TLS Termination)
+### Step 1: Middleware Stack
 
-All incoming requests first hit nginx, which handles:
-- **TLS termination** using Let's Encrypt certificates (managed by certbot)
-- **Reverse proxying** to the backend on port 8000 (plain HTTP)
-- **SSE support** with proper buffering disabled for `/v1/*` streaming endpoints
-
-nginx routes:
-- `/_ui/*` (not `/_ui/api/*`) → serves React SPA static files
-- `/_ui/api/*` → proxies to `backend:8000`
-- `/v1/*` → proxies to `backend:8000` with SSE buffering disabled
-- `/.well-known/acme-challenge/` → certbot webroot for certificate validation
-
-### Step 2: Middleware Stack
-
-After nginx proxies the request, it passes through the backend's middleware layers applied in `backend/src/main.rs:build_app()`:
+Requests pass through the backend's middleware layers applied in `backend/src/main.rs:build_app()`:
 
 1. **CORS Layer** (`middleware::cors_layer()`) — Adds permissive CORS headers (`Access-Control-Allow-Origin: *`). Handles OPTIONS preflight requests automatically via `tower-http::CorsLayer`.
 
 2. **Debug Logger** (`middleware::debug_middleware()`) — When `debug_mode` is `Errors` or `All`, captures request/response bodies for troubleshooting. Controlled by the `DEBUG_MODE` config.
 
-### Step 3: Authentication
+### Step 2: Authentication
 
 Auth middleware is applied per-route group, not globally. Health check routes (`/`, `/health`) and Web UI routes (`/_ui/api/*`) bypass API key authentication.
 

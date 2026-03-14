@@ -203,13 +203,11 @@ The web UI uses Google SSO with PKCE + OpenID Connect for user authentication. T
 sequenceDiagram
     participant User
     participant Browser
-    participant Nginx as nginx (frontend)
     participant Backend as Backend API
     participant Google as Google OAuth
 
     User->>Browser: Navigate to /_ui/
-    Browser->>Nginx: GET /_ui/
-    Nginx->>Browser: React SPA
+    Browser->>Backend: GET /_ui/ (via Vite proxy)
 
     User->>Browser: Click "Sign in with Google"
     Browser->>Backend: GET /_ui/api/auth/google

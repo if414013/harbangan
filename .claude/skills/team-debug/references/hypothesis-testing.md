@@ -218,7 +218,7 @@ All investigators reported?
 
 | Symptom | Hypothesis | Key Files | Confirming Evidence |
 |---------|-----------|-----------|-------------------|
-| nginx 502 | Backend port mismatch between docker-compose and Axum bind | `docker-compose.yml`, `backend/src/main.rs` | Port in compose differs from `SERVER_PORT` |
+| Connection refused | Backend port mismatch between docker-compose and Axum bind | `docker-compose.yml`, `backend/src/main.rs` | Port in compose differs from `SERVER_PORT` |
 | CORS rejection | Middleware origin allowlist missing frontend domain | `backend/src/middleware/` | `Access-Control-Allow-Origin` does not include request origin |
 | OAuth callback fails | `GOOGLE_CALLBACK_URL` does not match registered redirect URI | `.env`, `backend/src/web_ui/google_auth.rs` | URL mismatch between env var and Google Cloud Console |
 | Setup mode stuck | `setup_complete` never set to true | `backend/src/routes/mod.rs` | AtomicBool remains false, 503 returned on `/v1/*` |
@@ -258,9 +258,9 @@ Key files: `backend/src/streaming/mod.rs`, `backend/src/truncation.rs`, `backend
 Hypotheses to generate:
 1. **Logic Error**: useSSE hook does not process reconnection, misses update events
 2. **State Corruption**: Backend metrics/log SSE stream stops emitting after error
-3. **Configuration Error**: nginx proxy buffering enabled, delays SSE events
+3. **Configuration Error**: Vite proxy misconfigured, delays SSE events
 
-Key files: `frontend/src/lib/useSSE.ts`, `backend/src/metrics/`, `frontend/nginx.conf`
+Key files: `frontend/src/lib/useSSE.ts`, `backend/src/metrics/`, `frontend/vite.config.ts`
 
 ### Pattern: Works locally, fails in Docker
 

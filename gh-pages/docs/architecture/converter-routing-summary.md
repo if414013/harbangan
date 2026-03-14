@@ -48,7 +48,7 @@ flowchart LR
 
 ## Request Path Summary
 
-1. Client hits ingress (nginx in full deploy or direct in proxy-only); CORS + auth + setup guards run.
+1. Client hits the backend; CORS + auth + setup guards run.
 2. Model normalization chooses Kiro vs direct; provider registry resolves per-user credentials and priorities.
 3. Kiro route: converters build Kiro payload → AuthManager refreshes AWS SSO token → POST `generateAssistantResponse` → stream parsed and formatted back to client.
 4. Direct route: request relayed with stored token to provider; SSE or JSON proxied back without format translation.

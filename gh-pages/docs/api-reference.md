@@ -21,13 +21,13 @@ Complete reference for all Kiro Gateway API endpoints. The gateway exposes OpenA
 
 ## Base URL
 
-All API endpoints are served over HTTPS via nginx. The base URL is:
+All API endpoints are served by the Rust backend. In development, the base URL is:
 
 ```
-https://your-domain
+http://localhost:9999
 ```
 
-Replace `your-domain` with the `DOMAIN` value configured in your `.env` file. Nginx handles TLS termination using Let's Encrypt certificates managed by certbot. The backend runs on plain HTTP internally and is not exposed directly.
+The backend runs on plain HTTP. In production (Kubernetes), TLS is handled by the Ingress controller.
 
 ---
 

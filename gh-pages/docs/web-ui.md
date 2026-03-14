@@ -12,7 +12,7 @@ The Kiro Gateway includes a web dashboard served as a React single-page applicat
 
 ## Overview
 
-The frontend is a React 19 SPA built with Vite and TypeScript, served as static files by nginx. Nginx also handles TLS termination and reverse-proxies API requests to the Rust backend. Authentication uses Google SSO with PKCE for web UI access, and per-user API keys for programmatic access.
+The frontend is a React 19 SPA built with Vite and TypeScript. In development, the Vite dev server serves the SPA and proxies API requests to the Rust backend. Authentication uses Google SSO with PKCE for web UI access, and per-user API keys for programmatic access.
 
 ```mermaid
 flowchart TB
@@ -24,13 +24,12 @@ flowchart TB
         Guardrails[Guardrails Config]
     end
 
-    subgraph Nginx["nginx (:443/:80)"]
-        Static["/_ui/* → static files"]
-        Proxy["/_ui/api/* → backend:8000"]
-        ProxyV1["/v1/* → backend:8000"]
+    subgraph Vite["Vite Dev Server (:5173)"]
+        Static["/_ui/* → React SPA"]
+        Proxy["/_ui/api/* → backend:9999"]
     end
 
-    subgraph Backend["Rust Backend (plain HTTP :8000)"]
+    subgraph Backend["Rust Backend (HTTP :9999)"]
         subgraph PublicAPI["Public API (no auth)"]
             StatusAPI[GET /status]
             GoogleAuth[GET /auth/google]
@@ -56,7 +55,7 @@ flowchart TB
         end
     end
 
-    Browser -->|HTTPS| Nginx
+    Browser -->|HTTP| Vite
     Static --> Browser
     Proxy --> Backend
     Login --> GoogleAuth
@@ -81,7 +80,7 @@ Once the gateway is running via `docker compose up -d`, open your browser and na
 https://your-domain/_ui/
 ```
 
-Replace `your-domain` with the domain configured in your `.env` file. TLS is handled by nginx using Let's Encrypt certificates provisioned via certbot.
+In development, access via `http://localhost:5173/_ui/`. The Vite dev server proxies API requests to the backend.
 
 ---
 
@@ -173,13 +172,11 @@ When the gateway starts for the first time with no admin user in the database, i
 ```mermaid
 sequenceDiagram
     participant User as Browser
-    participant Nginx as nginx
     participant UI as React SPA
     participant GW as Backend API
     participant Google as Google OAuth
 
-    User->>Nginx: Navigate to https://domain/_ui/
-    Nginx->>UI: Serve React SPA
+    User->>UI: Navigate to http://localhost:5173/_ui/
     UI->>GW: GET /_ui/api/status
     GW-->>UI: {setup_complete: false}
     UI->>User: Show Setup Wizard
@@ -475,4 +472,4 @@ The web UI is implemented across several Rust modules in `backend/src/web_ui/`:
 - **`config_api.rs`** — Configuration validation, change classification, and field descriptions
 - **`config_db.rs`** — PostgreSQL persistence layer for configuration key-value storage
 
-The React frontend source lives in `frontend/` (Vite + TypeScript). Built assets in `frontend/dist/` are served by nginx in the frontend container. The backend only handles API requests — it does not serve static files.
+The React frontend source lives in `frontend/` (Vite + TypeScript). In development, the Vite dev server serves the SPA and proxies API requests to the backend.

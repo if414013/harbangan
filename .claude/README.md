@@ -29,7 +29,7 @@ Each agent is a `.md` file with YAML frontmatter defining its name, description,
 | `rust-backend-engineer` | Backend (`backend/`) | Rust, Axum 0.7, Tokio, sqlx, PostgreSQL | 100 |
 | `react-frontend-engineer` | Frontend (`frontend/`) | React 19, TypeScript 5.9, Vite 7 | 100 |
 | `database-engineer` | Database (`config_db.rs`) | PostgreSQL 16, sqlx 0.8, migrations | 80 |
-| `devops-engineer` | Infrastructure | Docker, nginx, Let's Encrypt | 80 |
+| `devops-engineer` | Infrastructure | Docker, deployment | 80 |
 | `document-writer` | Documentation | Notion API, Slack API, Markdown | 60 |
 
 ### Quality Agents (2)

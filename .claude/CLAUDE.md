@@ -12,7 +12,7 @@ This directory contains the multi-agent workflow system for Harbangan. See [READ
 │   ├── rust-backend-engineer.md # Axum/Tokio backend (converters, auth, streaming)
 │   ├── react-frontend-engineer.md # React 19 web UI (pages, SSE, CRT aesthetic)
 │   ├── database-engineer.md     # PostgreSQL schema, migrations, query optimization
-│   ├── devops-engineer.md       # Docker, nginx, deployment, certs
+│   ├── devops-engineer.md       # Docker, deployment, infrastructure
 │   ├── backend-qa.md            # Rust unit/integration tests
 │   ├── frontend-qa.md           # Playwright E2E tests
 │   └── document-writer.md       # Notion, Slack, documentation

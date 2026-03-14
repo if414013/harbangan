@@ -18,7 +18,7 @@ cd frontend && npm run lint     # eslint
 cd frontend && npm run dev      # vite dev server (port 5173, proxies /_ui/api → localhost:8000)
 ```
 
-Built assets in `frontend/dist/` are served by nginx in the frontend container.
+Built assets in `frontend/dist/` are used for production deployment.
 
 ## Component Conventions
 

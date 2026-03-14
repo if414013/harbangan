@@ -43,7 +43,6 @@ This gateway embodies the same philosophy:
 - MCP Gateway (external tool servers)
 - Content Guardrails (AWS Bedrock)
 - Web dashboard with real-time metrics
-- Automated TLS via Let's Encrypt
 - Proxy-Only Mode (single container, no DB)
 - Optional Datadog APM
 
@@ -51,8 +50,7 @@ This gateway embodies the same philosophy:
 
 ```bash
 git clone https://github.com/if414013/harbangan.git && cd harbangan
-cp .env.example .env  # edit with your domain, Google OAuth creds
-./init-certs.sh       # provision TLS
+cp .env.example .env  # edit with your Google OAuth creds
 docker compose up -d  # start all services
 ```
 

@@ -11,8 +11,8 @@ permalink: /architecture/
 
 Kiro Gateway is a multi-provider AI proxy that exposes OpenAI and Anthropic-compatible APIs. It routes requests to multiple backend providers — Kiro (AWS CodeWhisperer), Anthropic, OpenAI, Gemini, GitHub Copilot, and Qwen — with per-user credential management and automatic provider selection. It supports two deployment modes:
 
-- **Proxy-Only Mode** (`docker-compose.gateway.yml`) — A single backend container with no database, web UI, or TLS. Uses a single `PROXY_API_KEY` for authentication and an AWS SSO device code flow for Kiro credentials. Best for personal use.
-- **Full Deployment** (`docker-compose.yml`) — Four docker-compose services: PostgreSQL database, Rust backend (plain HTTP), nginx frontend (TLS termination + static SPA), and certbot for automated Let's Encrypt certificate management. Supports multi-user with Google SSO and per-user API keys. Best for teams.
+- **Proxy-Only Mode** (`docker-compose.gateway.yml`) — A single backend container with no database or web UI. Uses a single `PROXY_API_KEY` for authentication and an AWS SSO device code flow for Kiro credentials. Best for personal use.
+- **Full Deployment** (`docker-compose.yml`) — Three docker-compose services: PostgreSQL database, Rust backend (plain HTTP), and Vite frontend dev server. Supports multi-user with Google SSO and per-user API keys. Best for teams and development. Production targets Kubernetes.
 
 Both modes share the same Rust backend binary — the deployment mode determines which features are active.
 
@@ -39,14 +39,12 @@ flowchart TB
     end
 
     subgraph Docker["Docker Compose"]
-        subgraph Nginx["nginx (frontend, :443/:80)"]
-            SPA["React SPA<br/><i>/_ui/* static files</i>"]
-            PROXY_UI["Reverse Proxy<br/><i>/_ui/api/* → backend</i>"]
-            PROXY_API["Reverse Proxy<br/><i>/v1/* → backend (SSE)</i>"]
-            ACME["ACME Webroot<br/><i>/.well-known/</i>"]
+        subgraph Vite["Frontend (Vite, :5173)"]
+            SPA["React SPA<br/><i>/_ui/*</i>"]
+            PROXY_UI["Dev Proxy<br/><i>/_ui/api/* → backend</i>"]
         end
 
-        subgraph Gateway["Backend (Axum + Tokio, plain HTTP)"]
+        subgraph Gateway["Backend (Axum + Tokio, HTTP :9999)"]
             subgraph MW["Middleware Stack"]
                 CORS["CORS Layer<br/><i>tower-http</i>"]
                 DEBUG["Debug Logger"]
@@ -97,7 +95,6 @@ flowchart TB
             end
         end
 
-        CERTBOT["certbot<br/><i>Let's Encrypt renewal (12h)</i>"]
         PG[("PostgreSQL 16<br/><i>Config + Users + API Keys<br/>+ Provider Tokens</i>")]
     end
 
@@ -114,10 +111,9 @@ flowchart TB
         QWEN_API["Qwen API<br/><i>chat.qwen.ai</i>"]
     end
 
-    OAI --> Nginx
-    ANT --> Nginx
-    BROWSER --> Nginx
-    PROXY_API --> CORS
+    OAI --> CORS
+    ANT --> CORS
+    BROWSER --> Vite
     PROXY_UI --> CORS
     CORS --> DEBUG --> AUTH
     AUTH --> OPENAI
@@ -160,8 +156,6 @@ flowchart TB
     CACHE -.-> QAPI
     CONFIG --> PG
     WEBUI --> GOOGLE
-    CERTBOT --> ACME
-
     OPENAI --> GUARDRAILS
     ANTHRO --> GUARDRAILS
     GUARDRAILS --> BEDROCK
@@ -181,7 +175,7 @@ Client → gateway container (:8000, plain HTTP)
             └── Kiro API (codewhisperer.{region}.amazonaws.com)
 ```
 
-No database, no nginx, no certbot. Kiro credentials are obtained once via a device code flow and cached to a Docker volume (`gateway-data:/data/tokens.json`).
+No database or web UI. Kiro credentials are obtained once via a device code flow and cached to a Docker volume (`gateway-data:/data/tokens.json`).
 
 ---
 
@@ -189,24 +183,20 @@ No database, no nginx, no certbot. Kiro credentials are obtained once via a devi
 
 ### Full Deployment Services
 
-The Full Deployment runs as four docker-compose services:
+The Full Deployment runs as three docker-compose services:
 
 | Service | Image | Purpose |
 |---------|-------|---------|
 | `db` | PostgreSQL 16 | Persistent storage for config, users, API keys, Kiro credentials |
-| `backend` | Custom (Rust) | Axum API server on port 8000 (plain HTTP, internal only) |
-| `frontend` | Custom (nginx) | TLS termination, static SPA, reverse proxy to backend |
-| `certbot` | certbot/certbot | Let's Encrypt certificate provisioning and auto-renewal (12h cycle) |
+| `backend` | Custom (Rust) | Axum API server on port 9999 (plain HTTP) |
+| `frontend` | Custom (Vite) | Dev server serving React SPA, proxies API to backend |
 
 ```
-Internet → nginx (frontend, :443/:80)
-              ├── /_ui/*           → React SPA static files
-              ├── /_ui/api/*       → proxy → backend:8000
-              ├── /v1/*            → proxy → backend:8000 (SSE streaming)
-              └── /.well-known/    → certbot webroot
-           certbot   → Let's Encrypt cert auto-renewal (12h cycle)
-           backend   → Rust API server (plain HTTP, internal only)
-           db        → PostgreSQL 16
+frontend (Vite, :5173)
+  ├── /_ui/*           → React SPA (hot reload)
+  └── /_ui/api/*       → proxy → backend:9999
+backend (:9999)        → Rust API server (plain HTTP)
+db                     → PostgreSQL 16
 ```
 
 ---
@@ -387,8 +377,7 @@ flowchart TD
 | Logging | [tracing](https://github.com/tokio-rs/tracing) | Structured, async-aware logging with web UI capture |
 | Token Counting | [tiktoken-rs](https://github.com/zurawiki/tiktoken-rs) | GPT-compatible tokenizer (cl100k_base) |
 | CEL Engine | [cel-interpreter](https://github.com/clarkmcc/cel-rust) | Common Expression Language for guardrail rule conditions |
-| TLS Termination | [nginx](https://nginx.org/) | Reverse proxy with Let's Encrypt TLS via certbot |
-| Frontend | React 19 + Vite 7 + TypeScript 5.9 | Browser-based admin dashboard served by nginx |
+| Frontend | React 19 + Vite 7 + TypeScript 5.9 | Browser-based admin dashboard |
 | APM / Observability | [Datadog](https://www.datadoghq.com/) + OpenTelemetry | Optional distributed tracing, metrics, log correlation, and frontend RUM |
 
 ---
@@ -399,9 +388,9 @@ flowchart TD
 
 The gateway does not implement its own LLM logic. It is a protocol translator and provider router: it accepts requests in OpenAI or Anthropic format, resolves the target provider via the `ProviderRegistry`, and either translates to the Kiro wire format (for the default Kiro provider) or relays directly to the provider's native API (Anthropic, OpenAI, Gemini, Copilot, Qwen). The `Provider` trait (`providers/traits.rs`) defines a uniform interface that all providers implement, supporting both OpenAI-format and Anthropic-format inputs. The `converters/core.rs` module defines a `UnifiedMessage` type that serves as the intermediate representation for Kiro-bound requests.
 
-### 2. TLS at the Edge
+### 2. Plain HTTP Backend
 
-TLS is handled by nginx at the edge. The Rust backend runs plain HTTP on an internal Docker network, simplifying the backend code and deferring certificate management to certbot and nginx. The `init-certs.sh` script handles first-time Let's Encrypt certificate provisioning.
+The Rust backend runs plain HTTP. In production (Kubernetes), TLS is handled by the Ingress controller.
 
 ### 3. Streaming-First Architecture
 

@@ -9,7 +9,7 @@ nav_order: 1
   <p class="tagline">
     A multi-user, multi-provider Rust proxy gateway. Use OpenAI and Anthropic client libraries
     with Kiro, GitHub Copilot, and Qwen Coder backends. Per-user auth, content guardrails,
-    MCP tool gateway, and real-time streaming — deployed via Docker Compose with automated TLS.
+    MCP tool gateway, and real-time streaming — deployed via Docker Compose.
   </p>
   <div class="badges">
     <span class="badge badge--infra">Rust</span>
@@ -51,7 +51,6 @@ flowchart TD
     end
 
     subgraph Docker["Docker Compose"]
-        NGINX["nginx (TLS)"]
         subgraph GW["Backend"]
             MW["Middleware\n(CORS, Auth)"]
             GUARD["Guardrails\n(CEL + Bedrock)"]
@@ -72,9 +71,8 @@ flowchart TD
         DEVICE["Device Code\nOAuth"]
     end
 
-    OAI --> NGINX
-    ANT --> NGINX
-    NGINX --> MW
+    OAI --> MW
+    ANT --> MW
     MW --> GUARD
     GUARD --> MCP_INJ
     MCP_INJ --> CONV
@@ -84,7 +82,8 @@ flowchart TD
     KIRO --> STREAM
     COPILOT --> STREAM
     QWEN --> STREAM
-    STREAM --> NGINX
+    STREAM --> OAI
+    STREAM --> ANT
     GW -.-> SSO
     GW -.-> DEVICE
 ```
@@ -141,10 +140,7 @@ flowchart TD
 git clone https://github.com/if414013/harbangan.git
 cd harbangan
 cp .env.example .env
-# Edit .env with your domain, Google OAuth credentials, etc.
-
-# Provision TLS certificates
-./init-certs.sh
+# Edit .env with your Google OAuth credentials, etc.
 
 # Start all services
 docker compose up -d --build

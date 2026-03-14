@@ -42,7 +42,7 @@ body:
       options:
         - Backend (Rust/Axum)
         - Frontend (React/Web UI)
-        - Infrastructure (Docker/nginx)
+        - Infrastructure (Docker)
         - E2E Tests (Playwright)
         - Documentation
         - Multiple / Full-stack

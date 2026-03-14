@@ -40,8 +40,7 @@ Detailed checklists for each quality dimension. Reviewers follow the checklist f
 
 - [ ] No secrets passed as Docker build args (use runtime env vars)
 - [ ] `.env` files listed in `.dockerignore` and `.gitignore`
-- [ ] TLS termination at nginx; backend listens on plain HTTP internally only
-- [ ] certbot webroot path is not writable by the application
+- [ ] Backend listens on plain HTTP only (TLS handled by k8s Ingress in production)
 
 ---
 

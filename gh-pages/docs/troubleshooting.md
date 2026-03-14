@@ -30,11 +30,11 @@ Common issues, error messages, and their solutions when running Harbangan.
 
 ### Full Deployment
 
-1. **Are all services running?** — `docker compose ps` (expect: db, backend, frontend, certbot)
+1. **Are all services running?** — `docker compose ps` (expect: db, backend, frontend)
 2. **Is the backend healthy?** — `docker compose logs backend` (look for startup messages)
-3. **Can you reach the Web UI?** — Open `https://your-domain/_ui/` in a browser
+3. **Can you reach the Web UI?** — Open `http://localhost:5173/_ui/` in a browser
 4. **Is setup complete?** — If you see the setup wizard, complete it first (sign in with Google)
-5. **Check the logs** — `docker compose logs -f backend` for backend, `docker compose logs -f frontend` for nginx
+5. **Check the logs** — `docker compose logs -f backend` for backend, `docker compose logs -f frontend` for frontend
 
 ---
 
@@ -65,59 +65,13 @@ Common causes:
 - PostgreSQL not ready (check `docker compose ps` — `db` should be healthy)
 - Missing required environment variables (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`)
 
-### Frontend (nginx) container won't start
+### Frontend container won't start
 
-**Cause:** Nginx configuration error or missing TLS certificates.
+**Cause:** Port conflict or dependency issue.
 
 **Solutions:**
 - **Check logs:** `docker compose logs frontend`
-- **Missing certificates:** On first run, you must provision certificates first with `./init-certs.sh`
-- **Configuration error:** The nginx template uses `envsubst` — verify `DOMAIN` is set in `.env`
-- **Port conflict:** Ensure ports 80 and 443 are not in use by another service
-
----
-
-## TLS / Certificate Issues
-
-### Certbot fails to obtain certificates
-
-**Cause:** Let's Encrypt cannot verify domain ownership via HTTP-01 challenge.
-
-**Solutions:**
-- **DNS must point to your server:** Ensure `DOMAIN` in `.env` resolves to your server's public IP
-- **Port 80 must be accessible:** Let's Encrypt validates via `http://your-domain/.well-known/acme-challenge/`. Ensure port 80 is open in your firewall and not blocked by another service.
-- **Rate limits:** Let's Encrypt has rate limits (5 duplicate certs per week). Check [Let's Encrypt rate limits](https://letsencrypt.org/docs/rate-limits/).
-- **Email required:** Ensure `EMAIL` is set in `.env` for Let's Encrypt notifications
-
-### First-time certificate provisioning
-
-On a fresh deployment, run the init script before starting the full stack:
-
-```bash
-chmod +x init-certs.sh
-./init-certs.sh
-```
-
-This obtains the initial Let's Encrypt certificates. After this, certbot auto-renews every 12 hours via the certbot container.
-
-### Certificate not renewing
-
-**Cause:** The certbot container may not be running or the webroot is inaccessible.
-
-**Solutions:**
-- **Check certbot status:** `docker compose ps certbot`
-- **Check certbot logs:** `docker compose logs certbot`
-- **Manual renewal test:** `docker compose run --rm certbot renew --dry-run`
-- **Webroot access:** Ensure the nginx configuration serves `/.well-known/acme-challenge/` from the certbot webroot volume
-
-### "SSL: error" or "certificate verify failed" in client
-
-**Cause:** Certificate issues between client and nginx.
-
-**Solutions:**
-- Verify certificates exist: `docker compose exec frontend ls -la /etc/letsencrypt/live/$DOMAIN/`
-- Check certificate expiry: `docker compose exec frontend openssl x509 -enddate -noout -in /etc/letsencrypt/live/$DOMAIN/fullchain.pem`
-- Restart nginx after cert renewal: `docker compose restart frontend`
+- **Port conflict:** Ensure port 5173 is not in use by another service
 
 ---
 
@@ -214,26 +168,26 @@ This obtains the initial Let's Encrypt certificates. After this, certbot auto-re
    dig your-domain +short
    ```
 
-4. **Nginx not proxying:** Check nginx logs and configuration:
+4. **Frontend not proxying:** Check frontend logs:
    ```bash
    docker compose logs frontend
    ```
 
-### "502 Bad Gateway" from nginx
+### Cannot reach the backend
 
-**Cause:** Nginx cannot reach the backend service.
+**Cause:** Backend is not running or port mismatch.
 
 **Solutions:**
 - Check that the backend container is running: `docker compose ps backend`
 - Check backend logs for errors: `docker compose logs backend`
-- Verify the backend is listening on port 8000: `docker compose exec backend curl -s http://localhost:8000/health`
+- Verify the backend is listening on port 9999: `docker compose exec backend curl -s http://localhost:9999/health`
 - Ensure both services are on the same Docker network
 
 ### Streaming responses hang or disconnect
 
 **Possible causes:**
 
-1. **Proxy timeout:** The nginx configuration should have appropriate timeouts for SSE streaming. Check that `proxy_read_timeout` is set high enough (300s recommended for long completions).
+1. **Proxy timeout:** If using a reverse proxy, ensure timeouts are set high enough for SSE streaming (300s recommended for long completions).
 
 2. **First token timeout:** The gateway has a configurable timeout for the first token (default: 15 seconds). If the model takes longer to start responding, increase `first_token_timeout` in the Web UI.
 
@@ -326,11 +280,11 @@ PostgreSQL data is stored in a Docker named volume (`pgdata`). If you remove vol
 
 **Cause:** Another service is already using port 80 or 443.
 
-**Solution:** Stop the conflicting service or adjust your configuration. The gateway requires ports 80 (for HTTP redirect and certbot) and 443 (for HTTPS).
+**Solution:** Stop the conflicting service or adjust your configuration. The gateway uses ports 9999 (backend) and 5173 (frontend).
 
 ```bash
 # Find what's using the ports
-ss -tlnp | grep -E ':(80|443)\s'
+ss -tlnp | grep -E ':(9999|5173)\s'
 ```
 
 ---
@@ -578,7 +532,7 @@ docker compose -f docker-compose.gateway.yml --env-file .env.proxy restart gatew
 **Solutions:**
 - Verify `DD_AGENT_HOST` is set in the backend container's environment
 - Check that the Datadog Agent is running and reachable
-- Confirm you're looking at backend logs (not nginx logs) — only the Rust backend injects trace IDs
+- Confirm you're looking at backend logs — only the Rust backend injects trace IDs
 
 ### Datadog Agent exits immediately
 
@@ -621,7 +575,7 @@ docker compose logs -f
 # Full Deployment — backend only
 docker compose logs -f backend
 
-# Full Deployment — nginx (frontend) only
+# Full Deployment — frontend only
 docker compose logs -f frontend
 
 # Filter by level
@@ -661,8 +615,6 @@ If you can't resolve an issue:
    docker compose ps
    docker compose logs --tail=100 backend
    docker compose logs --tail=100 frontend
-   docker compose exec frontend ls -la /etc/letsencrypt/live/
-
    # System info
    uname -a
    docker --version

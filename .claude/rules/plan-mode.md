@@ -18,7 +18,7 @@ For each affected service, spawn an Explore agent that reads the corresponding a
 |-----------------|-----------------|-------------|
 | Backend (Rust/Axum) | `rust-backend-engineer` | Existing patterns, affected modules, type changes, error handling approach |
 | Frontend (React/TS) | `react-frontend-engineer` | Component structure, API integration points, styling approach, state management |
-| Infrastructure | `devops-engineer` | Docker/nginx impact, env vars, deployment changes |
+| Infrastructure | `devops-engineer` | Docker impact, env vars, deployment changes |
 | Backend tests | `backend-qa` | Test coverage gaps, which test patterns to follow, integration test needs |
 | Frontend tests | `frontend-qa` | E2E test scenarios, Playwright page objects to update |
 

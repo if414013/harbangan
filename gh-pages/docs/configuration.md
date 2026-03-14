@@ -83,12 +83,10 @@ Set these in your `.env` file before running `docker compose up`. They are read 
 
 | Variable | Description | Example |
 |:---|:---|:---|
-| `DOMAIN` | Domain name for Let's Encrypt TLS certificates. Must have DNS pointing to the server. | `gateway.example.com` |
-| `EMAIL` | Email address for Let's Encrypt certificate notifications. | `admin@example.com` |
 | `POSTGRES_PASSWORD` | PostgreSQL password. Used by both the `db` and `backend` services. | `your_secure_password` |
 | `GOOGLE_CLIENT_ID` | Google OAuth 2.0 Client ID for Web UI authentication. | `123456.apps.googleusercontent.com` |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 Client Secret. | `GOCSPX-abc123` |
-| `GOOGLE_CALLBACK_URL` | OAuth redirect URI. Must match the authorized redirect URI in Google Cloud Console. | `https://gateway.example.com/_ui/api/auth/google/callback` |
+| `GOOGLE_CALLBACK_URL` | OAuth redirect URI. Must match the authorized redirect URI in Google Cloud Console. | `http://localhost:9999/_ui/api/auth/google/callback` |
 
 ### Optional Provider Variables
 
@@ -233,12 +231,6 @@ Every configuration change is logged with:
 ```bash
 # Harbangan — Full Deployment Configuration
 # Copy to .env and fill in your values.
-
-# Domain for TLS certificates (Let's Encrypt via certbot)
-DOMAIN=gateway.example.com
-
-# Email for Let's Encrypt certificate notifications
-EMAIL=admin@example.com
 
 # PostgreSQL password
 POSTGRES_PASSWORD=change-me-to-something-strong

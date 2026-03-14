@@ -30,7 +30,6 @@ Key capabilities:
 - Multi-provider support: Kiro (default), GitHub Copilot, and Qwen Coder — with per-user provider priority
 - Multi-user support with Google SSO and per-user API keys (Full Deployment)
 - Role-based access control (Admin / User)
-- Automatic TLS via Let's Encrypt (certbot + nginx)
 - Web dashboard for configuration, monitoring, and log streaming
 - Content guardrails via AWS Bedrock with CEL rule engine
 - MCP Gateway for connecting external tool servers
@@ -46,13 +45,12 @@ Harbangan supports two deployment modes:
 | | Proxy-Only Mode | Full Deployment |
 |:---|:---|:---|
 | **Docker Compose file** | `docker-compose.gateway.yml` | `docker-compose.yml` |
-| **Containers** | 1 (backend only) | 4 (backend, db, nginx, certbot) |
+| **Containers** | 1 (backend only) | 3 (backend, db, frontend) |
 | **Authentication** | Single `PROXY_API_KEY` | Per-user API keys + Google SSO |
 | **Kiro credentials** | Device code flow on first boot | Per-user via Web UI |
 | **Database** | None | PostgreSQL |
 | **Web UI** | No | Yes |
-| **TLS** | Not included (add your own reverse proxy) | Automated via Let's Encrypt |
-| **Best for** | Personal use, quick evaluation | Teams, production |
+| **Best for** | Personal use, quick evaluation | Teams, development |
 
 ---
 
@@ -126,13 +124,13 @@ curl http://localhost:8000/v1/chat/completions \
 You should see a streaming SSE response with the model's reply.
 
 {: .note }
-> Proxy-Only Mode uses `http://localhost:8000` by default. For HTTPS, place a reverse proxy (nginx, Caddy, etc.) in front of the gateway.
+> Proxy-Only Mode uses `http://localhost:8000` by default.
 
 ---
 
 ## Full Deployment
 
-Multi-user mode with PostgreSQL, Google SSO, per-user API keys, web dashboard, and automated TLS.
+Multi-user mode with PostgreSQL, Google SSO, per-user API keys, and web dashboard.
 
 ### Prerequisites
 
@@ -143,12 +141,11 @@ Multi-user mode with PostgreSQL, Google SSO, per-user API keys, web dashboard, a
 
 You also need:
 
-- **A domain name** pointing to your server (for Let's Encrypt TLS certificates)
-- **Google OAuth credentials** (Client ID + Client Secret) from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). Create an OAuth 2.0 Client ID with the authorized redirect URI set to `https://YOUR_DOMAIN/_ui/api/auth/google/callback`.
+- **Google OAuth credentials** (Client ID + Client Secret) from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). Create an OAuth 2.0 Client ID with the authorized redirect URI set to `http://localhost:9999/_ui/api/auth/google/callback`.
 
 ### Installation
 
-The Full Deployment runs via docker-compose with four services: PostgreSQL, Rust backend, nginx frontend (TLS termination), and certbot (certificate automation).
+The Full Deployment runs via docker-compose with three services: PostgreSQL, Rust backend, and Vite frontend dev server.
 
 ### Step 1: Clone the repository
 
@@ -166,19 +163,13 @@ cp .env.example .env
 Edit `.env` and fill in all values:
 
 ```bash
-# Domain for TLS certificates (Let's Encrypt via certbot)
-DOMAIN=gateway.example.com
-
-# Email for Let's Encrypt certificate notifications
-EMAIL=admin@example.com
-
 # PostgreSQL password
 POSTGRES_PASSWORD=your_secure_password_here
 
 # Google SSO (required)
 GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_CALLBACK_URL=https://gateway.example.com/_ui/api/auth/google/callback
+GOOGLE_CALLBACK_URL=http://localhost:9999/_ui/api/auth/google/callback
 
 # GitHub Copilot OAuth (optional)
 # GITHUB_COPILOT_CLIENT_ID=
@@ -189,18 +180,7 @@ GOOGLE_CALLBACK_URL=https://gateway.example.com/_ui/api/auth/google/callback
 # QWEN_OAUTH_CLIENT_ID=f0304373b74a44d2b584a3fb70ca9e56
 ```
 
-### Step 3: Provision TLS certificates
-
-Run the init script to obtain Let's Encrypt certificates for the first time:
-
-```bash
-chmod +x init-certs.sh
-DOMAIN=gateway.example.com EMAIL=admin@example.com ./init-certs.sh
-```
-
-This creates a temporary self-signed certificate, starts nginx, obtains a real Let's Encrypt certificate via the ACME webroot challenge, then reloads nginx with the real certificate.
-
-### Step 4: Start all services
+### Step 3: Start all services
 
 ```bash
 docker compose up -d --build
@@ -218,10 +198,8 @@ Wait until you see:
 
 ```
 Setup not complete — starting in setup-only mode
-Server listening on http://0.0.0.0:8000
+Server listening on http://0.0.0.0:9999
 ```
-
-The backend runs plain HTTP internally — nginx handles TLS termination on ports 443/80.
 
 ---
 
@@ -231,7 +209,7 @@ On first launch, the gateway starts in **setup-only mode**. The `/v1/*` proxy en
 
 ### Step 1: Open the Web UI
 
-Navigate to `https://your-domain.com/_ui/` in your browser.
+Navigate to `http://localhost:5173/_ui/` in your browser.
 
 ### Step 2: Sign in with Google
 
@@ -262,7 +240,7 @@ As an admin, you can manage users and roles from the Web UI. Additional users si
 ```mermaid
 sequenceDiagram
     participant User as User / Browser
-    participant Nginx as nginx (TLS)
+    participant FE as Frontend (Vite)
     participant GW as Backend API
     participant DB as PostgreSQL
     participant Google as Google SSO
@@ -271,8 +249,8 @@ sequenceDiagram
     GW->>DB: Connect & create tables
     DB-->>GW: Ready
 
-    User->>Nginx: Open https://domain/_ui/
-    Nginx->>GW: Proxy request
+    User->>FE: Open http://localhost:5173/_ui/
+    FE->>GW: Proxy request
     GW-->>User: Login page
 
     User->>Google: Sign in with Google (PKCE)
@@ -288,8 +266,7 @@ sequenceDiagram
 
     Note over GW: Setup complete — normal operation
 
-    User->>Nginx: POST /v1/chat/completions
-    Nginx->>GW: Proxy (plain HTTP)
+    User->>GW: POST /v1/chat/completions
     GW->>GW: Validate API key → find user → get provider creds
     GW->>GW: Convert OpenAI → provider format
     GW-->>User: SSE stream (Kiro → OpenAI format)
@@ -304,7 +281,7 @@ Once setup is complete, verify that everything is working.
 ### Health check
 
 ```bash
-curl https://your-domain.com/health
+curl http://localhost:9999/health
 ```
 
 Expected response:
@@ -317,13 +294,13 @@ Expected response:
 
 ```bash
 curl -H "Authorization: Bearer YOUR_API_KEY" \
-  https://your-domain.com/v1/models
+  http://localhost:9999/v1/models
 ```
 
 ### Send a test chat request (OpenAI format)
 
 ```bash
-curl -X POST https://your-domain.com/v1/chat/completions \
+curl -X POST http://localhost:9999/v1/chat/completions \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -338,7 +315,7 @@ curl -X POST https://your-domain.com/v1/chat/completions \
 ### Send a test chat request (Anthropic format)
 
 ```bash
-curl -X POST https://your-domain.com/v1/messages \
+curl -X POST http://localhost:9999/v1/messages \
   -H "x-api-key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -H "anthropic-version: 2023-06-01" \
@@ -354,7 +331,7 @@ curl -X POST https://your-domain.com/v1/messages \
 
 ### Check the Web UI dashboard
 
-Open `https://your-domain.com/_ui/` to see:
+Open `http://localhost:9999/_ui/` to see:
 
 - Profile page with provider credential management (Kiro, Copilot, Qwen)
 - Configuration management (admin-only)
@@ -373,7 +350,7 @@ Once the gateway is running, point your AI tools at it using your personal API k
 Set the API base URL to your gateway:
 
 ```
-https://your-domain.com/v1
+http://localhost:9999/v1
 ```
 
 Use your personal API key as the API key.
@@ -384,7 +361,7 @@ Use your personal API key as the API key.
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="https://your-domain.com/v1",
+    base_url="http://localhost:9999/v1",
     api_key="YOUR_API_KEY",
 )
 
@@ -401,7 +378,7 @@ print(response.choices[0].message.content)
 import anthropic
 
 client = anthropic.Anthropic(
-    base_url="https://your-domain.com",
+    base_url="http://localhost:9999",
     api_key="YOUR_API_KEY",
 )
 

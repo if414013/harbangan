@@ -69,7 +69,7 @@ Use Slack MCP tools (`mcp__claude_ai_Slack__*`) for team communication.
 ### Stack
 - **Backend**: Rust (Axum 0.7, Tokio) + PostgreSQL 16 + sqlx 0.8
 - **Frontend**: React 19 + TypeScript 5.9 + Vite 7
-- **Infrastructure**: Docker + nginx + Let's Encrypt
+- **Infrastructure**: Docker
 - **Auth**: Google SSO (PKCE) for web UI, API keys for proxy
 
 ### Key Directories

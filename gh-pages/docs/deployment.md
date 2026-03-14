@@ -7,7 +7,7 @@ nav_order: 8
 # Deployment Guide
 {: .no_toc }
 
-Production deployment instructions for Harbangan. Covers both Proxy-Only Mode (single container) and Full Deployment (multi-user with TLS).
+Deployment instructions for Harbangan. Covers both Proxy-Only Mode (single container) and Full Deployment (multi-user with Docker Compose).
 {: .fs-6 .fw-300 }
 
 <details open markdown="block">
@@ -23,8 +23,8 @@ Production deployment instructions for Harbangan. Covers both Proxy-Only Mode (s
 
 Harbangan supports two deployment modes:
 
-- **Proxy-Only Mode** — A single backend container with no database, web UI, or TLS. Uses `docker-compose.gateway.yml`. Best for personal use or quick evaluation.
-- **Full Deployment** — Four containers (backend, PostgreSQL, nginx, certbot) with Google SSO, per-user API keys, web dashboard, and automated TLS. Uses `docker-compose.yml`. Best for teams and production.
+- **Proxy-Only Mode** — A single backend container with no database or web UI. Uses `docker-compose.gateway.yml`. Best for personal use or quick evaluation.
+- **Full Deployment** — Three containers (backend, PostgreSQL, frontend) with Google SSO, per-user API keys, and web dashboard. Uses `docker-compose.yml`. Best for teams and development. Production deployment targets Kubernetes with TLS handled by an Ingress controller.
 
 ---
 
@@ -37,9 +37,7 @@ Client (localhost) → gateway container (127.0.0.1:8000, plain HTTP)
                          └── Kiro API (AWS CodeWhisperer)
 ```
 
-A single container running the Rust backend. No database, no nginx, no certbot. Authentication uses a single `PROXY_API_KEY` environment variable. Kiro credentials are obtained via an AWS SSO device code flow on first boot and cached to a Docker volume. The port binds to `127.0.0.1` only — not accessible from external networks. The container runs as a non-root user (`appuser`) with a 512MB memory limit.
-
-> **Security warning:** If you override the port binding to `0.0.0.0:8000` (e.g. by editing the `ports` entry in `docker-compose.gateway.yml`), the gateway is directly reachable from any network interface with no TLS. Anyone who can reach the host on that port and knows `PROXY_API_KEY` can make API calls. Only do this behind a firewall with strict ingress rules, and use a strong randomly-generated key. The recommended approach for external access is to place a TLS-terminating reverse proxy (nginx, Caddy) in front.
+A single container running the Rust backend. No database or web UI. Authentication uses a single `PROXY_API_KEY` environment variable. Kiro credentials are obtained via an AWS SSO device code flow on first boot and cached to a Docker volume. The port binds to `127.0.0.1` only — not accessible from external networks. The container runs as a non-root user (`appuser`) with a 512MB memory limit.
 
 | Service | Image | Purpose |
 |:---|:---|:---|
@@ -123,25 +121,13 @@ docker compose -f docker-compose.gateway.yml --env-file .env.proxy up
 |:---|:---|:---|
 | `gateway-data` | Named volume | Cached Kiro credentials (`/data/tokens.json`) |
 
-### Adding TLS to Proxy-Only Mode
-
-Proxy-Only Mode serves plain HTTP. To add HTTPS, place a reverse proxy in front of the gateway. For example, with [Caddy](https://caddyserver.com/):
-
-```
-your-domain.com {
-    reverse_proxy localhost:8000
-}
-```
-
-Or with nginx, use your existing TLS setup and proxy to `http://localhost:8000`.
-
 ---
 
 ## Full Deployment
 
 ### Architecture
 
-The Full Deployment runs via Docker Compose with four services:
+The Full Deployment runs via Docker Compose with three services:
 
 ```mermaid
 graph LR
@@ -152,17 +138,14 @@ graph LR
     end
 
     subgraph Docker["Docker Compose Stack"]
-        subgraph frontend_container["frontend (nginx)"]
-            nginx["nginx<br/>:443 / :80"]
+        subgraph frontend_container["frontend (Vite)"]
+            vite["Vite Dev Server<br/>:5173"]
         end
         subgraph backend_container["backend"]
-            gw["Rust API Server<br/>:8000 (HTTP)"]
+            gw["Rust API Server<br/>:9999 (HTTP)"]
         end
         subgraph db_container["db"]
             pg["PostgreSQL 16<br/>:5432"]
-        end
-        subgraph certbot_container["certbot"]
-            cb["Let's Encrypt<br/>auto-renewal"]
         end
     end
 
@@ -171,17 +154,16 @@ graph LR
         sso["AWS SSO OIDC"]
     end
 
-    client1 -->|"HTTPS /v1/*"| nginx
-    client2 -->|"HTTPS /v1/*"| nginx
-    client3 -->|"HTTPS /_ui/"| nginx
+    client1 -->|"HTTP /v1/*"| gw
+    client2 -->|"HTTP /v1/*"| gw
+    client3 -->|"HTTP /_ui/"| vite
 
-    nginx -->|"HTTP proxy"| gw
+    vite -->|"Proxy /_ui/api"| gw
     gw -->|"HTTPS Event Stream"| kiro
     gw -->|"OAuth token refresh"| sso
     gw -->|"Config + credentials"| pg
-    cb -.->|"Cert renewal"| nginx
 
-    style nginx fill:#4a9eff,color:#fff
+    style vite fill:#4a9eff,color:#fff
     style gw fill:#4a9eff,color:#fff
     style pg fill:#336791,color:#fff
     style kiro fill:#ff9900,color:#fff
@@ -191,16 +173,16 @@ graph LR
 | Service | Image | Purpose |
 |:---|:---|:---|
 | `db` | `postgres:16-alpine` | PostgreSQL database for config, credentials, and user data |
-| `backend` | `harbangan-backend:latest` (built locally) | Rust API server — plain HTTP, internal only |
-| `frontend` | `harbangan-frontend:latest` (built locally) | nginx — serves React SPA, reverse proxies API, terminates TLS |
-| `certbot` | `certbot/certbot:latest` | Automated Let's Encrypt certificate renewal (12h cycle) |
+| `backend` | `harbangan-backend:latest` (built locally) | Rust API server — plain HTTP on port 9999 |
+| `frontend` | `harbangan-frontend:latest` (built locally) | Vite dev server — serves React SPA, proxies API requests to backend |
+
+> **Note:** This Docker Compose setup is intended for development. Production deployment targets Kubernetes, where TLS is handled by an Ingress controller.
 
 ---
 
 ## Prerequisites
 
 - Docker Engine 20.10+ and Docker Compose v2
-- A server with a **public domain name** (DNS A record pointing to the server)
 - **Google OAuth credentials** (Client ID + Client Secret) from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
 - At least 1 GB RAM and 2 GB disk space
 
@@ -222,19 +204,13 @@ cp .env.example .env
 Edit `.env`:
 
 ```bash
-# Domain for TLS certificates (must resolve to this server)
-DOMAIN=gateway.example.com
-
-# Email for Let's Encrypt notifications
-EMAIL=admin@example.com
-
 # PostgreSQL password
 POSTGRES_PASSWORD=your_secure_password_here
 
 # Google SSO (required for Web UI authentication)
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_CALLBACK_URL=https://gateway.example.com/_ui/api/auth/google/callback
+GOOGLE_CALLBACK_URL=http://localhost:9999/_ui/api/auth/google/callback
 
 # GitHub Copilot OAuth (optional)
 # GITHUB_COPILOT_CLIENT_ID=
@@ -248,27 +224,10 @@ GOOGLE_CALLBACK_URL=https://gateway.example.com/_ui/api/auth/google/callback
 The following are managed automatically by `docker-compose.yml` — do **not** set them in `.env`:
 
 - `SERVER_HOST` — set to `0.0.0.0` for the backend
-- `SERVER_PORT` — set to `8000` for the backend
+- `SERVER_PORT` — set to `9999` for the backend
 - `DATABASE_URL` — constructed from `POSTGRES_PASSWORD`
 
-## Step 3: Provision TLS Certificates
-
-Run the initialization script to obtain Let's Encrypt certificates:
-
-```bash
-chmod +x init-certs.sh
-./init-certs.sh
-```
-
-The script:
-1. Creates a temporary self-signed certificate so nginx can start
-2. Starts the nginx container
-3. Requests a real Let's Encrypt certificate via the ACME webroot challenge
-4. Reloads nginx with the real certificate
-
-After this, the certbot service handles automatic renewal every 12 hours.
-
-## Step 4: Build and Start
+## Step 3: Build and Start
 
 ```bash
 docker compose up -d --build
@@ -282,29 +241,29 @@ Watch the logs to confirm startup:
 docker compose logs -f
 ```
 
-## Step 5: Complete Web UI Setup
+## Step 4: Complete Web UI Setup
 
 On first launch, the backend starts in **setup-only mode** — the `/v1/*` proxy endpoints return 503 until an admin completes setup.
 
-Open `https://your-domain.com/_ui/` and:
+Open `http://localhost:5173/_ui/` and:
 
 1. **Sign in with Google** — the first user is automatically granted the Admin role
 2. **Add provider credentials** — connect Kiro (AWS SSO device code flow), and optionally GitHub Copilot or Qwen Coder on the Profile page
 3. **Create an API key** — generate a personal API key for programmatic access
 
-## Step 6: Verify
+## Step 5: Verify
 
 ```bash
 # Health check
-curl https://your-domain.com/health
+curl http://localhost:9999/health
 # Expected: {"status":"ok"}
 
 # List models (use your personal API key)
 curl -H "Authorization: Bearer YOUR_API_KEY" \
-  https://your-domain.com/v1/models
+  http://localhost:9999/v1/models
 
 # Test a chat completion
-curl -X POST https://your-domain.com/v1/chat/completions \
+curl -X POST http://localhost:9999/v1/chat/completions \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"model":"claude-sonnet-4","messages":[{"role":"user","content":"Hello!"}],"max_tokens":50}'
@@ -314,7 +273,7 @@ curl -X POST https://your-domain.com/v1/chat/completions \
 
 ## Docker Compose File Reference
 
-The `docker-compose.yml` defines four services:
+The `docker-compose.yml` defines three services:
 
 ```yaml
 services:
@@ -325,9 +284,11 @@ services:
 
   backend:
     build: ./backend
+    ports:
+      - "9999:9999"
     environment:
       SERVER_HOST: "0.0.0.0"
-      SERVER_PORT: "8000"
+      SERVER_PORT: "9999"
       DATABASE_URL: postgres://kiro:${POSTGRES_PASSWORD}@db:5432/kiro_gateway
     depends_on:
       db: { condition: service_healthy }
@@ -335,22 +296,9 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "443:443"
-      - "80:80"
-    environment:
-      DOMAIN: ${DOMAIN}
-    volumes:
-      - letsencrypt:/etc/letsencrypt:ro
-      - certbot-webroot:/var/www/certbot:ro
+      - "5173:5173"
     depends_on:
       backend: { condition: service_healthy }
-
-  certbot:
-    image: certbot/certbot:latest
-    volumes:
-      - letsencrypt:/etc/letsencrypt
-      - certbot-webroot:/var/www/certbot
-    # Renews certificates every 12 hours
 ```
 
 ### Volume Layout
@@ -358,8 +306,6 @@ services:
 | Volume | Type | Purpose |
 |:---|:---|:---|
 | `pgdata` | Named volume | PostgreSQL data (users, credentials, config, history) |
-| `letsencrypt` | Named volume | Let's Encrypt certificates (shared between nginx and certbot) |
-| `certbot-webroot` | Named volume | ACME challenge files for certificate verification |
 
 ---
 
@@ -394,32 +340,6 @@ docker compose exec db pg_dump -U kiro kiro_gateway > backup.sql
 # Restore from backup
 docker compose exec -T db psql -U kiro kiro_gateway < backup.sql
 ```
-
----
-
-## TLS Certificate Management
-
-TLS is handled entirely by nginx and certbot. The backend runs plain HTTP on the internal Docker network.
-
-### How it works
-
-1. `init-certs.sh` obtains the initial Let's Encrypt certificate
-2. nginx uses the certificate from the shared `letsencrypt` volume
-3. certbot runs in the background, checking for renewal every 12 hours
-4. The `/.well-known/acme-challenge/` path is served from the `certbot-webroot` volume
-
-### Manual certificate renewal
-
-Certificates renew automatically. To force a renewal:
-
-```bash
-docker compose run --rm certbot renew --force-renewal
-docker compose exec frontend nginx -s reload
-```
-
-### Custom certificates
-
-If you have your own certificates instead of using Let's Encrypt, place them in the letsencrypt volume at the expected path (`/etc/letsencrypt/live/YOUR_DOMAIN/fullchain.pem` and `privkey.pem`).
 
 ---
 
@@ -464,7 +384,7 @@ postgres://kiro:<POSTGRES_PASSWORD>@db:5432/kiro_gateway
 ### Health check endpoint
 
 ```bash
-curl https://your-domain.com/health
+curl http://localhost:9999/health
 ```
 
 Returns `200 OK` with:
@@ -481,8 +401,8 @@ All services include built-in health checks:
 docker compose ps
 # NAME               SERVICE    STATUS          PORTS
 # harbangan-db-1          db         Up (healthy)    5432/tcp
-# harbangan-backend-1     backend    Up (healthy)    8000/tcp
-# harbangan-frontend-1    frontend   Up (healthy)    0.0.0.0:443->443/tcp, 0.0.0.0:80->80/tcp
+# harbangan-backend-1     backend    Up (healthy)    0.0.0.0:9999->9999/tcp
+# harbangan-frontend-1    frontend   Up (healthy)    0.0.0.0:5173->5173/tcp
 ```
 
 ### Web UI metrics
@@ -503,7 +423,7 @@ docker compose logs -f
 # Backend only
 docker compose logs -f backend
 
-# Frontend (nginx) only
+# Frontend only
 docker compose logs -f frontend
 ```
 

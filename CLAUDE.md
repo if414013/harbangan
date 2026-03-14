@@ -7,9 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 harbangan/
 ├── backend/                    # Rust API server (Axum 0.7 + Tokio)
-├── frontend/                   # React 19 SPA (Vite 7 + TypeScript 5.9), served by jonasal/nginx-certbot
+├── frontend/                   # React 19 SPA (Vite 7 + TypeScript 5.9)
 ├── e2e-tests/                  # Playwright E2E tests (API + browser)
-├── docker-compose.yml          # 3 services: db, backend, frontend (nginx + auto-TLS)
+├── docker-compose.yml          # Dev services: db, backend, frontend
 ├── docker-compose.gateway.yml  # Proxy-only: single backend container, no DB/SSO
 └── .env.example
 ```
@@ -62,38 +62,33 @@ Set in `.env` (see `.env.example`):
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DOMAIN` | Yes | Domain for Let's Encrypt TLS certs |
-| `EMAIL` | Yes | Let's Encrypt notification email |
 | `POSTGRES_PASSWORD` | Yes | PostgreSQL password |
 | `GOOGLE_CLIENT_ID` | Yes | Google OAuth Client ID |
 | `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth Client Secret |
-| `GOOGLE_CALLBACK_URL` | Yes | OAuth callback (e.g. `https://$DOMAIN/_ui/api/auth/google/callback`) |
+| `GOOGLE_CALLBACK_URL` | Yes | OAuth callback (e.g. `http://localhost:9999/_ui/api/auth/google/callback`) |
 | `INITIAL_ADMIN_EMAIL` | No | Seed admin email for password auth (first-run only) |
 | `INITIAL_ADMIN_PASSWORD` | No | Seed admin password for password auth (first-run only) |
 
-Auto-set by docker-compose: `DATABASE_URL`, `SERVER_HOST` (0.0.0.0), `SERVER_PORT` (8000).
+Auto-set by docker-compose: `DATABASE_URL`, `SERVER_HOST` (0.0.0.0), `SERVER_PORT` (9999).
 
 All runtime config (region, timeouts, debug mode, etc.) is managed via the Web UI at `/_ui/` and persisted in PostgreSQL. This includes `guardrails_enabled` (default `false`).
 
 ## Architecture
 
-### Docker Services
+### Docker Services (Dev)
 
 ```
-Internet → nginx-certbot (frontend, :443/:80)
-              ├── /_ui/*           → React SPA static files
-              ├── /_ui/api/*       → proxy → backend:8000
-              ├── /v1/*            → proxy → backend:8000 (SSE streaming)
-              └── TLS auto-provisioned by jonasal/nginx-certbot
-           backend   → Rust API server (plain HTTP, internal only)
-           db        → PostgreSQL 16
+frontend (Vite dev server, :5173)
+  ├── /_ui/*           → React SPA (hot reload)
+  └── /_ui/api/*       → proxy → backend:9999
+backend (:9999)        → Rust API server (plain HTTP)
+db                     → PostgreSQL 16
 ```
 
 ### Backend Request Flow
 
 ```
 Client (OpenAI or Anthropic format)
-  → nginx (TLS termination)
   → middleware/ (CORS, API key auth → per-user Kiro creds)
   → routes/mod.rs (validate request, resolve model)
   → guardrails/ input check (if enabled, CEL rule matching + Bedrock API)
@@ -184,7 +179,7 @@ Used by agent teams for scope detection, agent assignment, and verification.
 |---------|------|-------------|--------------------|----|
 | Backend | `backend/` | Rust, Axum 0.7, Tokio, sqlx 0.8, PostgreSQL 16 | backend, rust, axum | `cargo clippy --all-targets && cargo test --lib` |
 | Frontend | `frontend/` | React 19, TypeScript 5.9, Vite 7, react-router-dom v7 | frontend, react, typescript | `npm run build && npm run lint` |
-| Infrastructure | `docker-compose*.yml`, `frontend/Dockerfile` | Docker, nginx, Let's Encrypt | infrastructure, docker, nginx, deploy | `docker compose config --quiet` |
+| Infrastructure | `docker-compose*.yml`, `frontend/Dockerfile` | Docker | infrastructure, docker, deploy | `docker compose config --quiet` |
 | Backend QA | `backend/src/` (test modules) | cargo test, tokio::test | test, backend | `cargo test --lib` |
 | Frontend QA | `e2e-tests/` | Playwright | test, E2E, browser, playwright | `npm test` |
 | Database | `backend/src/web_ui/config_db.rs` | PostgreSQL 16, sqlx 0.8, migrations | database, postgresql, schema, migration | `cargo test --lib config_db::` |

@@ -10,7 +10,7 @@ nav_order: 3
 Get Harbangan running and make your first API call in under 5 minutes using Docker. Choose the mode that fits your needs:
 
 - **Proxy-Only Mode** — Single container, single API key, no database or web UI. Best for personal use or quick evaluation.
-- **Full Deployment** — Multi-user with Google SSO, per-user API keys, web dashboard, and TLS. Best for teams.
+- **Full Deployment** — Multi-user with Google SSO, per-user API keys, and web dashboard. Best for teams.
 
 <details open markdown="block">
   <summary>Table of contents</summary>
@@ -23,7 +23,7 @@ Get Harbangan running and make your first API call in under 5 minutes using Dock
 
 ## Proxy-Only Mode (Fastest)
 
-A single container with no PostgreSQL, nginx, or Google SSO. Authenticates via a single `PROXY_API_KEY`.
+A single container with no PostgreSQL or Google SSO. Authenticates via a single `PROXY_API_KEY`.
 
 ### 1. Clone and configure
 
@@ -80,7 +80,7 @@ That's it — you're running.
 
 ## Full Deployment (Multi-User)
 
-Multi-user mode with PostgreSQL, Google SSO, per-user API keys, web dashboard, and automated TLS.
+Multi-user mode with PostgreSQL, Google SSO, per-user API keys, and web dashboard.
 
 ### 1. Clone and configure
 
@@ -93,17 +93,10 @@ cp .env.example .env
 Edit `.env` and fill in your values:
 
 ```bash
-DOMAIN=gateway.example.com
-EMAIL=admin@example.com
 POSTGRES_PASSWORD=change-me
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_CALLBACK_URL=https://gateway.example.com/_ui/api/auth/google/callback
-
-# Optional: GitHub Copilot OAuth
-# GITHUB_COPILOT_CLIENT_ID=
-# GITHUB_COPILOT_CLIENT_SECRET=
-# GITHUB_COPILOT_CALLBACK_URL=https://gateway.example.com/_ui/api/copilot/callback
+GOOGLE_CALLBACK_URL=http://localhost:9999/_ui/api/auth/google/callback
 
 # Optional: Qwen Coder (device flow)
 # QWEN_OAUTH_CLIENT_ID=f0304373b74a44d2b584a3fb70ca9e56
@@ -111,22 +104,13 @@ GOOGLE_CALLBACK_URL=https://gateway.example.com/_ui/api/auth/google/callback
 
 You need a **Google OAuth Client ID** from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) with the redirect URI set to your callback URL above.
 
-### 2. Provision TLS certificates
-
-```bash
-chmod +x init-certs.sh
-./init-certs.sh
-```
-
-This obtains a Let's Encrypt certificate for your domain. Your domain must have DNS pointing to this server.
-
-### 3. Start with Docker Compose
+### 2. Start with Docker Compose
 
 ```bash
 docker compose up -d --build
 ```
 
-This starts four services: PostgreSQL, the Rust backend, nginx (TLS termination), and certbot (certificate renewal). The first build takes a few minutes.
+This starts three services: PostgreSQL, the Rust backend, and the Vite frontend. The first build takes a few minutes.
 
 Watch the logs:
 
