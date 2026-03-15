@@ -96,6 +96,27 @@ pub struct ConfigChange {
     pub source: String,
 }
 
+/// Summary of usage records grouped by a key (day, model, or provider).
+#[derive(Debug, serde::Serialize)]
+pub struct UsageSummary {
+    pub group_key: String,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub total_cost: f64,
+    pub request_count: i64,
+}
+
+/// Summary of usage records grouped by user.
+#[derive(Debug, serde::Serialize)]
+pub struct UserUsageSummary {
+    pub user_id: uuid::Uuid,
+    pub email: String,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub total_cost: f64,
+    pub request_count: i64,
+}
+
 /// PostgreSQL-backed configuration persistence.
 pub struct ConfigDb {
     pool: PgPool,
@@ -339,6 +360,17 @@ impl ConfigDb {
 
         if max_version.unwrap_or(1) < 18 {
             self.migrate_to_v18().await?;
+        }
+
+        // Re-read max version after v18 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 19 {
+            self.migrate_to_v19().await?;
         }
 
         Ok(())
@@ -2721,6 +2753,67 @@ impl ConfigDb {
         Ok(())
     }
 
+    /// Version 19 migration: usage tracking table for token and cost analytics.
+    async fn migrate_to_v19(&self) -> Result<()> {
+        tracing::info!("Running database migration to version 19 (usage tracking)...");
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v19 migration transaction")?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS usage_records (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                provider_id TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                cost DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to create usage_records table")?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_usage_user_date ON usage_records(user_id, created_at)",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to create idx_usage_user_date index")?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_usage_provider_model_date ON usage_records(provider_id, model_id, created_at)",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to create idx_usage_provider_model_date index")?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_usage_date ON usage_records(created_at)",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to create idx_usage_date index")?;
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(19_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 19")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit v19 migration")?;
+
+        tracing::info!("Database migration to version 19 complete");
+        Ok(())
+    }
+
     // ── Model Registry ───────────────────────────────────────────
 
     /// Get all models in the registry.
@@ -3366,6 +3459,157 @@ impl ConfigDb {
     #[allow(dead_code)]
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    // ── Usage Tracking ───────────────────────────────────────────
+
+    /// Insert a usage record for tracking token and cost analytics.
+    pub async fn insert_usage_record(
+        &self,
+        user_id: Uuid,
+        provider_id: &str,
+        model_id: &str,
+        input_tokens: i32,
+        output_tokens: i32,
+        cost: f64,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO usage_records
+             (user_id, provider_id, model_id, input_tokens, output_tokens, cost)
+             VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(user_id)
+        .bind(provider_id)
+        .bind(model_id)
+        .bind(input_tokens)
+        .bind(output_tokens)
+        .bind(cost)
+        .execute(&self.pool)
+        .await
+        .context("Failed to insert usage record")?;
+
+        Ok(())
+    }
+
+    /// Get usage summary grouped by a specified dimension.
+    ///
+    /// # Arguments
+    /// * `user_id` - Optional user ID filter (None for all users)
+    /// * `start` - Start date string (e.g., "2024-01-01")
+    /// * `end` - End date string (e.g., "2024-12-31")
+    /// * `group_by` - Grouping dimension: "day", "model", or "provider"
+    pub async fn get_usage_summary(
+        &self,
+        user_id: Option<Uuid>,
+        start: &str,
+        end: &str,
+        group_by: &str,
+    ) -> Result<Vec<UsageSummary>> {
+        // Validate group_by to prevent SQL injection
+        let group_col = match group_by {
+            "day" => "DATE(created_at)",
+            "model" => "model_id",
+            "provider" => "provider_id",
+            _ => return Err(anyhow::anyhow!("Invalid group_by value: {}", group_by)),
+        };
+
+        let rows: Vec<(String, i64, i64, f64, i64)> = if let Some(uid) = user_id {
+            sqlx::query_as(&format!(
+                "SELECT {}::TEXT as group_key,
+                        SUM(input_tokens) as total_input_tokens,
+                        SUM(output_tokens) as total_output_tokens,
+                        SUM(cost) as total_cost,
+                        COUNT(*) as request_count
+                 FROM usage_records
+                 WHERE user_id = $1 AND DATE(created_at) BETWEEN $2 AND $3
+                 GROUP BY {}
+                 ORDER BY group_key",
+                group_col, group_col
+            ))
+            .bind(uid)
+            .bind(start)
+            .bind(end)
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to get usage summary for user")?
+        } else {
+            sqlx::query_as(&format!(
+                "SELECT {}::TEXT as group_key,
+                        SUM(input_tokens) as total_input_tokens,
+                        SUM(output_tokens) as total_output_tokens,
+                        SUM(cost) as total_cost,
+                        COUNT(*) as request_count
+                 FROM usage_records
+                 WHERE DATE(created_at) BETWEEN $1 AND $2
+                 GROUP BY {}
+                 ORDER BY group_key",
+                group_col, group_col
+            ))
+            .bind(start)
+            .bind(end)
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to get usage summary")?
+        };
+
+        Ok(rows
+            .into_iter()
+            .map(|(group_key, total_input_tokens, total_output_tokens, total_cost, request_count)| {
+                UsageSummary {
+                    group_key,
+                    total_input_tokens,
+                    total_output_tokens,
+                    total_cost,
+                    request_count,
+                }
+            })
+            .collect())
+    }
+
+    /// Get usage summary grouped by user (admin only).
+    ///
+    /// # Arguments
+    /// * `start` - Start date string (e.g., "2024-01-01")
+    /// * `end` - End date string (e.g., "2024-12-31")
+    pub async fn get_usage_by_users(
+        &self,
+        start: &str,
+        end: &str,
+    ) -> Result<Vec<UserUsageSummary>> {
+        let rows: Vec<(Uuid, String, i64, i64, f64, i64)> = sqlx::query_as(
+            "SELECT u.id as user_id,
+                    u.email,
+                    COALESCE(SUM(ur.input_tokens), 0) as total_input_tokens,
+                    COALESCE(SUM(ur.output_tokens), 0) as total_output_tokens,
+                    COALESCE(SUM(ur.cost), 0.0) as total_cost,
+                    COUNT(ur.id) as request_count
+             FROM users u
+             LEFT JOIN usage_records ur ON u.id = ur.user_id
+                 AND DATE(ur.created_at) BETWEEN $1 AND $2
+             GROUP BY u.id, u.email
+             ORDER BY total_cost DESC",
+        )
+        .bind(start)
+        .bind(end)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get usage by users")?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(user_id, email, total_input_tokens, total_output_tokens, total_cost, request_count)| {
+                    UserUsageSummary {
+                        user_id,
+                        email,
+                        total_input_tokens,
+                        total_output_tokens,
+                        total_cost,
+                        request_count,
+                    }
+                },
+            )
+            .collect())
     }
 }
 

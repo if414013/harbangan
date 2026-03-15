@@ -2,6 +2,7 @@ pub mod auth;
 pub mod cache;
 pub mod config;
 pub mod converters;
+pub mod cost;
 pub mod datadog;
 pub mod error;
 pub mod guardrails;

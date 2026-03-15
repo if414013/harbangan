@@ -160,6 +160,35 @@ pub(crate) async fn anthropic_messages_handler(
             }
         }
 
+        // ── Usage tracking (non-streaming only) ──────────────────────────
+        if let (Some(config_db), Some(user_creds)) = (
+            state.config_db.as_ref(),
+            user_creds.as_ref(),
+        ) {
+            if let Some(usage) = body.get("usage") {
+                // Anthropic uses "input_tokens" and "output_tokens"
+                let input_tokens = usage["input_tokens"].as_i64().unwrap_or(0) as i32;
+                let output_tokens = usage["output_tokens"].as_i64().unwrap_or(0) as i32;
+                let cost = crate::cost::calculate_cost(
+                    &request.model,
+                    input_tokens as i64,
+                    output_tokens as i64,
+                );
+                let db = config_db.clone();
+                let user_id = user_creds.user_id;
+                let provider = routing.provider_id.to_string();
+                let model = request.model.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = db
+                        .insert_usage_record(user_id, &provider, &model, input_tokens, output_tokens, cost)
+                        .await
+                    {
+                        tracing::warn!(error = ?e, "Failed to record usage");
+                    }
+                });
+            }
+        }
+
         DEBUG_LOGGER.discard_buffers().await;
         Ok(Json(body).into_response())
     }
