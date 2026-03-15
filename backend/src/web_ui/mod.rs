@@ -12,6 +12,7 @@ pub mod provider_priority;
 pub mod qwen_auth;
 pub mod routes;
 pub mod session;
+pub mod usage;
 pub mod user_kiro;
 pub mod users;
 
@@ -89,6 +90,8 @@ pub fn web_ui_routes(state: AppState) -> Router {
             "/models/registry",
             model_registry_handlers::model_registry_routes(),
         )
+        // Usage tracking (session-authenticated, own usage only)
+        .route("/usage", get(usage::get_usage))
         // Google account linking (session-authenticated)
         .route("/auth/google/link", get(google_auth::google_link_redirect))
         // Password auth: 2FA setup/verify, password change (session-authenticated)
@@ -114,6 +117,9 @@ pub fn web_ui_routes(state: AppState) -> Router {
         .merge(config_api::domain_routes())
         .merge(config_api::user_routes())
         .merge(crate::guardrails::api::guardrails_routes())
+        // Usage tracking (admin only - global stats)
+        .route("/admin/usage", get(usage::get_admin_usage))
+        .route("/admin/usage/users", get(usage::get_admin_usage_by_users))
         // Admin password auth: create users, reset passwords
         .route(
             "/admin/users/create",

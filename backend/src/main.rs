@@ -6,6 +6,7 @@ mod auth;
 mod cache;
 mod config;
 mod converters;
+mod cost;
 mod datadog;
 mod error;
 mod guardrails;
