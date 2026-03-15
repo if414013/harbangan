@@ -179,10 +179,8 @@ pub(crate) async fn chat_completions_handler(
         }
 
         // ── Usage tracking (non-streaming only) ──────────────────────────
-        if let (Some(config_db), Some(user_creds)) = (
-            state.config_db.as_ref(),
-            user_creds.as_ref(),
-        ) {
+        if let (Some(config_db), Some(user_creds)) = (state.config_db.as_ref(), user_creds.as_ref())
+        {
             if let Some(usage) = body.get("usage") {
                 let input_tokens = usage["prompt_tokens"].as_i64().unwrap_or(0) as i32;
                 let output_tokens = usage["completion_tokens"].as_i64().unwrap_or(0) as i32;
@@ -197,7 +195,14 @@ pub(crate) async fn chat_completions_handler(
                 let model = request.model.clone();
                 tokio::spawn(async move {
                     if let Err(e) = db
-                        .insert_usage_record(user_id, &provider, &model, input_tokens, output_tokens, cost)
+                        .insert_usage_record(
+                            user_id,
+                            &provider,
+                            &model,
+                            input_tokens,
+                            output_tokens,
+                            cost,
+                        )
                         .await
                     {
                         tracing::warn!(error = ?e, "Failed to record usage");

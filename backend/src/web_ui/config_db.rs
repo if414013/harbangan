@@ -2793,12 +2793,10 @@ impl ConfigDb {
         .await
         .context("Failed to create idx_usage_provider_model_date index")?;
 
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_usage_date ON usage_records(created_at)",
-        )
-        .execute(&mut *tx)
-        .await
-        .context("Failed to create idx_usage_date index")?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_usage_date ON usage_records(created_at)")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to create idx_usage_date index")?;
 
         sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
             .bind(19_i32)
@@ -3554,15 +3552,23 @@ impl ConfigDb {
 
         Ok(rows
             .into_iter()
-            .map(|(group_key, total_input_tokens, total_output_tokens, total_cost, request_count)| {
-                UsageSummary {
+            .map(
+                |(
                     group_key,
                     total_input_tokens,
                     total_output_tokens,
                     total_cost,
                     request_count,
-                }
-            })
+                )| {
+                    UsageSummary {
+                        group_key,
+                        total_input_tokens,
+                        total_output_tokens,
+                        total_cost,
+                        request_count,
+                    }
+                },
+            )
             .collect())
     }
 
@@ -3598,7 +3604,14 @@ impl ConfigDb {
         Ok(rows
             .into_iter()
             .map(
-                |(user_id, email, total_input_tokens, total_output_tokens, total_cost, request_count)| {
+                |(
+                    user_id,
+                    email,
+                    total_input_tokens,
+                    total_output_tokens,
+                    total_cost,
+                    request_count,
+                )| {
                     UserUsageSummary {
                         user_id,
                         email,
