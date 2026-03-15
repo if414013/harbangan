@@ -54,9 +54,9 @@ pub async fn get_usage(
         .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("Database not available")))?;
 
     // Set default date range if not provided
-    let end_date = query.end_date.unwrap_or_else(|| {
-        Utc::now().format("%Y-%m-%d").to_string()
-    });
+    let end_date = query
+        .end_date
+        .unwrap_or_else(|| Utc::now().format("%Y-%m-%d").to_string());
     let start_date = query.start_date.unwrap_or_else(|| {
         (Utc::now() - Duration::days(30))
             .format("%Y-%m-%d")
@@ -93,9 +93,9 @@ pub async fn get_admin_usage(
         .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("Database not available")))?;
 
     // Set default date range if not provided
-    let end_date = query.end_date.unwrap_or_else(|| {
-        Utc::now().format("%Y-%m-%d").to_string()
-    });
+    let end_date = query
+        .end_date
+        .unwrap_or_else(|| Utc::now().format("%Y-%m-%d").to_string());
     let start_date = query.start_date.unwrap_or_else(|| {
         (Utc::now() - Duration::days(30))
             .format("%Y-%m-%d")
@@ -132,9 +132,9 @@ pub async fn get_admin_usage_by_users(
         .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("Database not available")))?;
 
     // Set default date range if not provided
-    let end_date = query.end_date.unwrap_or_else(|| {
-        Utc::now().format("%Y-%m-%d").to_string()
-    });
+    let end_date = query
+        .end_date
+        .unwrap_or_else(|| Utc::now().format("%Y-%m-%d").to_string());
     let start_date = query.start_date.unwrap_or_else(|| {
         (Utc::now() - Duration::days(30))
             .format("%Y-%m-%d")
