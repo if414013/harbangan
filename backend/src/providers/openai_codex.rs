@@ -5,7 +5,6 @@
 use std::pin::Pin;
 
 use async_trait::async_trait;
-use bytes::Bytes;
 use futures::stream::{Stream, StreamExt};
 use serde_json::{json, Value};
 
@@ -194,14 +193,8 @@ impl Provider for OpenAICodexProvider {
         let body = Self::anthropic_to_openai_body(req);
         let response = self.send_request(ctx, body, true).await?;
         let byte_stream = response.bytes_stream();
-        let sse = parse_sse_stream(byte_stream).map(|item| match item {
-            Ok(v) => {
-                let line = format!("data: {}\n\n", v);
-                Ok(Bytes::from(line))
-            }
-            Err(e) => Err(e),
-        });
-        Ok(Box::pin(sse))
+        let sse_values = parse_sse_stream(byte_stream);
+        Ok(crate::streaming::cross_format::wrap_openai_stream_as_anthropic(sse_values, &req.model))
     }
 
     /// OpenAI responses need conversion when served through the Anthropic endpoint.

@@ -5,7 +5,6 @@
 use std::pin::Pin;
 
 use async_trait::async_trait;
-use bytes::Bytes;
 use futures::stream::{Stream, StreamExt};
 use serde_json::{json, Value};
 
@@ -160,14 +159,8 @@ impl Provider for AnthropicProvider {
         let body = Self::openai_to_anthropic_body(req);
         let response = self.send_request(ctx, body, true).await?;
         let byte_stream = response.bytes_stream();
-        let sse = parse_sse_stream(byte_stream).map(|item| match item {
-            Ok(v) => {
-                let line = format!("data: {}\n\n", v);
-                Ok(Bytes::from(line))
-            }
-            Err(e) => Err(e),
-        });
-        Ok(Box::pin(sse))
+        let sse_values = parse_sse_stream(byte_stream);
+        Ok(crate::streaming::cross_format::wrap_anthropic_stream_as_openai(sse_values, &req.model))
     }
 
     async fn execute_anthropic(

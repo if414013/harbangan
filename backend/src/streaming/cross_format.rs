@@ -3,10 +3,15 @@
 // Translates SSE events between OpenAI and Anthropic streaming formats.
 // Used when a client hits one endpoint format but the provider returns another.
 
-#![allow(dead_code)]
+use std::pin::Pin;
 
+use bytes::Bytes;
+use futures::stream::{Stream, StreamExt};
 use serde_json::{json, Value};
 use uuid::Uuid;
+
+use crate::error::ApiError;
+use crate::providers::types::ProviderStreamItem;
 
 use crate::models::anthropic::{Delta, MessageDeltaUsage, StreamEvent};
 use crate::models::openai::{
@@ -383,6 +388,103 @@ impl AnthropicToOpenAIState {
             system_fingerprint: None,
         }
     }
+}
+
+// ==================================================================================================
+// Stream wrapping helpers
+// ==================================================================================================
+
+/// Wrap a parsed SSE stream of Anthropic JSON events, translating each into OpenAI SSE chunks.
+///
+/// Used when the client hits `/v1/chat/completions` (OpenAI endpoint) but the provider
+/// returns Anthropic-format streaming events.
+pub fn wrap_anthropic_stream_as_openai<S>(
+    sse_values: S,
+    model: &str,
+) -> Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>
+where
+    S: Stream<Item = Result<Value, ApiError>> + Send + 'static,
+{
+    let model = model.to_string();
+    let stream = async_stream::stream! {
+        let mut translator = AnthropicToOpenAIState::new(&model);
+        futures::pin_mut!(sse_values);
+
+        while let Some(item) = sse_values.next().await {
+            match item {
+                Ok(json) => {
+                    // Parse the JSON value into a StreamEvent
+                    if let Ok(event) = serde_json::from_value::<StreamEvent>(json) {
+                        if let Some(chunk) = translator.translate_event(&event) {
+                            match serde_json::to_string(&chunk) {
+                                Ok(s) => yield Ok(Bytes::from(format!("data: {}\n\n", s))),
+                                Err(e) => {
+                                    tracing::warn!(error = %e, "Failed to serialize OpenAI chunk");
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    yield Err(e);
+                    return;
+                }
+            }
+        }
+
+        // Emit [DONE] sentinel
+        yield Ok(Bytes::from("data: [DONE]\n\n"));
+    };
+    Box::pin(stream)
+}
+
+/// Wrap a parsed SSE stream of OpenAI JSON chunks, translating each into Anthropic SSE events.
+///
+/// Used when the client hits `/v1/messages` (Anthropic endpoint) but the provider
+/// returns OpenAI-format streaming chunks.
+pub fn wrap_openai_stream_as_anthropic<S>(
+    sse_values: S,
+    model: &str,
+) -> Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>
+where
+    S: Stream<Item = Result<Value, ApiError>> + Send + 'static,
+{
+    let model = model.to_string();
+    let stream = async_stream::stream! {
+        let mut translator = OpenAIToAnthropicState::new(&model);
+        futures::pin_mut!(sse_values);
+
+        while let Some(item) = sse_values.next().await {
+            match item {
+                Ok(json) => {
+                    if let Ok(chunk) = serde_json::from_value::<ChatCompletionChunk>(json) {
+                        let events = translator.translate_chunk(&chunk);
+                        for event in events {
+                            match serde_json::to_value(&event) {
+                                Ok(v) => {
+                                    let event_type = v.get("type")
+                                        .and_then(|t| t.as_str())
+                                        .unwrap_or("unknown");
+                                    yield Ok(Bytes::from(format!(
+                                        "event: {}\ndata: {}\n\n",
+                                        event_type, v
+                                    )));
+                                }
+                                Err(e) => {
+                                    tracing::warn!(error = %e, "Failed to serialize Anthropic event");
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    yield Err(e);
+                    return;
+                }
+            }
+        }
+    };
+    Box::pin(stream)
 }
 
 #[cfg(test)]
