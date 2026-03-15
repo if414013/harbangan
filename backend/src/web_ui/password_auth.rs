@@ -26,23 +26,34 @@ const MAX_LOGIN_ATTEMPTS: u32 = 5;
 /// Lockout window in seconds (15 minutes).
 const LOCKOUT_WINDOW_SECS: u64 = 900;
 
-/// Hash a plaintext password using Argon2id.
-pub fn hash_password(password: &str) -> anyhow::Result<String> {
-    let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
-    let hash = argon2
-        .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| anyhow::anyhow!("Failed to hash password: {}", e))?;
-    Ok(hash.to_string())
+/// Hash a plaintext password using Argon2id (CPU-intensive, runs on blocking threadpool).
+pub async fn hash_password(password: &str) -> anyhow::Result<String> {
+    let password = password.to_string();
+    tokio::task::spawn_blocking(move || {
+        let salt = SaltString::generate(&mut OsRng);
+        let argon2 = Argon2::default();
+        let hash = argon2
+            .hash_password(password.as_bytes(), &salt)
+            .map_err(|e| anyhow::anyhow!("Failed to hash password: {}", e))?;
+        Ok(hash.to_string())
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Blocking task failed: {}", e))?
 }
 
-/// Verify a plaintext password against an Argon2id hash.
-pub fn verify_password(password: &str, hash: &str) -> anyhow::Result<bool> {
-    let parsed =
-        PasswordHash::new(hash).map_err(|e| anyhow::anyhow!("Invalid password hash: {}", e))?;
-    Ok(Argon2::default()
-        .verify_password(password.as_bytes(), &parsed)
-        .is_ok())
+/// Verify a plaintext password against an Argon2id hash (CPU-intensive, runs on blocking threadpool).
+pub async fn verify_password(password: &str, hash: &str) -> anyhow::Result<bool> {
+    let password = password.to_string();
+    let hash = hash.to_string();
+    tokio::task::spawn_blocking(move || {
+        let parsed = PasswordHash::new(&hash)
+            .map_err(|e| anyhow::anyhow!("Invalid password hash: {}", e))?;
+        Ok(Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok())
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Blocking task failed: {}", e))?
 }
 
 /// Generate a SHA-256 hash of a recovery code for storage.
@@ -253,7 +264,9 @@ pub async fn login_handler(
     let _ = auth_method;
 
     // Verify password
-    let valid = verify_password(&payload.password, &stored_hash).map_err(ApiError::Internal)?;
+    let valid = verify_password(&payload.password, &stored_hash)
+        .await
+        .map_err(ApiError::Internal)?;
 
     if !valid {
         record_login_failure(&state, &payload.email);
@@ -556,7 +569,9 @@ pub async fn change_password_handler(
 
     if let Some(ref hash) = stored_hash {
         // Existing user with password — verify current password
-        let valid = verify_password(&payload.current_password, hash).map_err(ApiError::Internal)?;
+        let valid = verify_password(&payload.current_password, hash)
+            .await
+            .map_err(ApiError::Internal)?;
         if !valid {
             return Err(ApiError::InvalidCredentials);
         }
@@ -564,7 +579,9 @@ pub async fn change_password_handler(
     // else: SSO user setting initial password — no verification needed
 
     // Hash new password
-    let new_hash = hash_password(&payload.new_password).map_err(ApiError::Internal)?;
+    let new_hash = hash_password(&payload.new_password)
+        .await
+        .map_err(ApiError::Internal)?;
 
     // Update in DB (also sets auth_method='password' for SSO users setting first password)
     db.update_password_with_auth_method(session.user_id, &new_hash)
@@ -614,7 +631,9 @@ pub async fn admin_create_user_handler(
     }
 
     // Hash password
-    let password_hash = hash_password(&payload.password).map_err(ApiError::Internal)?;
+    let password_hash = hash_password(&payload.password)
+        .await
+        .map_err(ApiError::Internal)?;
 
     // Create user
     let user_id = db
@@ -665,7 +684,9 @@ pub async fn admin_reset_password_handler(
     let db = state.require_config_db()?;
 
     // Hash new password
-    let password_hash = hash_password(&payload.new_password).map_err(ApiError::Internal)?;
+    let password_hash = hash_password(&payload.new_password)
+        .await
+        .map_err(ApiError::Internal)?;
 
     // Update password and set must_change_password=true
     sqlx::query("UPDATE users SET password_hash = $1, must_change_password = true WHERE id = $2")
@@ -696,24 +717,24 @@ pub async fn admin_reset_password_handler(
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_hash_and_verify_password() {
+    #[tokio::test]
+    async fn test_hash_and_verify_password() {
         let password = "test_password_123!";
-        let hash = hash_password(password).unwrap();
-        assert!(verify_password(password, &hash).unwrap());
-        assert!(!verify_password("wrong_password", &hash).unwrap());
+        let hash = hash_password(password).await.unwrap();
+        assert!(verify_password(password, &hash).await.unwrap());
+        assert!(!verify_password("wrong_password", &hash).await.unwrap());
     }
 
-    #[test]
-    fn test_hash_password_produces_different_hashes() {
+    #[tokio::test]
+    async fn test_hash_password_produces_different_hashes() {
         let password = "same_password";
-        let hash1 = hash_password(password).unwrap();
-        let hash2 = hash_password(password).unwrap();
+        let hash1 = hash_password(password).await.unwrap();
+        let hash2 = hash_password(password).await.unwrap();
         // Different salts should produce different hashes
         assert_ne!(hash1, hash2);
         // Both should verify correctly
-        assert!(verify_password(password, &hash1).unwrap());
-        assert!(verify_password(password, &hash2).unwrap());
+        assert!(verify_password(password, &hash1).await.unwrap());
+        assert!(verify_password(password, &hash2).await.unwrap());
     }
 
     #[test]
@@ -740,9 +761,9 @@ mod tests {
         assert_ne!(hash, hash_recovery_code("different"));
     }
 
-    #[test]
-    fn test_verify_password_invalid_hash() {
-        let result = verify_password("password", "not-a-valid-hash");
+    #[tokio::test]
+    async fn test_verify_password_invalid_hash() {
+        let result = verify_password("password", "not-a-valid-hash").await;
         assert!(result.is_err());
     }
 }

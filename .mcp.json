@@ -4,14 +4,6 @@
       "command": "npx",
       "args": ["-y", "mcp-deepwiki@latest"]
     },
-    "datadog": {
-      "type": "http",
-      "url": "https://mcp.datadoghq.com/api/unstable/mcp-server/mcp",
-      "headers": {
-        "DD_API_KEY": "<your-dd-api-key>",
-        "DD_APPLICATION_KEY": "<your-dd-app-key>"
-      }
-    },
     "playwright": {
       "command": "npx",
       "args": [

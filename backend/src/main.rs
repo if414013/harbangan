@@ -99,7 +99,7 @@ async fn main() -> Result<()> {
             let initial_email = std::env::var("INITIAL_ADMIN_EMAIL").ok();
             let initial_password = std::env::var("INITIAL_ADMIN_PASSWORD").ok();
             if let (Some(email), Some(password)) = (initial_email, initial_password) {
-                match web_ui::password_auth::hash_password(&password) {
+                match web_ui::password_auth::hash_password(&password).await {
                     Ok(password_hash) => {
                         match db
                             .create_password_user(&email, &email, &password_hash, "admin")

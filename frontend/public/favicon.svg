@@ -1,6 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <rect width="32" height="32" rx="6" fill="#101014"/>
-  <path d="M16 6L6 11.5l10 5.5 10-5.5L16 6z" fill="none" stroke="#e8a230" stroke-width="2" stroke-linejoin="round"/>
-  <path d="M6 20.5l10 5.5 10-5.5" fill="none" stroke="#e8a230" stroke-width="2" stroke-linejoin="round"/>
-  <path d="M6 16l10 5.5 10-5.5" fill="none" stroke="#e8a230" stroke-width="2" stroke-linejoin="round" opacity="0.6"/>
+  <g stroke="#4ade80" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Left pillar -->
+    <line x1="10" y1="7" x2="10" y2="25"/>
+    <!-- Right pillar -->
+    <line x1="22" y1="7" x2="22" y2="25"/>
+    <!-- Cross bar -->
+    <line x1="10" y1="16" x2="22" y2="16"/>
+    <!-- Top serifs -->
+    <line x1="7" y1="7" x2="13" y2="7"/>
+    <line x1="19" y1="7" x2="25" y2="7"/>
+    <!-- Bottom serifs -->
+    <line x1="7" y1="25" x2="13" y2="25"/>
+    <line x1="19" y1="25" x2="25" y2="25"/>
+  </g>
+  <!-- Center diamond accent -->
+  <rect x="14.5" y="14.5" width="3" height="3" transform="rotate(45 16 16)" fill="#4ade80"/>
 </svg>
