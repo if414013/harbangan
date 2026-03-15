@@ -1,4 +1,5 @@
 /// Convert Anthropic AnthropicMessagesRequest to OpenAI ChatCompletionRequest.
+use crate::converters::core::map_tool_choice_anthropic_to_openai;
 use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::{ChatCompletionRequest, ChatMessage};
 
@@ -10,6 +11,9 @@ use crate::models::openai::{ChatCompletionRequest, ChatMessage};
 /// - `max_tokens` → `max_tokens`
 /// - `temperature`, `top_p` are passed through when present
 /// - `stop_sequences` → `stop` (as a JSON array)
+/// - `tool_choice` is mapped: {"type":"auto"} → "auto", {"type":"any"} → "required", etc.
+/// - `disable_parallel_tool_use: true` → `parallel_tool_calls: false`
+/// - `thinking` config → `reasoning_effort` (based on budget_tokens)
 #[allow(dead_code)]
 pub fn anthropic_to_openai(req: &AnthropicMessagesRequest) -> ChatCompletionRequest {
     let mut messages: Vec<ChatMessage> = Vec::new();
@@ -59,6 +63,26 @@ pub fn anthropic_to_openai(req: &AnthropicMessagesRequest) -> ChatCompletionRequ
         )
     });
 
+    // Map tool_choice and disable_parallel_tool_use
+    let (tool_choice, parallel_tool_calls) =
+        map_tool_choice_anthropic_to_openai(&req.tool_choice, req.disable_parallel_tool_use);
+
+    // Map thinking config to reasoning_effort
+    let reasoning_effort = req.thinking.as_ref().and_then(|thinking| {
+        let obj = thinking.as_object()?;
+        obj.get("budget_tokens")
+            .and_then(|v| v.as_i64())
+            .map(|budget| {
+                if budget <= 1000 {
+                    "low".to_string()
+                } else if budget <= 2000 {
+                    "medium".to_string()
+                } else {
+                    "high".to_string()
+                }
+            })
+    });
+
     ChatCompletionRequest {
         model: req.model.clone(),
         messages,
@@ -72,14 +96,16 @@ pub fn anthropic_to_openai(req: &AnthropicMessagesRequest) -> ChatCompletionRequ
         presence_penalty: None,
         frequency_penalty: None,
         tools: None,
-        tool_choice: None,
+        tool_choice,
         stream_options: None,
         logit_bias: None,
         logprobs: None,
         top_logprobs: None,
         user: None,
         seed: None,
-        parallel_tool_calls: None,
+        parallel_tool_calls,
+        reasoning_effort,
+        response_format: None,
     }
 }
 
@@ -101,8 +127,10 @@ mod tests {
             temperature: None,
             top_p: None,
             top_k: None,
+            thinking: None,
             stop_sequences: None,
             metadata: None,
+            disable_parallel_tool_use: None,
         }
     }
 

@@ -491,6 +491,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let body = QwenProvider::anthropic_to_openai_body(&req);
@@ -518,6 +520,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let body = QwenProvider::anthropic_to_openai_body(&req);
@@ -547,6 +551,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let body = QwenProvider::anthropic_to_openai_body(&req);
@@ -753,6 +759,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let body = QwenProvider::anthropic_to_openai_body(&req);
@@ -782,6 +790,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let body = QwenProvider::anthropic_to_openai_body(&req);
@@ -810,6 +820,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let body = QwenProvider::anthropic_to_openai_body(&req);
@@ -835,6 +847,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let body = QwenProvider::anthropic_to_openai_body(&req);
@@ -866,6 +880,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let body = QwenProvider::anthropic_to_openai_body(&req);
@@ -893,6 +909,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let body = QwenProvider::anthropic_to_openai_body(&req);
@@ -914,6 +932,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let body = QwenProvider::anthropic_to_openai_body(&req);

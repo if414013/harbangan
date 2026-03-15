@@ -138,11 +138,17 @@ pub struct AnthropicMessagesRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_k: Option<i32>,
 
+    // Thinking/reasoning config
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<serde_json::Value>,
+
     // Other parameters
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_sequences: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_parallel_tool_use: Option<bool>,
 }
 
 // ==================================================================================================

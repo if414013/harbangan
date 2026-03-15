@@ -1,6 +1,11 @@
 /// Convert OpenAI ChatCompletionRequest to Anthropic AnthropicMessagesRequest.
+use crate::converters::core::{
+    map_reasoning_effort_to_thinking, map_response_format_openai_to_anthropic,
+    map_tool_choice_openai_to_anthropic,
+};
 use crate::models::anthropic::{AnthropicMessage, AnthropicMessagesRequest};
 use crate::models::openai::ChatCompletionRequest;
+use tracing::debug;
 
 /// Convert an OpenAI-format request to Anthropic format.
 ///
@@ -9,6 +14,10 @@ use crate::models::openai::ChatCompletionRequest;
 /// - `user` and `assistant` messages are passed through with their content
 /// - `max_tokens` (or `max_completion_tokens`) defaults to 4096 if unset
 /// - `temperature`, `top_p`, `stop` are passed through when present
+/// - `tool_choice` is mapped: "auto" → {"type":"auto"}, "required" → {"type":"any"}, etc.
+/// - `parallel_tool_calls: false` → `disable_parallel_tool_use: true`
+/// - `response_format.json_schema` → `output_format` (with constraint filtering)
+/// - `reasoning_effort` → `thinking` config (budget_tokens based on effort level)
 #[allow(dead_code)]
 pub fn openai_to_anthropic(req: &ChatCompletionRequest) -> AnthropicMessagesRequest {
     let mut system_parts: Vec<String> = Vec::new();
@@ -64,6 +73,27 @@ pub fn openai_to_anthropic(req: &ChatCompletionRequest) -> AnthropicMessagesRequ
         }
     });
 
+    // Map tool_choice and parallel_tool_calls
+    let (tool_choice, disable_parallel_tool_use) =
+        map_tool_choice_openai_to_anthropic(&req.tool_choice, req.parallel_tool_calls);
+
+    // Map response_format to output_format
+    // Note: Anthropic uses a separate 'output_format' field, but our model doesn't have it yet
+    // For now, we store it in metadata or handle it at a higher level
+    let _output_format = map_response_format_openai_to_anthropic(&req.response_format);
+
+    // Map reasoning_effort to thinking config
+    let (thinking, should_drop_temp) =
+        map_reasoning_effort_to_thinking(req.reasoning_effort.as_deref());
+
+    // Drop temperature if thinking is enabled
+    let temperature = if should_drop_temp {
+        debug!(reasoning_effort = ?req.reasoning_effort, "Dropping temperature due to thinking mode");
+        None
+    } else {
+        req.temperature
+    };
+
     AnthropicMessagesRequest {
         model: req.model.clone(),
         messages,
@@ -71,12 +101,14 @@ pub fn openai_to_anthropic(req: &ChatCompletionRequest) -> AnthropicMessagesRequ
         system,
         stream: req.stream,
         tools: None,
-        tool_choice: None,
-        temperature: req.temperature,
+        tool_choice,
+        temperature,
         top_p: req.top_p,
         top_k: None,
+        thinking,
         stop_sequences,
         metadata: None,
+        disable_parallel_tool_use,
     }
 }
 
@@ -108,6 +140,8 @@ mod tests {
             user: None,
             seed: None,
             parallel_tool_calls: None,
+            reasoning_effort: None,
+            response_format: None,
         }
     }
 

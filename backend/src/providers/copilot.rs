@@ -415,6 +415,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let body = CopilotProvider::anthropic_to_openai_body(&req);
@@ -442,6 +444,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let body = CopilotProvider::anthropic_to_openai_body(&req);
@@ -471,6 +475,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let body = CopilotProvider::anthropic_to_openai_body(&req);
@@ -530,6 +536,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
         let body = CopilotProvider::anthropic_to_openai_body(&req);
         assert!(body.get("max_tokens").is_none());
@@ -553,6 +561,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
         let body = CopilotProvider::anthropic_to_openai_body(&req);
         let temp = body["temperature"].as_f64().unwrap();
@@ -577,6 +587,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
         let body = CopilotProvider::anthropic_to_openai_body(&req);
         // Empty system string should not produce a system message
@@ -611,6 +623,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
         let body = CopilotProvider::anthropic_to_openai_body(&req);
         let msgs = body["messages"].as_array().unwrap();

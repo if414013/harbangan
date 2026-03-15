@@ -378,6 +378,21 @@ pub fn build_kiro_payload(
         system_prompt.len()
     );
 
+    // Log parameters that cannot be forwarded to Kiro API
+    if request.tool_choice.is_some() {
+        debug!(
+            "Anthropic tool_choice parameter present but not forwarded to Kiro API (unsupported)"
+        );
+    }
+    if request.thinking.is_some() {
+        debug!("Anthropic thinking parameter present but not forwarded to Kiro API (unsupported)");
+    }
+    if request.disable_parallel_tool_use.is_some() {
+        debug!(
+            "Anthropic disable_parallel_tool_use parameter present but not forwarded to Kiro API (unsupported)"
+        );
+    }
+
     // Use core function to build payload
     build_kiro_payload_core(
         unified_messages,

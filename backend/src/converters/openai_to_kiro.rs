@@ -319,6 +319,22 @@ pub fn build_kiro_payload(
         system_prompt.len()
     );
 
+    // Log parameters that cannot be forwarded to Kiro API
+    if request.tool_choice.is_some() {
+        debug!("OpenAI tool_choice parameter present but not forwarded to Kiro API (unsupported)");
+    }
+    if request.response_format.is_some() {
+        debug!(
+            "OpenAI response_format parameter present but not forwarded to Kiro API (unsupported)"
+        );
+    }
+    if request.reasoning_effort.is_some() {
+        debug!(
+            reasoning_effort = ?request.reasoning_effort,
+            "OpenAI reasoning_effort parameter present but not forwarded to Kiro API (unsupported)"
+        );
+    }
+
     // Build Kiro payload using core function
     build_kiro_payload_core(
         unified_messages,
@@ -809,6 +825,8 @@ mod tests {
             user: None,
             seed: None,
             parallel_tool_calls: None,
+            reasoning_effort: None,
+            response_format: None,
         };
 
         let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
@@ -866,6 +884,8 @@ mod tests {
             user: None,
             seed: None,
             parallel_tool_calls: None,
+            reasoning_effort: None,
+            response_format: None,
         };
 
         let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
@@ -923,6 +943,8 @@ mod tests {
             user: None,
             seed: None,
             parallel_tool_calls: None,
+            reasoning_effort: None,
+            response_format: None,
         };
 
         let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
@@ -962,6 +984,8 @@ mod tests {
             user: None,
             seed: None,
             parallel_tool_calls: None,
+            reasoning_effort: None,
+            response_format: None,
         };
 
         let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
@@ -1045,6 +1069,8 @@ mod tests {
             user: None,
             seed: None,
             parallel_tool_calls: None,
+            reasoning_effort: None,
+            response_format: None,
         };
 
         let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
@@ -1146,6 +1172,8 @@ mod tests {
             user: None,
             seed: None,
             parallel_tool_calls: None,
+            reasoning_effort: None,
+            response_format: None,
         };
 
         let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
@@ -1245,6 +1273,8 @@ mod tests {
             user: None,
             seed: None,
             parallel_tool_calls: None,
+            reasoning_effort: None,
+            response_format: None,
         };
 
         let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
@@ -1352,6 +1382,8 @@ mod tests {
             user: None,
             seed: None,
             parallel_tool_calls: None,
+            reasoning_effort: None,
+            response_format: None,
         };
 
         let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);

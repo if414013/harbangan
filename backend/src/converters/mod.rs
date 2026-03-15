@@ -43,6 +43,8 @@ mod tests {
             user: None,
             seed: None,
             parallel_tool_calls: None,
+            reasoning_effort: None,
+            response_format: None,
         }
     }
 
@@ -60,6 +62,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         }
     }
 

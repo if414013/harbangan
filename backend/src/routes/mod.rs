@@ -231,6 +231,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let raw_request = build_anthropic_request(&body, None);
@@ -275,6 +277,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
         };
 
         let raw_request =

@@ -333,6 +333,8 @@ mod tests {
             user: None,
             seed: None,
             parallel_tool_calls: None,
+            reasoning_effort: None,
+            response_format: None,
         };
 
         let body = AnthropicProvider::openai_to_anthropic_body(&req);
@@ -380,6 +382,8 @@ mod tests {
             user: None,
             seed: None,
             parallel_tool_calls: None,
+            reasoning_effort: None,
+            response_format: None,
         };
 
         let body = AnthropicProvider::openai_to_anthropic_body(&req);
@@ -418,6 +422,8 @@ mod tests {
             user: None,
             seed: None,
             parallel_tool_calls: None,
+            reasoning_effort: None,
+            response_format: None,
         };
 
         let body = AnthropicProvider::openai_to_anthropic_body(&req);

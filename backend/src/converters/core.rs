@@ -1098,6 +1098,168 @@ pub fn synthetic_user_input(model_id: &str) -> Value {
     })
 }
 
+// ==================================================================================================
+// Parameter mapping helpers (cross-provider conversion)
+// ==================================================================================================
+
+/// Converts OpenAI tool_choice + parallel_tool_calls to Anthropic equivalents.
+///
+/// OpenAI tool_choice values:
+///   "auto" → {"type":"auto"}
+///   "none" → None (Anthropic has no equivalent; drop it)
+///   "required" → {"type":"any"}
+///   {"type":"function","function":{"name":"X"}} → {"type":"tool","name":"X"}
+///
+/// parallel_tool_calls: false → disable_parallel_tool_use: Some(true)
+/// parallel_tool_calls: true  → disable_parallel_tool_use: Some(false)
+/// parallel_tool_calls: None  → disable_parallel_tool_use: None
+pub fn map_tool_choice_openai_to_anthropic(
+    tool_choice: &Option<Value>,
+    parallel_tool_calls: Option<bool>,
+) -> (Option<Value>, Option<bool>) {
+    let anthropic_choice = tool_choice.as_ref().and_then(|tc| {
+        if let Some(s) = tc.as_str() {
+            match s {
+                "auto" => Some(json!({"type": "auto"})),
+                "none" => None,
+                "required" => Some(json!({"type": "any"})),
+                _ => Some(json!({"type": "auto"})),
+            }
+        } else if let Some(obj) = tc.as_object() {
+            // {"type":"function","function":{"name":"X"}} → {"type":"tool","name":"X"}
+            if obj.get("type").and_then(|t| t.as_str()) == Some("function") {
+                let name = obj
+                    .get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("unknown");
+                Some(json!({"type": "tool", "name": name}))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    });
+
+    let disable_parallel = parallel_tool_calls.map(|p| !p);
+
+    (anthropic_choice, disable_parallel)
+}
+
+/// Converts Anthropic tool_choice + disable_parallel_tool_use to OpenAI equivalents.
+///
+/// Anthropic tool_choice values:
+///   {"type":"auto"} → "auto"
+///   {"type":"any"}  → "required"
+///   {"type":"tool","name":"X"} → {"type":"function","function":{"name":"X"}}
+///
+/// disable_parallel_tool_use: true  → parallel_tool_calls: Some(false)
+/// disable_parallel_tool_use: false → parallel_tool_calls: Some(true)
+/// disable_parallel_tool_use: None  → parallel_tool_calls: None
+pub fn map_tool_choice_anthropic_to_openai(
+    tool_choice: &Option<Value>,
+    disable_parallel: Option<bool>,
+) -> (Option<Value>, Option<bool>) {
+    let openai_choice = tool_choice.as_ref().and_then(|tc| {
+        let obj = tc.as_object()?;
+        let tc_type = obj.get("type")?.as_str()?;
+        match tc_type {
+            "auto" => Some(json!("auto")),
+            "any" => Some(json!("required")),
+            "tool" => {
+                let name = obj
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("unknown");
+                Some(json!({"type": "function", "function": {"name": name}}))
+            }
+            _ => None,
+        }
+    });
+
+    let parallel = disable_parallel.map(|d| !d);
+
+    (openai_choice, parallel)
+}
+
+/// Converts OpenAI response_format (json_schema) to Anthropic output_format.
+///
+/// Extracts the json_schema object, filters out `additionalProperties` (unsupported
+/// by Anthropic), and adds a description noting the filtered constraint.
+pub fn map_response_format_openai_to_anthropic(response_format: &Option<Value>) -> Option<Value> {
+    let rf = response_format.as_ref()?;
+    let json_schema = rf.get("json_schema")?;
+
+    let name = json_schema
+        .get("name")
+        .cloned()
+        .unwrap_or(json!("json_output"));
+    let schema = json_schema.get("schema")?;
+
+    let mut filtered_schema = schema.clone();
+    let had_additional_properties = filtered_schema
+        .as_object_mut()
+        .map(|obj| obj.remove("additionalProperties").is_some())
+        .unwrap_or(false);
+
+    if had_additional_properties {
+        if let Some(obj) = filtered_schema.as_object_mut() {
+            obj.insert(
+                "description".to_string(),
+                json!(
+                    "Note: additionalProperties constraint was removed (unsupported by Anthropic)"
+                ),
+            );
+        }
+    }
+
+    let mut result = serde_json::Map::new();
+    result.insert("name".to_string(), name);
+    result.insert("schema".to_string(), filtered_schema);
+    Some(Value::Object(result))
+}
+
+/// Converts Anthropic output_format back to OpenAI response_format (json_schema).
+#[allow(dead_code)] // Will be wired in anthropic_to_openai.rs converter
+pub fn map_response_format_anthropic_to_openai(output_format: &Option<Value>) -> Option<Value> {
+    let of = output_format.as_ref()?;
+    let obj = of.as_object()?;
+
+    let name = obj.get("name").cloned().unwrap_or(json!("json_output"));
+    let schema = obj.get("schema")?.clone();
+
+    Some(json!({
+        "name": name,
+        "schema": schema,
+    }))
+}
+
+/// Maps OpenAI reasoning_effort to Anthropic thinking configuration.
+///
+/// Returns (thinking_config, should_drop_temperature):
+///   "low"    → ({"type":"enabled","budget_tokens":1000}, true)
+///   "medium" → ({"type":"enabled","budget_tokens":2000}, true)
+///   "high"   → ({"type":"enabled","budget_tokens":4000}, true)
+///   None     → (None, false)
+///   unknown  → defaults to medium
+pub fn map_reasoning_effort_to_thinking(effort: Option<&str>) -> (Option<Value>, bool) {
+    match effort {
+        None => (None, false),
+        Some(level) => {
+            let budget = match level {
+                "low" => 1000,
+                "high" => 4000,
+                _ => 2000, // "medium" and unknown default to medium
+            };
+            (
+                Some(json!({"type": "enabled", "budget_tokens": budget})),
+                true,
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1824,5 +1986,182 @@ mod tests {
                 i
             );
         }
+    }
+
+    // ==================================================================================================
+    // Parameter mapping helper tests (GAP-001, GAP-003, GAP-004)
+    // ==================================================================================================
+
+    #[test]
+    fn test_map_tool_choice_openai_to_anthropic_auto() {
+        let (choice, disable_parallel) =
+            map_tool_choice_openai_to_anthropic(&Some(json!("auto")), None);
+        assert_eq!(choice, Some(json!({"type": "auto"})));
+        assert_eq!(disable_parallel, None);
+    }
+
+    #[test]
+    fn test_map_tool_choice_openai_to_anthropic_none() {
+        let (choice, _) = map_tool_choice_openai_to_anthropic(&Some(json!("none")), None);
+        assert_eq!(choice, None);
+    }
+
+    #[test]
+    fn test_map_tool_choice_openai_to_anthropic_required() {
+        let (choice, _) = map_tool_choice_openai_to_anthropic(&Some(json!("required")), None);
+        assert_eq!(choice, Some(json!({"type": "any"})));
+    }
+
+    #[test]
+    fn test_map_tool_choice_openai_to_anthropic_function() {
+        let (choice, _) = map_tool_choice_openai_to_anthropic(
+            &Some(json!({"type": "function", "function": {"name": "get_weather"}})),
+            None,
+        );
+        assert_eq!(choice, Some(json!({"type": "tool", "name": "get_weather"})));
+    }
+
+    #[test]
+    fn test_map_tool_choice_openai_to_anthropic_parallel_false() {
+        let (_, disable_parallel) = map_tool_choice_openai_to_anthropic(&None, Some(false));
+        assert_eq!(disable_parallel, Some(true));
+    }
+
+    #[test]
+    fn test_map_tool_choice_openai_to_anthropic_parallel_true() {
+        let (_, disable_parallel) = map_tool_choice_openai_to_anthropic(&None, Some(true));
+        assert_eq!(disable_parallel, Some(false));
+    }
+
+    #[test]
+    fn test_map_tool_choice_anthropic_to_openai_auto() {
+        let (choice, _) = map_tool_choice_anthropic_to_openai(&Some(json!({"type": "auto"})), None);
+        assert_eq!(choice, Some(json!("auto")));
+    }
+
+    #[test]
+    fn test_map_tool_choice_anthropic_to_openai_any() {
+        let (choice, _) = map_tool_choice_anthropic_to_openai(&Some(json!({"type": "any"})), None);
+        assert_eq!(choice, Some(json!("required")));
+    }
+
+    #[test]
+    fn test_map_tool_choice_anthropic_to_openai_tool() {
+        let (choice, _) = map_tool_choice_anthropic_to_openai(
+            &Some(json!({"type": "tool", "name": "get_weather"})),
+            None,
+        );
+        assert_eq!(
+            choice,
+            Some(json!({"type": "function", "function": {"name": "get_weather"}}))
+        );
+    }
+
+    #[test]
+    fn test_map_tool_choice_anthropic_to_openai_disable_parallel() {
+        let (_, parallel) = map_tool_choice_anthropic_to_openai(&None, Some(true));
+        assert_eq!(parallel, Some(false));
+    }
+
+    #[test]
+    fn test_map_response_format_openai_to_anthropic_json_schema() {
+        let result = map_response_format_openai_to_anthropic(&Some(json!({
+            "json_schema": {
+                "name": "weather_response",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "temperature": {"type": "number"}
+                    }
+                }
+            }
+        })));
+        let result = result.expect("Should have output_format");
+        let obj = result.as_object().unwrap();
+        assert_eq!(obj.get("name").unwrap(), "weather_response");
+        assert!(obj.get("schema").is_some());
+    }
+
+    #[test]
+    fn test_map_response_format_openai_to_anthropic_filters_additional_properties() {
+        let result = map_response_format_openai_to_anthropic(&Some(json!({
+            "json_schema": {
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "temp": {"type": "number"}
+                    }
+                }
+            }
+        })));
+        let result = result.expect("Should have output_format");
+        let obj = result.as_object().unwrap();
+        let schema = obj.get("schema").unwrap();
+        // additionalProperties should be filtered out
+        assert!(schema.get("additionalProperties").is_none());
+        // Should have description mentioning the filtered constraint
+        let desc = schema.get("description").unwrap().as_str().unwrap();
+        assert!(desc.contains("additionalProperties"));
+    }
+
+    #[test]
+    fn test_map_response_format_anthropic_to_openai() {
+        let result = map_response_format_anthropic_to_openai(&Some(json!({
+            "name": "weather_response",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "temperature": {"type": "number"}
+                }
+            }
+        })));
+        let result = result.expect("Should have json_schema");
+        let obj = result.as_object().unwrap();
+        assert_eq!(obj.get("name").unwrap(), "weather_response");
+        assert!(obj.get("schema").is_some());
+    }
+
+    #[test]
+    fn test_map_reasoning_effort_low() {
+        let (thinking, drop_temp) = map_reasoning_effort_to_thinking(Some("low"));
+        let thinking = thinking.expect("Should have thinking config");
+        assert_eq!(thinking["type"], "enabled");
+        assert_eq!(thinking["budget_tokens"], 1000);
+        assert!(drop_temp);
+    }
+
+    #[test]
+    fn test_map_reasoning_effort_medium() {
+        let (thinking, drop_temp) = map_reasoning_effort_to_thinking(Some("medium"));
+        let thinking = thinking.expect("Should have thinking config");
+        assert_eq!(thinking["type"], "enabled");
+        assert_eq!(thinking["budget_tokens"], 2000);
+        assert!(drop_temp);
+    }
+
+    #[test]
+    fn test_map_reasoning_effort_high() {
+        let (thinking, drop_temp) = map_reasoning_effort_to_thinking(Some("high"));
+        let thinking = thinking.expect("Should have thinking config");
+        assert_eq!(thinking["type"], "enabled");
+        assert_eq!(thinking["budget_tokens"], 4000);
+        assert!(drop_temp);
+    }
+
+    #[test]
+    fn test_map_reasoning_effort_none() {
+        let (thinking, drop_temp) = map_reasoning_effort_to_thinking(None);
+        assert_eq!(thinking, None);
+        assert!(!drop_temp);
+    }
+
+    #[test]
+    fn test_map_reasoning_effort_unknown() {
+        let (thinking, drop_temp) = map_reasoning_effort_to_thinking(Some("unknown"));
+        let thinking = thinking.expect("Should have thinking config");
+        assert_eq!(thinking["type"], "enabled");
+        assert_eq!(thinking["budget_tokens"], 2000); // Default to medium
+        assert!(drop_temp);
     }
 }
