@@ -1,6 +1,22 @@
 use anyhow::Result;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum GatewayMode {
+    Full,
+    Proxy,
+}
+
+/// Proxy-only mode configuration (all fields from env vars, no DB).
+#[derive(Clone)]
+pub struct ProxyConfig {
+    pub api_key: String,
+    pub kiro_refresh_token: Option<String>,
+    pub kiro_client_id: Option<String>,
+    pub kiro_client_secret: Option<String>,
+    pub kiro_sso_region: Option<String>,
+}
+
+#[derive(Clone)]
 pub struct Config {
     // Server settings
     pub server_host: String,
@@ -43,12 +59,11 @@ pub struct Config {
     #[allow(dead_code)]
     pub default_provider: String,
 
-    // Proxy-only mode
-    pub proxy_api_key: Option<String>,
-    pub kiro_refresh_token: Option<String>,
-    pub kiro_client_id: Option<String>,
-    pub kiro_client_secret: Option<String>,
-    pub kiro_sso_region: Option<String>,
+    // Gateway mode
+    pub gateway_mode: GatewayMode,
+
+    // Proxy-only mode (grouped)
+    pub proxy: Option<ProxyConfig>,
 
     // Database
     pub database_url: Option<String>,
@@ -65,6 +80,44 @@ pub struct Config {
     pub google_client_id: String,
     pub google_client_secret: String,
     pub google_callback_url: String,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("server_host", &self.server_host)
+            .field("server_port", &self.server_port)
+            .field("kiro_region", &self.kiro_region)
+            .field("streaming_timeout", &self.streaming_timeout)
+            .field("token_refresh_threshold", &self.token_refresh_threshold)
+            .field("first_token_timeout", &self.first_token_timeout)
+            .field("http_max_connections", &self.http_max_connections)
+            .field("http_connect_timeout", &self.http_connect_timeout)
+            .field("http_request_timeout", &self.http_request_timeout)
+            .field("http_max_retries", &self.http_max_retries)
+            .field("debug_mode", &self.debug_mode)
+            .field("log_level", &self.log_level)
+            .field(
+                "tool_description_max_length",
+                &self.tool_description_max_length,
+            )
+            .field("fake_reasoning_enabled", &self.fake_reasoning_enabled)
+            .field("fake_reasoning_max_tokens", &self.fake_reasoning_max_tokens)
+            .field("fake_reasoning_handling", &self.fake_reasoning_handling)
+            .field("truncation_recovery", &self.truncation_recovery)
+            .field("guardrails_enabled", &self.guardrails_enabled)
+            .field("default_provider", &self.default_provider)
+            .field("gateway_mode", &self.gateway_mode)
+            .field("proxy", &self.proxy.as_ref().map(|_| "[REDACTED]"))
+            .field("database_url", &self.database_url)
+            .field("qwen_oauth_client_id", &self.qwen_oauth_client_id)
+            .field("anthropic_oauth_client_id", &self.anthropic_oauth_client_id)
+            .field("openai_oauth_client_id", &self.openai_oauth_client_id)
+            .field("google_client_id", &self.google_client_id)
+            .field("google_client_secret", &"[REDACTED]")
+            .field("google_callback_url", &self.google_callback_url)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -86,7 +139,7 @@ pub enum DebugMode {
 impl Config {
     /// Returns true when running in proxy-only mode (no DB, no Web UI).
     pub fn is_proxy_only(&self) -> bool {
-        self.proxy_api_key.is_some()
+        self.gateway_mode == GatewayMode::Proxy
     }
 
     /// Create a Config with sensible defaults for "setup mode".
@@ -114,11 +167,8 @@ impl Config {
             truncation_recovery: true,
             guardrails_enabled: false,
             default_provider: "kiro".to_string(),
-            proxy_api_key: None,
-            kiro_refresh_token: None,
-            kiro_client_id: None,
-            kiro_client_secret: None,
-            kiro_sso_region: None,
+            gateway_mode: GatewayMode::Full,
+            proxy: None,
             database_url: None,
             qwen_oauth_client_id: String::new(),
             anthropic_oauth_client_id: String::new(),
@@ -149,12 +199,24 @@ impl Config {
         // Database
         config.database_url = std::env::var("DATABASE_URL").ok();
 
-        // Proxy-only mode
-        config.proxy_api_key = std::env::var("PROXY_API_KEY").ok();
-        config.kiro_refresh_token = std::env::var("KIRO_REFRESH_TOKEN").ok();
-        config.kiro_client_id = std::env::var("KIRO_CLIENT_ID").ok();
-        config.kiro_client_secret = std::env::var("KIRO_CLIENT_SECRET").ok();
-        config.kiro_sso_region = std::env::var("KIRO_SSO_REGION").ok();
+        // Gateway mode (explicit env var, or inferred from PROXY_API_KEY)
+        config.gateway_mode = match std::env::var("GATEWAY_MODE").as_deref() {
+            Ok("proxy") => GatewayMode::Proxy,
+            _ => GatewayMode::Full,
+        };
+
+        // Proxy-only mode: group all proxy fields into ProxyConfig
+        if let Ok(api_key) = std::env::var("PROXY_API_KEY") {
+            config.proxy = Some(ProxyConfig {
+                api_key,
+                kiro_refresh_token: std::env::var("KIRO_REFRESH_TOKEN").ok(),
+                kiro_client_id: std::env::var("KIRO_CLIENT_ID").ok(),
+                kiro_client_secret: std::env::var("KIRO_CLIENT_SECRET").ok(),
+                kiro_sso_region: std::env::var("KIRO_SSO_REGION").ok(),
+            });
+            // Infer proxy mode when PROXY_API_KEY is set (backward compat)
+            config.gateway_mode = GatewayMode::Proxy;
+        }
 
         if let Ok(v) = std::env::var("KIRO_REGION") {
             config.kiro_region = v;
@@ -187,9 +249,17 @@ impl Config {
 
     /// Validate configuration.
     pub fn validate(&self) -> Result<()> {
-        // Proxy-only mode skips Google SSO validation
+        // Proxy-only mode: require proxy API key with minimum length
         if self.is_proxy_only() {
-            return Ok(());
+            match &self.proxy {
+                Some(p) if p.api_key.len() >= 16 => return Ok(()),
+                Some(_) => {
+                    anyhow::bail!("PROXY_API_KEY must be at least 16 characters for security")
+                }
+                None => {
+                    anyhow::bail!("PROXY_API_KEY is required in proxy mode (GATEWAY_MODE=proxy)")
+                }
+            }
         }
 
         // Google SSO is the only auth path — required for the web UI
@@ -344,6 +414,8 @@ mod tests {
         assert_eq!(config.google_client_id, "");
         assert_eq!(config.google_client_secret, "");
         assert_eq!(config.google_callback_url, "");
+        assert_eq!(config.gateway_mode, GatewayMode::Full);
+        assert!(config.proxy.is_none());
     }
 
     #[test]
@@ -392,7 +464,14 @@ mod tests {
     #[test]
     fn test_is_proxy_only_when_set() {
         let config = Config {
-            proxy_api_key: Some("test-key".to_string()),
+            gateway_mode: GatewayMode::Proxy,
+            proxy: Some(ProxyConfig {
+                api_key: "test-key-long-enough".to_string(),
+                kiro_refresh_token: None,
+                kiro_client_id: None,
+                kiro_client_secret: None,
+                kiro_sso_region: None,
+            }),
             ..Config::with_defaults()
         };
         assert!(config.is_proxy_only());
@@ -407,12 +486,76 @@ mod tests {
     #[test]
     fn test_validate_skips_google_sso_in_proxy_mode() {
         let config = Config {
-            proxy_api_key: Some("test-key".to_string()),
+            gateway_mode: GatewayMode::Proxy,
+            proxy: Some(ProxyConfig {
+                api_key: "test-key-long-enough".to_string(),
+                kiro_refresh_token: None,
+                kiro_client_id: None,
+                kiro_client_secret: None,
+                kiro_sso_region: None,
+            }),
             google_client_id: String::new(),
             google_client_secret: String::new(),
             google_callback_url: String::new(),
             ..Config::with_defaults()
         };
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_gateway_mode_proxy_from_env() {
+        let config = Config {
+            gateway_mode: GatewayMode::Proxy,
+            proxy: Some(ProxyConfig {
+                api_key: "a-secure-api-key-here".to_string(),
+                kiro_refresh_token: Some("refresh-tok".to_string()),
+                kiro_client_id: None,
+                kiro_client_secret: None,
+                kiro_sso_region: None,
+            }),
+            ..Config::with_defaults()
+        };
+        assert!(config.is_proxy_only());
+        assert_eq!(config.gateway_mode, GatewayMode::Proxy);
+    }
+
+    #[test]
+    fn test_validate_proxy_mode_requires_min_key_length() {
+        let config = Config {
+            gateway_mode: GatewayMode::Proxy,
+            proxy: Some(ProxyConfig {
+                api_key: "short".to_string(),
+                kiro_refresh_token: None,
+                kiro_client_id: None,
+                kiro_client_secret: None,
+                kiro_sso_region: None,
+            }),
+            ..Config::with_defaults()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("at least 16 characters"));
+    }
+
+    #[test]
+    fn test_debug_redacts_secrets() {
+        let config = Config {
+            google_client_secret: "super-secret".to_string(),
+            proxy: Some(ProxyConfig {
+                api_key: "my-secret-api-key".to_string(),
+                kiro_refresh_token: None,
+                kiro_client_id: None,
+                kiro_client_secret: None,
+                kiro_sso_region: None,
+            }),
+            ..Config::with_defaults()
+        };
+        let debug_output = format!("{:?}", config);
+        assert!(!debug_output.contains("super-secret"));
+        assert!(!debug_output.contains("my-secret-api-key"));
+        assert!(debug_output.contains("[REDACTED]"));
     }
 }

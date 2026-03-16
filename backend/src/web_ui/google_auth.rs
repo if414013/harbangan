@@ -816,6 +816,7 @@ mod tests {
         let config_arc = Arc::new(std::sync::RwLock::new(config));
 
         AppState {
+            proxy_api_key_hash: None,
             model_cache: cache,
             auth_manager: Arc::clone(&auth_manager),
             http_client: Arc::clone(&http_client),

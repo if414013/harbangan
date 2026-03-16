@@ -323,10 +323,18 @@ async fn main() -> Result<()> {
     // Initialise Datadog OTLP metrics pipeline (no-op when DD_AGENT_HOST is unset)
     let otel_metrics_provider = datadog::init_otel_metrics();
 
+    // Compute proxy API key hash at startup for constant-time comparison in middleware
+    let proxy_api_key_hash = config.proxy.as_ref().map(|p| {
+        use sha2::{Digest, Sha256};
+        let hash: [u8; 32] = Sha256::digest(p.api_key.as_bytes()).into();
+        hash
+    });
+
     let auth_manager = Arc::new(tokio::sync::RwLock::new(app_auth_manager));
     let config_arc = Arc::new(RwLock::new(config.clone()));
 
     let mut app_state = routes::AppState {
+        proxy_api_key_hash,
         model_cache: model_cache.clone(),
         auth_manager: Arc::clone(&auth_manager),
         http_client: http_client.clone(),
@@ -395,7 +403,7 @@ async fn main() -> Result<()> {
         tracing::info!("Background tasks started (token refresh, session cleanup)");
     }
 
-    let app = build_app(app_state);
+    let app = build_app(app_state, is_proxy_only);
 
     // Use tuple form for lookup_host to properly handle IPv6 addresses like ::1
     let mut resolved_addrs =
@@ -515,7 +523,7 @@ fn add_hidden_models(cache: &cache::ModelCache) {
 }
 
 /// Build the application with all routes and middleware
-fn build_app(state: routes::AppState) -> axum::Router {
+fn build_app(state: routes::AppState, is_proxy_only: bool) -> axum::Router {
     use axum::Router;
 
     let health_routes = routes::health_routes();
@@ -528,14 +536,17 @@ fn build_app(state: routes::AppState) -> axum::Router {
         axum::middleware::from_fn_with_state(state.clone(), crate::web_ui::setup_guard),
     );
 
-    let web_ui = web_ui::web_ui_routes(state.clone());
-
-    Router::new()
+    let mut app = Router::new()
         .merge(health_routes)
         .merge(openai_routes)
-        .merge(anthropic_routes)
-        .merge(web_ui)
-        .layer(middleware::cors_layer())
+        .merge(anthropic_routes);
+
+    if !is_proxy_only {
+        let web_ui = web_ui::web_ui_routes(state.clone());
+        app = app.merge(web_ui);
+    }
+
+    app.layer(middleware::cors_layer())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             middleware::debug_middleware,

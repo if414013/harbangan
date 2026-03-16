@@ -102,7 +102,12 @@ impl AuthManager {
     /// Create an AuthManager from environment variables (proxy-only mode).
     /// No database required — credentials come from env vars set by entrypoint.sh.
     pub fn new_from_env(config: &crate::config::Config) -> Result<Self> {
-        let refresh_token = config
+        let proxy = config
+            .proxy
+            .as_ref()
+            .context("ProxyConfig is required for proxy-only mode")?;
+
+        let refresh_token = proxy
             .kiro_refresh_token
             .clone()
             .context("KIRO_REFRESH_TOKEN is required for proxy-only mode")?;
@@ -113,9 +118,9 @@ impl AuthManager {
             expires_at: None,
             profile_arn: None,
             region: config.kiro_region.clone(),
-            client_id: config.kiro_client_id.clone(),
-            client_secret: config.kiro_client_secret.clone(),
-            sso_region: config.kiro_sso_region.clone(),
+            client_id: proxy.kiro_client_id.clone(),
+            client_secret: proxy.kiro_client_secret.clone(),
+            sso_region: proxy.kiro_sso_region.clone(),
             scopes: None,
         };
 
@@ -137,28 +142,9 @@ impl AuthManager {
     /// Bootstrap proxy-only credentials by performing an initial token refresh.
     /// Validates that the credentials are valid and populates the access token.
     pub async fn bootstrap_proxy_credentials(&self) -> Result<()> {
-        let creds = self.credentials.read().await;
-        let token_data = refresh::refresh_aws_sso_oidc(&self.client, &creds)
+        self.get_access_token()
             .await
             .context("Failed to bootstrap proxy credentials")?;
-        drop(creds);
-
-        // Store access token
-        {
-            let mut access_token = self.access_token.write().await;
-            *access_token = Some(token_data.access_token.clone());
-        }
-        {
-            let mut expires_at = self.expires_at.write().await;
-            *expires_at = Some(token_data.expires_at);
-        }
-
-        // Update refresh token if rotated
-        if let Some(ref new_refresh) = token_data.refresh_token {
-            let mut creds = self.credentials.write().await;
-            creds.refresh_token = new_refresh.clone();
-        }
-
         tracing::info!("Proxy-only credentials bootstrapped successfully");
         Ok(())
     }
@@ -215,6 +201,11 @@ impl AuthManager {
     /// Refresh the access token
     async fn refresh_token(&self) -> Result<()> {
         tracing::debug!("Refreshing access token...");
+
+        // Re-check: if another concurrent request already refreshed, skip
+        if !self.is_token_expiring_soon().await {
+            return Ok(());
+        }
 
         let mut creds = self.credentials.write().await;
 

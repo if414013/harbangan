@@ -26,6 +26,7 @@ services:
       # Localhost only by default. Set BIND_ADDRESS=0.0.0.0 to allow Docker container access.
       - "${BIND_ADDRESS:-127.0.0.1}:${SERVER_PORT:-8000}:${SERVER_PORT:-8000}"
     environment:
+      GATEWAY_MODE: "proxy"
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "${SERVER_PORT:-8000}"
       PROXY_API_KEY: "${PROXY_API_KEY}"

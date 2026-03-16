@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -eu
 
 # Proxy-only entrypoint for harbangan backend.
 # Runs the AWS SSO OIDC device code flow if no refresh token exists,
@@ -11,7 +11,7 @@ OIDC_REGION="${KIRO_SSO_REGION:-${KIRO_REGION:-us-east-1}}"
 OIDC_BASE="https://oidc.${OIDC_REGION}.amazonaws.com"
 
 # ── Validate ─────────────────────────────────────────────────────────
-if [ -z "$PROXY_API_KEY" ]; then
+if [ -z "${PROXY_API_KEY:-}" ]; then
     echo "ERROR: PROXY_API_KEY is required" >&2
     exit 1
 fi
@@ -54,14 +54,12 @@ validate_cached_tokens() {
 # ── Save tokens to cache ────────────────────────────────────────────
 save_tokens() {
     mkdir -p "$(dirname "$TOKEN_CACHE")"
-    cat > "$TOKEN_CACHE" <<TOKEOF
-{"refresh_token":"$1","client_id":"$2","client_secret":"$3"}
-TOKEOF
-    chmod 600 "$TOKEN_CACHE"
+    (umask 077 && jq -n --arg rt "$1" --arg ci "$2" --arg cs "$3" \
+        '{refresh_token: $rt, client_id: $ci, client_secret: $cs}' > "$TOKEN_CACHE")
 }
 
 # ── Resolve credentials ─────────────────────────────────────────────
-if [ -z "$KIRO_REFRESH_TOKEN" ]; then
+if [ -z "${KIRO_REFRESH_TOKEN:-}" ]; then
     # Try cache first
     if load_cached_tokens && validate_cached_tokens; then
         export KIRO_REFRESH_TOKEN="$CACHED_REFRESH"
@@ -77,8 +75,8 @@ if [ -z "$KIRO_REFRESH_TOKEN" ]; then
         echo "├─────────────────────────────────────────────────────────┤"
         echo "│  KIRO_REGION:    ${KIRO_REGION:-us-east-1}"
         echo "│  OIDC_REGION:    ${OIDC_REGION}"
-        if [ -n "$KIRO_SSO_URL" ]; then
-            echo "│  KIRO_SSO_URL:   $KIRO_SSO_URL"
+        if [ -n "${KIRO_SSO_URL:-}" ]; then
+            echo "│  KIRO_SSO_URL:   ${KIRO_SSO_URL:-}"
             echo "│  Login mode:     Identity Center (pro)"
         else
             echo "│  Login mode:     Builder ID (free)"
@@ -91,8 +89,8 @@ if [ -z "$KIRO_REFRESH_TOKEN" ]; then
 
         REGISTER_BODY="{\"clientName\":\"harbangan-proxy\",\"clientType\":\"public\",\"scopes\":[\"codewhisperer:completions\",\"codewhisperer:analysis\",\"codewhisperer:conversations\"],\"grantTypes\":[\"urn:ietf:params:oauth:grant-type:device_code\",\"refresh_token\"]"
 
-        if [ -n "$KIRO_SSO_URL" ]; then
-            REGISTER_BODY="${REGISTER_BODY},\"issuerUrl\":\"${KIRO_SSO_URL}\""
+        if [ -n "${KIRO_SSO_URL:-}" ]; then
+            REGISTER_BODY="${REGISTER_BODY},\"issuerUrl\":\"${KIRO_SSO_URL:-}\""
         fi
         REGISTER_BODY="${REGISTER_BODY}}"
 
@@ -178,7 +176,7 @@ if [ -z "$KIRO_REFRESH_TOKEN" ]; then
             exit 1
         done
 
-        if [ -z "$REFRESH_TOKEN" ]; then
+        if [ -z "${REFRESH_TOKEN:-}" ]; then
             echo "ERROR: Device authorization timed out. Please restart and try again." >&2
             exit 1
         fi

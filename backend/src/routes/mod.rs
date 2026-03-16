@@ -3,7 +3,7 @@ mod openai;
 pub mod pipeline;
 pub mod state;
 
-pub use state::{AppState, OAuthPendingState, SessionInfo, UserKiroCreds};
+pub use state::{AppState, OAuthPendingState, SessionInfo, UserKiroCreds, PROXY_USER_ID};
 
 use axum::{
     middleware as axum_middleware,
@@ -126,6 +126,7 @@ mod tests {
         let config_arc = Arc::new(RwLock::new(config));
 
         AppState {
+            proxy_api_key_hash: None,
             model_cache: cache,
             auth_manager: Arc::clone(&auth_manager),
             http_client: Arc::clone(&http_client),

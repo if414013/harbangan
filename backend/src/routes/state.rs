@@ -55,12 +55,17 @@ pub struct OAuthPendingState {
     pub linking_user_id: Option<Uuid>,
 }
 
+/// Sentinel user ID for proxy-only mode (all requests share this identity).
+pub const PROXY_USER_ID: Uuid = Uuid::from_u128(0x0000_0001_0000_0000_0000_0000_0000_0001);
+
 /// Application state shared across handlers.
 ///
 /// Future refactoring: consider grouping related fields into sub-structs
 /// (e.g., AuthState, CacheState, FeatureState) to keep AppState focused.
 #[derive(Clone)]
 pub struct AppState {
+    // Proxy-only mode: pre-hashed API key for constant-time comparison
+    pub proxy_api_key_hash: Option<[u8; 32]>,
     // Core services
     pub model_cache: ModelCache,
     pub auth_manager: Arc<tokio::sync::RwLock<AuthManager>>,
