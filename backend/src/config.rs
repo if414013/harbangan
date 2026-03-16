@@ -43,6 +43,13 @@ pub struct Config {
     #[allow(dead_code)]
     pub default_provider: String,
 
+    // Proxy-only mode
+    pub proxy_api_key: Option<String>,
+    pub kiro_refresh_token: Option<String>,
+    pub kiro_client_id: Option<String>,
+    pub kiro_client_secret: Option<String>,
+    pub kiro_sso_region: Option<String>,
+
     // Database
     pub database_url: Option<String>,
 
@@ -77,6 +84,11 @@ pub enum DebugMode {
 }
 
 impl Config {
+    /// Returns true when running in proxy-only mode (no DB, no Web UI).
+    pub fn is_proxy_only(&self) -> bool {
+        self.proxy_api_key.is_some()
+    }
+
     /// Create a Config with sensible defaults for "setup mode".
     ///
     /// All fields have safe defaults so the gateway can start with no DB config.
@@ -102,6 +114,11 @@ impl Config {
             truncation_recovery: true,
             guardrails_enabled: false,
             default_provider: "kiro".to_string(),
+            proxy_api_key: None,
+            kiro_refresh_token: None,
+            kiro_client_id: None,
+            kiro_client_secret: None,
+            kiro_sso_region: None,
             database_url: None,
             qwen_oauth_client_id: String::new(),
             anthropic_oauth_client_id: String::new(),
@@ -131,6 +148,13 @@ impl Config {
 
         // Database
         config.database_url = std::env::var("DATABASE_URL").ok();
+
+        // Proxy-only mode
+        config.proxy_api_key = std::env::var("PROXY_API_KEY").ok();
+        config.kiro_refresh_token = std::env::var("KIRO_REFRESH_TOKEN").ok();
+        config.kiro_client_id = std::env::var("KIRO_CLIENT_ID").ok();
+        config.kiro_client_secret = std::env::var("KIRO_CLIENT_SECRET").ok();
+        config.kiro_sso_region = std::env::var("KIRO_SSO_REGION").ok();
 
         if let Ok(v) = std::env::var("KIRO_REGION") {
             config.kiro_region = v;
@@ -163,6 +187,11 @@ impl Config {
 
     /// Validate configuration.
     pub fn validate(&self) -> Result<()> {
+        // Proxy-only mode skips Google SSO validation
+        if self.is_proxy_only() {
+            return Ok(());
+        }
+
         // Google SSO is the only auth path — required for the web UI
         if self.google_client_id.is_empty() {
             anyhow::bail!(
@@ -358,5 +387,32 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("GOOGLE_CLIENT_SECRET"));
+    }
+
+    #[test]
+    fn test_is_proxy_only_when_set() {
+        let config = Config {
+            proxy_api_key: Some("test-key".to_string()),
+            ..Config::with_defaults()
+        };
+        assert!(config.is_proxy_only());
+    }
+
+    #[test]
+    fn test_is_proxy_only_when_unset() {
+        let config = Config::with_defaults();
+        assert!(!config.is_proxy_only());
+    }
+
+    #[test]
+    fn test_validate_skips_google_sso_in_proxy_mode() {
+        let config = Config {
+            proxy_api_key: Some("test-key".to_string()),
+            google_client_id: String::new(),
+            google_client_secret: String::new(),
+            google_callback_url: String::new(),
+            ..Config::with_defaults()
+        };
+        assert!(config.validate().is_ok());
     }
 }

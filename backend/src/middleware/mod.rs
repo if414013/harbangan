@@ -51,6 +51,40 @@ pub async fn auth_middleware(
         ApiError::AuthError("Invalid or missing API Key".to_string())
     })?;
 
+    // Proxy-only mode: constant-time compare against PROXY_API_KEY, use global auth
+    let proxy_key = {
+        let cfg = state.config.read().unwrap_or_else(|p| p.into_inner());
+        if cfg.is_proxy_only() {
+            Some(cfg.proxy_api_key.clone().unwrap_or_default())
+        } else {
+            None
+        }
+    };
+    if let Some(expected_key) = proxy_key {
+        use subtle::ConstantTimeEq;
+        if !bool::from(raw_key.as_bytes().ct_eq(expected_key.as_bytes())) {
+            return Err(ApiError::AuthError("Invalid API key".to_string()));
+        }
+
+        // Get access token from global auth manager
+        let auth = state.auth_manager.read().await;
+        let access_token = auth
+            .get_access_token()
+            .await
+            .map_err(|e| ApiError::AuthError(format!("Proxy auth failed: {}", e)))?;
+        let region = auth.get_region().await;
+        drop(auth);
+
+        let creds = UserKiroCreds {
+            user_id: Uuid::nil(),
+            access_token,
+            refresh_token: String::new(),
+            region,
+        };
+        request.extensions_mut().insert(creds);
+        return Ok(next.run(request).await);
+    }
+
     // SHA-256 hash lookup in cache/DB
     let key_hash = hex::encode(Sha256::digest(raw_key.as_bytes()));
 

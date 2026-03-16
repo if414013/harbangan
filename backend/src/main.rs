@@ -28,6 +28,7 @@ async fn main() -> Result<()> {
     // Load bootstrap configuration from environment variables
     let mut config = config::Config::load()?;
     config.validate()?;
+    let is_proxy_only = config.is_proxy_only();
 
     // Set up logging
     let log_level = config.log_level.to_lowercase();
@@ -68,10 +69,16 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    tracing::info!("Kiro Gateway starting...");
+    if is_proxy_only {
+        tracing::info!("Kiro Gateway starting in proxy-only mode...");
+    } else {
+        tracing::info!("Kiro Gateway starting...");
+    }
 
     // ── Database ─────────────────────────────────────────────────
-    let config_db = if let Some(ref url) = config.database_url {
+    let config_db = if is_proxy_only {
+        None
+    } else if let Some(ref url) = config.database_url {
         match web_ui::config_db::ConfigDb::connect(url).await {
             Ok(db) => {
                 tracing::info!("Connected to PostgreSQL database");
@@ -87,14 +94,16 @@ async fn main() -> Result<()> {
     };
 
     // ── Setup state ─────────────────────────────────────────────────
-    let mut setup_complete_flag = if let Some(ref db) = config_db {
+    let mut setup_complete_flag = if is_proxy_only {
+        true
+    } else if let Some(ref db) = config_db {
         db.is_setup_complete().await
     } else {
         false
     };
 
     // Seed initial admin user from env vars (only on first run, before any users exist)
-    if !setup_complete_flag {
+    if !is_proxy_only && !setup_complete_flag {
         if let Some(ref db) = config_db {
             let initial_email = std::env::var("INITIAL_ADMIN_EMAIL").ok();
             let initial_password = std::env::var("INITIAL_ADMIN_PASSWORD").ok();
@@ -199,13 +208,15 @@ async fn main() -> Result<()> {
 
     let setup_complete = Arc::new(AtomicBool::new(setup_complete_flag));
 
-    if setup_complete_flag {
+    if setup_complete_flag && !is_proxy_only {
         if let Some(ref db) = config_db {
             db.load_into_config(&mut config)
                 .await
                 .context("Failed to load config from database")?;
             tracing::info!("Configuration loaded from database");
         }
+    } else if is_proxy_only {
+        tracing::info!("Proxy-only mode — skipping database config");
     } else {
         tracing::warn!("Setup not complete — starting in setup-only mode");
         tracing::warn!("Visit the web UI to complete initial setup");
@@ -219,7 +230,15 @@ async fn main() -> Result<()> {
     tracing::debug!("Debug mode: {:?}", config.debug_mode);
 
     // ── Auth manager ────────────────────────────────────────────────
-    let app_auth_manager = if setup_complete_flag {
+    let app_auth_manager = if is_proxy_only {
+        let am = auth::AuthManager::new_from_env(&config)
+            .context("Failed to create auth manager from env vars")?;
+        tracing::info!("Bootstrapping proxy-only credentials...");
+        am.bootstrap_proxy_credentials()
+            .await
+            .context("Failed to bootstrap proxy credentials. Check KIRO_REFRESH_TOKEN.")?;
+        am
+    } else if setup_complete_flag {
         init_app_auth_from_config_db(&config, &config_db).await?
     } else {
         auth::AuthManager::new_placeholder(
@@ -570,6 +589,9 @@ fn print_startup_banner(config: &config::Config) {
 
     println!("{}", banner);
     println!("  Version:     {}", env!("CARGO_PKG_VERSION"));
+    if config.is_proxy_only() {
+        println!("  Mode:        proxy-only (no DB, no Web UI)");
+    }
     println!(
         "  Server:      http://{}:{}",
         config.server_host, config.server_port

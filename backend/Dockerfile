@@ -6,10 +6,12 @@ RUN cargo build --release --bin harbangan \
     && cp target/release/harbangan /usr/local/bin/harbangan
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y ca-certificates curl jq && rm -rf /var/lib/apt/lists/* \
     && adduser --disabled-password --gecos '' appuser
 WORKDIR /app
 COPY --from=builder /usr/local/bin/harbangan /app/harbangan
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 USER appuser
 EXPOSE 8000
 CMD ["/app/harbangan"]

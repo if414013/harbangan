@@ -99,6 +99,70 @@ impl AuthManager {
         })
     }
 
+    /// Create an AuthManager from environment variables (proxy-only mode).
+    /// No database required — credentials come from env vars set by entrypoint.sh.
+    pub fn new_from_env(config: &crate::config::Config) -> Result<Self> {
+        let refresh_token = config
+            .kiro_refresh_token
+            .clone()
+            .context("KIRO_REFRESH_TOKEN is required for proxy-only mode")?;
+
+        let credentials = Credentials {
+            refresh_token,
+            access_token: None,
+            expires_at: None,
+            profile_arn: None,
+            region: config.kiro_region.clone(),
+            client_id: config.kiro_client_id.clone(),
+            client_secret: config.kiro_client_secret.clone(),
+            sso_region: config.kiro_sso_region.clone(),
+            scopes: None,
+        };
+
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .context("Failed to create HTTP client")?;
+
+        Ok(Self {
+            credentials: Arc::new(RwLock::new(credentials)),
+            access_token: Arc::new(RwLock::new(None)),
+            expires_at: Arc::new(RwLock::new(None)),
+            client,
+            config_db: None,
+            refresh_threshold: config.token_refresh_threshold as i64,
+        })
+    }
+
+    /// Bootstrap proxy-only credentials by performing an initial token refresh.
+    /// Validates that the credentials are valid and populates the access token.
+    pub async fn bootstrap_proxy_credentials(&self) -> Result<()> {
+        let creds = self.credentials.read().await;
+        let token_data = refresh::refresh_aws_sso_oidc(&self.client, &creds)
+            .await
+            .context("Failed to bootstrap proxy credentials")?;
+        drop(creds);
+
+        // Store access token
+        {
+            let mut access_token = self.access_token.write().await;
+            *access_token = Some(token_data.access_token.clone());
+        }
+        {
+            let mut expires_at = self.expires_at.write().await;
+            *expires_at = Some(token_data.expires_at);
+        }
+
+        // Update refresh token if rotated
+        if let Some(ref new_refresh) = token_data.refresh_token {
+            let mut creds = self.credentials.write().await;
+            creds.refresh_token = new_refresh.clone();
+        }
+
+        tracing::info!("Proxy-only credentials bootstrapped successfully");
+        Ok(())
+    }
+
     /// Create a new AuthManager from the gateway's config database.
     ///
     /// Loads credentials (refresh token + OAuth client creds) from ConfigDb.
