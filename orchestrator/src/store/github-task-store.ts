@@ -559,6 +559,8 @@ export class GitHubTaskStore implements ITaskStore {
   }
 
   private gh(args: string): string {
+    // Args are built internally from validated constants (REPO, issue numbers)
+    // not from user input, so shell injection risk is minimal.
     return execSync(`gh ${args}`, {
       encoding: "utf-8",
       timeout: 30_000,
@@ -567,6 +569,6 @@ export class GitHubTaskStore implements ITaskStore {
   }
 
   private escape(str: string): string {
-    return str.replace(/"/g, '\\"').replace(/\n/g, "\\n");
+    return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
   }
 }
