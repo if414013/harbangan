@@ -7,13 +7,24 @@ pub enum GatewayMode {
 }
 
 /// Proxy-only mode configuration (all fields from env vars, no DB).
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ProxyConfig {
     pub api_key: String,
     pub kiro_refresh_token: Option<String>,
     pub kiro_client_id: Option<String>,
     pub kiro_client_secret: Option<String>,
     pub kiro_sso_region: Option<String>,
+    // Multi-provider credentials (env vars, no DB)
+    pub anthropic_api_key: Option<String>,
+    pub openai_api_key: Option<String>,
+    pub openai_base_url: Option<String>,
+    pub copilot_token: Option<String>,
+    pub copilot_base_url: Option<String>,
+    pub qwen_token: Option<String>,
+    pub qwen_base_url: Option<String>,
+    pub custom_provider_url: Option<String>,
+    pub custom_provider_key: Option<String>,
+    pub custom_provider_models: Option<String>,
 }
 
 #[derive(Clone)]
@@ -213,6 +224,16 @@ impl Config {
                 kiro_client_id: std::env::var("KIRO_CLIENT_ID").ok(),
                 kiro_client_secret: std::env::var("KIRO_CLIENT_SECRET").ok(),
                 kiro_sso_region: std::env::var("KIRO_SSO_REGION").ok(),
+                anthropic_api_key: std::env::var("ANTHROPIC_API_KEY").ok(),
+                openai_api_key: std::env::var("OPENAI_API_KEY").ok(),
+                openai_base_url: std::env::var("OPENAI_BASE_URL").ok(),
+                copilot_token: std::env::var("COPILOT_TOKEN").ok(),
+                copilot_base_url: std::env::var("COPILOT_BASE_URL").ok(),
+                qwen_token: std::env::var("QWEN_TOKEN").ok(),
+                qwen_base_url: std::env::var("QWEN_BASE_URL").ok(),
+                custom_provider_url: std::env::var("CUSTOM_PROVIDER_URL").ok(),
+                custom_provider_key: std::env::var("CUSTOM_PROVIDER_KEY").ok(),
+                custom_provider_models: std::env::var("CUSTOM_PROVIDER_MODELS").ok(),
             });
             // Infer proxy mode when PROXY_API_KEY is set (backward compat)
             config.gateway_mode = GatewayMode::Proxy;
@@ -467,10 +488,7 @@ mod tests {
             gateway_mode: GatewayMode::Proxy,
             proxy: Some(ProxyConfig {
                 api_key: "test-key-long-enough".to_string(),
-                kiro_refresh_token: None,
-                kiro_client_id: None,
-                kiro_client_secret: None,
-                kiro_sso_region: None,
+                ..Default::default()
             }),
             ..Config::with_defaults()
         };
@@ -489,10 +507,7 @@ mod tests {
             gateway_mode: GatewayMode::Proxy,
             proxy: Some(ProxyConfig {
                 api_key: "test-key-long-enough".to_string(),
-                kiro_refresh_token: None,
-                kiro_client_id: None,
-                kiro_client_secret: None,
-                kiro_sso_region: None,
+                ..Default::default()
             }),
             google_client_id: String::new(),
             google_client_secret: String::new(),
@@ -509,9 +524,7 @@ mod tests {
             proxy: Some(ProxyConfig {
                 api_key: "a-secure-api-key-here".to_string(),
                 kiro_refresh_token: Some("refresh-tok".to_string()),
-                kiro_client_id: None,
-                kiro_client_secret: None,
-                kiro_sso_region: None,
+                ..Default::default()
             }),
             ..Config::with_defaults()
         };
@@ -525,10 +538,7 @@ mod tests {
             gateway_mode: GatewayMode::Proxy,
             proxy: Some(ProxyConfig {
                 api_key: "short".to_string(),
-                kiro_refresh_token: None,
-                kiro_client_id: None,
-                kiro_client_secret: None,
-                kiro_sso_region: None,
+                ..Default::default()
             }),
             ..Config::with_defaults()
         };
@@ -546,10 +556,7 @@ mod tests {
             google_client_secret: "super-secret".to_string(),
             proxy: Some(ProxyConfig {
                 api_key: "my-secret-api-key".to_string(),
-                kiro_refresh_token: None,
-                kiro_client_id: None,
-                kiro_client_secret: None,
-                kiro_sso_region: None,
+                ..Default::default()
             }),
             ..Config::with_defaults()
         };
@@ -557,5 +564,111 @@ mod tests {
         assert!(!debug_output.contains("super-secret"));
         assert!(!debug_output.contains("my-secret-api-key"));
         assert!(debug_output.contains("[REDACTED]"));
+    }
+
+    // ── Multi-provider ProxyConfig tests ──────────────────────────────
+
+    #[test]
+    fn test_proxy_config_all_provider_fields_none_by_default() {
+        let proxy = ProxyConfig {
+            api_key: "test-key-long-enough".to_string(),
+            ..Default::default()
+        };
+        assert!(proxy.anthropic_api_key.is_none());
+        assert!(proxy.openai_api_key.is_none());
+        assert!(proxy.openai_base_url.is_none());
+        assert!(proxy.copilot_token.is_none());
+        assert!(proxy.copilot_base_url.is_none());
+        assert!(proxy.qwen_token.is_none());
+        assert!(proxy.qwen_base_url.is_none());
+        assert!(proxy.custom_provider_url.is_none());
+        assert!(proxy.custom_provider_key.is_none());
+        assert!(proxy.custom_provider_models.is_none());
+    }
+
+    #[test]
+    fn test_proxy_config_with_all_provider_fields() {
+        let proxy = ProxyConfig {
+            api_key: "test-key-long-enough".to_string(),
+            kiro_refresh_token: None,
+            kiro_client_id: None,
+            kiro_client_secret: None,
+            kiro_sso_region: None,
+            anthropic_api_key: Some("sk-ant-test-key".to_string()),
+            openai_api_key: Some("sk-proj-test-key".to_string()),
+            openai_base_url: Some("https://api.openai.com/v1".to_string()),
+            copilot_token: Some("cop-tok-test".to_string()),
+            copilot_base_url: Some("https://api.githubcopilot.com".to_string()),
+            qwen_token: Some("qwen-tok-test".to_string()),
+            qwen_base_url: Some("https://qwen.example.com".to_string()),
+            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
+            custom_provider_key: Some("custom-key-test".to_string()),
+            custom_provider_models: Some("llama3,codellama,deepseek-r1".to_string()),
+        };
+        assert_eq!(proxy.anthropic_api_key.as_deref(), Some("sk-ant-test-key"));
+        assert_eq!(proxy.openai_api_key.as_deref(), Some("sk-proj-test-key"));
+        assert_eq!(
+            proxy.openai_base_url.as_deref(),
+            Some("https://api.openai.com/v1")
+        );
+        assert_eq!(proxy.copilot_token.as_deref(), Some("cop-tok-test"));
+        assert_eq!(
+            proxy.copilot_base_url.as_deref(),
+            Some("https://api.githubcopilot.com")
+        );
+        assert_eq!(proxy.qwen_token.as_deref(), Some("qwen-tok-test"));
+        assert_eq!(
+            proxy.qwen_base_url.as_deref(),
+            Some("https://qwen.example.com")
+        );
+        assert_eq!(
+            proxy.custom_provider_url.as_deref(),
+            Some("http://localhost:11434/v1")
+        );
+        assert_eq!(
+            proxy.custom_provider_key.as_deref(),
+            Some("custom-key-test")
+        );
+        assert_eq!(
+            proxy.custom_provider_models.as_deref(),
+            Some("llama3,codellama,deepseek-r1")
+        );
+    }
+
+    #[test]
+    fn test_proxy_config_clone() {
+        let proxy = ProxyConfig {
+            api_key: "test-key-long-enough".to_string(),
+            anthropic_api_key: Some("sk-ant-clone".to_string()),
+            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
+            custom_provider_models: Some("llama3".to_string()),
+            ..Default::default()
+        };
+        let cloned = proxy.clone();
+        assert_eq!(cloned.api_key, "test-key-long-enough");
+        assert_eq!(cloned.anthropic_api_key.as_deref(), Some("sk-ant-clone"));
+        assert_eq!(
+            cloned.custom_provider_url.as_deref(),
+            Some("http://localhost:11434/v1")
+        );
+        assert_eq!(cloned.custom_provider_models.as_deref(), Some("llama3"));
+    }
+
+    #[test]
+    fn test_proxy_config_partial_providers() {
+        // Only Anthropic + Custom configured, rest None
+        let proxy = ProxyConfig {
+            api_key: "test-key-long-enough".to_string(),
+            anthropic_api_key: Some("sk-ant-partial".to_string()),
+            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
+            custom_provider_models: Some("llama3".to_string()),
+            ..Default::default()
+        };
+        assert!(proxy.anthropic_api_key.is_some());
+        assert!(proxy.openai_api_key.is_none());
+        assert!(proxy.copilot_token.is_none());
+        assert!(proxy.qwen_token.is_none());
+        assert!(proxy.custom_provider_url.is_some());
+        assert!(proxy.custom_provider_key.is_none());
     }
 }

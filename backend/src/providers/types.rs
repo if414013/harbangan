@@ -17,6 +17,8 @@ pub enum ProviderId {
     Copilot,
     #[serde(rename = "qwen")]
     Qwen,
+    #[serde(rename = "custom")]
+    Custom,
 }
 
 impl ProviderId {
@@ -28,6 +30,7 @@ impl ProviderId {
             ProviderId::OpenAICodex => "openai_codex",
             ProviderId::Copilot => "copilot",
             ProviderId::Qwen => "qwen",
+            ProviderId::Custom => "custom",
         }
     }
 }
@@ -48,6 +51,7 @@ impl std::str::FromStr for ProviderId {
             "openai_codex" => Ok(ProviderId::OpenAICodex),
             "copilot" => Ok(ProviderId::Copilot),
             "qwen" => Ok(ProviderId::Qwen),
+            "custom" => Ok(ProviderId::Custom),
             other => Err(format!("Unknown provider: {}", other)),
         }
     }
@@ -100,6 +104,7 @@ mod tests {
         assert_eq!(ProviderId::OpenAICodex.as_str(), "openai_codex");
         assert_eq!(ProviderId::Copilot.as_str(), "copilot");
         assert_eq!(ProviderId::Qwen.as_str(), "qwen");
+        assert_eq!(ProviderId::Custom.as_str(), "custom");
     }
 
     #[test]
@@ -108,6 +113,7 @@ mod tests {
         assert_eq!(ProviderId::OpenAICodex.to_string(), "openai_codex");
         assert_eq!(ProviderId::Copilot.to_string(), "copilot");
         assert_eq!(ProviderId::Qwen.to_string(), "qwen");
+        assert_eq!(ProviderId::Custom.to_string(), "custom");
     }
 
     #[test]
@@ -127,6 +133,7 @@ mod tests {
             ProviderId::Copilot
         );
         assert_eq!(ProviderId::from_str("qwen").unwrap(), ProviderId::Qwen);
+        assert_eq!(ProviderId::from_str("custom").unwrap(), ProviderId::Custom);
         assert!(ProviderId::from_str("unknown").is_err());
     }
 
@@ -143,6 +150,10 @@ mod tests {
         let id = ProviderId::Qwen;
         let json = serde_json::to_string(&id).unwrap();
         assert_eq!(json, "\"qwen\"");
+
+        let id = ProviderId::Custom;
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "\"custom\"");
     }
 
     #[test]
@@ -155,6 +166,9 @@ mod tests {
 
         let id: ProviderId = serde_json::from_str("\"qwen\"").unwrap();
         assert_eq!(id, ProviderId::Qwen);
+
+        let id: ProviderId = serde_json::from_str("\"custom\"").unwrap();
+        assert_eq!(id, ProviderId::Custom);
     }
 
     #[test]
@@ -178,6 +192,7 @@ mod tests {
             ProviderId::OpenAICodex,
             ProviderId::Copilot,
             ProviderId::Qwen,
+            ProviderId::Custom,
         ] {
             let json = serde_json::to_string(&id).unwrap();
             let back: ProviderId = serde_json::from_str(&json).unwrap();

@@ -333,6 +333,22 @@ async fn main() -> Result<()> {
     let auth_manager = Arc::new(tokio::sync::RwLock::new(app_auth_manager));
     let config_arc = Arc::new(RwLock::new(config.clone()));
 
+    // Build provider registry (with proxy credentials in proxy mode)
+    let provider_registry = if config.is_proxy_only() {
+        let registry = if let Some(ref proxy) = config.proxy {
+            providers::registry::ProviderRegistry::from_proxy_config(proxy)
+        } else {
+            providers::registry::ProviderRegistry::new()
+        };
+        if let Some(ref creds) = registry.proxy_credentials() {
+            let count = creds.len();
+            tracing::info!(count, "Proxy mode: loaded provider credentials from env");
+        }
+        Arc::new(registry)
+    } else {
+        Arc::new(providers::registry::ProviderRegistry::new())
+    };
+
     let mut app_state = routes::AppState {
         proxy_api_key_hash,
         model_cache: model_cache.clone(),
@@ -347,7 +363,7 @@ async fn main() -> Result<()> {
         kiro_token_cache: Arc::new(dashmap::DashMap::new()),
         oauth_pending: Arc::new(dashmap::DashMap::new()),
         guardrails_engine: None,
-        provider_registry: Arc::new(providers::registry::ProviderRegistry::new()),
+        provider_registry,
         providers: providers::build_provider_map(
             http_client.clone(),
             Arc::clone(&auth_manager),

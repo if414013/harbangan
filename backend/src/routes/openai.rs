@@ -40,12 +40,13 @@ pub(crate) async fn get_models_handler(
 
     // 2. Registry models (direct providers)
     let registry_models = state.model_cache.get_all_registry_models();
-    let kiro_set: std::collections::HashSet<String> = models.iter().map(|m| m.id.clone()).collect();
+    let mut seen: std::collections::HashSet<String> = models.iter().map(|m| m.id.clone()).collect();
 
     for rm in registry_models {
-        if kiro_set.contains(&rm.prefixed_id) {
+        if seen.contains(&rm.prefixed_id) {
             continue;
         }
+        seen.insert(rm.prefixed_id.clone());
         models.push(OpenAIModel {
             id: rm.prefixed_id,
             object: "model".to_string(),
@@ -53,6 +54,37 @@ pub(crate) async fn get_models_handler(
             owned_by: rm.provider_id,
             description: Some(rm.display_name),
         });
+    }
+
+    // 3. Proxy mode: add known models for each configured provider
+    for provider in state.provider_registry.configured_proxy_providers() {
+        let known = crate::providers::known_models::known_models_for_provider(&provider);
+        for model_id in known {
+            if !seen.contains(*model_id) {
+                seen.insert(model_id.to_string());
+                models.push(OpenAIModel {
+                    id: model_id.to_string(),
+                    object: "model".to_string(),
+                    created: 0,
+                    owned_by: provider.as_str().to_string(),
+                    description: None,
+                });
+            }
+        }
+    }
+
+    // 3b. Add custom provider models from env
+    for model_id in state.provider_registry.custom_model_names() {
+        if !seen.contains(model_id) {
+            seen.insert(model_id.clone());
+            models.push(OpenAIModel {
+                id: model_id.clone(),
+                object: "model".to_string(),
+                created: 0,
+                owned_by: "custom".to_string(),
+                description: None,
+            });
+        }
     }
 
     Ok(Json(ModelList::new(models)))
