@@ -180,12 +180,20 @@ pub struct ChatCompletionChoice {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptTokensDetails {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_tokens: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionUsage {
     pub prompt_tokens: i32,
     pub completion_tokens: i32,
     pub total_tokens: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credits_used: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_tokens_details: Option<PromptTokensDetails>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -285,5 +293,50 @@ impl ChatCompletionChunk {
             usage: None,
             system_fingerprint: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_usage_with_prompt_tokens_details() {
+        let usage = ChatCompletionUsage {
+            prompt_tokens: 100,
+            completion_tokens: 50,
+            total_tokens: 150,
+            credits_used: None,
+            prompt_tokens_details: Some(PromptTokensDetails {
+                cached_tokens: Some(80),
+            }),
+        };
+        let json = serde_json::to_value(&usage).unwrap();
+        assert_eq!(json["prompt_tokens_details"]["cached_tokens"], 80);
+    }
+
+    #[test]
+    fn test_usage_without_prompt_tokens_details() {
+        let json = json!({
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        });
+        let usage: ChatCompletionUsage = serde_json::from_value(json).unwrap();
+        assert!(usage.prompt_tokens_details.is_none());
+    }
+
+    #[test]
+    fn test_usage_prompt_tokens_details_skip_serializing_none() {
+        let usage = ChatCompletionUsage {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: 15,
+            credits_used: None,
+            prompt_tokens_details: None,
+        };
+        let json = serde_json::to_value(&usage).unwrap();
+        assert!(json.get("prompt_tokens_details").is_none());
     }
 }

@@ -33,6 +33,9 @@ pub enum ContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         is_error: Option<bool>,
     },
+    RedactedThinking {
+        data: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,6 +162,10 @@ pub struct AnthropicMessagesRequest {
 pub struct AnthropicUsage {
     pub input_tokens: i32,
     pub output_tokens: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_creation_input_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_input_tokens: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -231,6 +238,7 @@ pub enum StreamEvent {
 pub enum Delta {
     TextDelta { text: String },
     ThinkingDelta { thinking: String },
+    SignatureDelta { signature: String },
     InputJsonDelta { partial_json: String },
 }
 
@@ -248,4 +256,83 @@ pub struct MessageStartData {
     pub content: Vec<serde_json::Value>,
     pub model: String,
     pub usage: AnthropicUsage,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_anthropic_usage_with_cache_fields() {
+        let usage = AnthropicUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_creation_input_tokens: Some(20),
+            cache_read_input_tokens: Some(80),
+        };
+        let json = serde_json::to_value(&usage).unwrap();
+        assert_eq!(json["cache_creation_input_tokens"], 20);
+        assert_eq!(json["cache_read_input_tokens"], 80);
+    }
+
+    #[test]
+    fn test_anthropic_usage_without_cache_fields() {
+        let json = json!({
+            "input_tokens": 100,
+            "output_tokens": 50
+        });
+        let usage: AnthropicUsage = serde_json::from_value(json).unwrap();
+        assert!(usage.cache_creation_input_tokens.is_none());
+        assert!(usage.cache_read_input_tokens.is_none());
+    }
+
+    #[test]
+    fn test_anthropic_usage_cache_fields_skip_serializing_none() {
+        let usage = AnthropicUsage {
+            input_tokens: 10,
+            output_tokens: 5,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
+        };
+        let json = serde_json::to_value(&usage).unwrap();
+        assert!(json.get("cache_creation_input_tokens").is_none());
+        assert!(json.get("cache_read_input_tokens").is_none());
+    }
+
+    #[test]
+    fn test_redacted_thinking_serde() {
+        let block = ContentBlock::RedactedThinking {
+            data: "abc123encrypted".to_string(),
+        };
+        let json = serde_json::to_value(&block).unwrap();
+        assert_eq!(json["type"], "redacted_thinking");
+        assert_eq!(json["data"], "abc123encrypted");
+
+        // Round-trip
+        let parsed: ContentBlock = serde_json::from_value(json).unwrap();
+        if let ContentBlock::RedactedThinking { data } = parsed {
+            assert_eq!(data, "abc123encrypted");
+        } else {
+            panic!("expected RedactedThinking variant");
+        }
+    }
+
+    #[test]
+    fn test_signature_delta_serde() {
+        let delta = Delta::SignatureDelta {
+            signature: "sig_abc123".to_string(),
+        };
+        let json = serde_json::to_value(&delta).unwrap();
+        assert_eq!(json["type"], "signature_delta");
+        assert_eq!(json["signature"], "sig_abc123");
+
+        // Round-trip
+        let parsed: Delta = serde_json::from_value(json).unwrap();
+        if let Delta::SignatureDelta { signature } = parsed {
+            assert_eq!(signature, "sig_abc123");
+        } else {
+            panic!("expected SignatureDelta variant");
+        }
+    }
 }

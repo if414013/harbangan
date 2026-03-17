@@ -1942,6 +1942,7 @@ pub async fn stream_kiro_to_openai(
                         completion_tokens: u.output_tokens,
                         total_tokens: input_tokens + u.output_tokens,
                         credits_used: None,
+                        prompt_tokens_details: None,
                     })
                 } else {
                     // Fallback: Count output tokens using tiktoken (same method as input tokens)
@@ -1966,6 +1967,7 @@ pub async fn stream_kiro_to_openai(
                             completion_tokens: output_tokens,
                             total_tokens: input_tokens + output_tokens,
                             credits_used: None,
+                            prompt_tokens_details: None,
                         })
                     } else {
                         tracing::warn!("include_usage=true but no usage data received from Kiro API and no content to count from");

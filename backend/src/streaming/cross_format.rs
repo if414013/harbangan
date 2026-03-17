@@ -16,7 +16,7 @@ use crate::providers::types::ProviderStreamItem;
 use crate::models::anthropic::{Delta, MessageDeltaUsage, StreamEvent};
 use crate::models::openai::{
     ChatCompletionChunk, ChatCompletionChunkChoice, ChatCompletionChunkDelta, ChatCompletionUsage,
-    FunctionCallDelta, ToolCallDelta,
+    FunctionCallDelta, PromptTokensDetails, ToolCallDelta,
 };
 
 /// State tracker for OpenAI → Anthropic stream translation.
@@ -51,6 +51,15 @@ impl OpenAIToAnthropicState {
         // Emit message_start on first chunk
         if !self.has_started_message {
             self.has_started_message = true;
+            let mut usage_json = json!({"input_tokens": 0, "output_tokens": 0});
+            // If the first chunk has usage with cache info, include it
+            if let Some(u) = &chunk.usage {
+                if let Some(details) = &u.prompt_tokens_details {
+                    if let Some(cached) = details.cached_tokens {
+                        usage_json["cache_read_input_tokens"] = json!(cached);
+                    }
+                }
+            }
             events.push(StreamEvent::MessageStart {
                 message: json!({
                     "id": self.message_id,
@@ -58,7 +67,7 @@ impl OpenAIToAnthropicState {
                     "role": "assistant",
                     "content": [],
                     "model": self.model,
-                    "usage": {"input_tokens": 0, "output_tokens": 0}
+                    "usage": usage_json
                 }),
             });
         }
@@ -198,6 +207,10 @@ pub struct AnthropicToOpenAIState {
     chunk_id: String,
     model: String,
     tool_indices: std::collections::HashMap<i32, ToolBlockInfo>, // anthropic block index → tool info
+    /// Captured from MessageStart for cache token passthrough
+    start_input_tokens: i32,
+    start_cache_creation_input_tokens: Option<i32>,
+    start_cache_read_input_tokens: Option<i32>,
 }
 
 struct ToolBlockInfo {
@@ -213,6 +226,9 @@ impl AnthropicToOpenAIState {
             chunk_id: format!("chatcmpl-{}", &Uuid::new_v4().simple().to_string()[..24]),
             model: model.to_string(),
             tool_indices: std::collections::HashMap::new(),
+            start_input_tokens: 0,
+            start_cache_creation_input_tokens: None,
+            start_cache_read_input_tokens: None,
         }
     }
 
@@ -223,6 +239,21 @@ impl AnthropicToOpenAIState {
                 // Extract model from message_start if available
                 if let Some(m) = message.get("model").and_then(Value::as_str) {
                     self.model = m.to_string();
+                }
+                // Capture usage from message_start for cache token passthrough
+                if let Some(usage) = message.get("usage") {
+                    self.start_input_tokens = usage
+                        .get("input_tokens")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(0) as i32;
+                    self.start_cache_creation_input_tokens = usage
+                        .get("cache_creation_input_tokens")
+                        .and_then(Value::as_i64)
+                        .map(|v| v as i32);
+                    self.start_cache_read_input_tokens = usage
+                        .get("cache_read_input_tokens")
+                        .and_then(Value::as_i64)
+                        .map(|v| v as i32);
                 }
                 // Emit initial role chunk
                 Some(self.make_chunk(
@@ -329,6 +360,10 @@ impl AnthropicToOpenAIState {
                         None
                     }
                 }
+
+                // Signature deltas are Anthropic-specific (multi-turn thinking replay);
+                // no OpenAI equivalent — skip silently
+                Delta::SignatureDelta { .. } => None,
             },
 
             StreamEvent::ContentBlockStop { .. } => None,
@@ -344,11 +379,22 @@ impl AnthropicToOpenAIState {
                             _ => "stop".to_string(),
                         });
 
+                let prompt_tokens = self.start_input_tokens;
+                let total_tokens = prompt_tokens + usage.output_tokens;
+
+                // Map Anthropic cache_read_input_tokens → OpenAI prompt_tokens_details.cached_tokens
+                let prompt_tokens_details =
+                    self.start_cache_read_input_tokens
+                        .map(|cached| PromptTokensDetails {
+                            cached_tokens: Some(cached),
+                        });
+
                 let chunk_usage = Some(ChatCompletionUsage {
-                    prompt_tokens: 0,
+                    prompt_tokens,
                     completion_tokens: usage.output_tokens,
-                    total_tokens: usage.output_tokens,
+                    total_tokens,
                     credits_used: None,
+                    prompt_tokens_details,
                 });
 
                 Some(self.make_chunk(
@@ -812,5 +858,129 @@ mod tests {
         let mut state = AnthropicToOpenAIState::new("claude-sonnet-4");
         let event = StreamEvent::ContentBlockStop { index: 0 };
         assert!(state.translate_event(&event).is_none());
+    }
+
+    #[test]
+    fn test_anthropic_to_openai_signature_delta_skipped() {
+        let mut state = AnthropicToOpenAIState::new("claude-sonnet-4");
+        let event = StreamEvent::ContentBlockDelta {
+            index: 0,
+            delta: Delta::SignatureDelta {
+                signature: "sig_abc123".to_string(),
+            },
+        };
+        assert!(state.translate_event(&event).is_none());
+    }
+
+    #[test]
+    fn test_anthropic_to_openai_cache_tokens_passthrough() {
+        let mut state = AnthropicToOpenAIState::new("claude-sonnet-4");
+
+        // MessageStart with cache tokens in usage
+        let msg_start = StreamEvent::MessageStart {
+            message: json!({
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": "claude-sonnet-4",
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 0,
+                    "cache_creation_input_tokens": 50,
+                    "cache_read_input_tokens": 30
+                }
+            }),
+        };
+        state.translate_event(&msg_start);
+
+        // Verify state captured the cache tokens
+        assert_eq!(state.start_input_tokens, 100);
+        assert_eq!(state.start_cache_creation_input_tokens, Some(50));
+        assert_eq!(state.start_cache_read_input_tokens, Some(30));
+
+        // MessageDelta should include cache tokens in final usage
+        let msg_delta = StreamEvent::MessageDelta {
+            delta: json!({"stop_reason": "end_turn"}),
+            usage: MessageDeltaUsage { output_tokens: 42 },
+        };
+        let chunk = state.translate_event(&msg_delta).unwrap();
+        let usage = chunk.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, 100);
+        assert_eq!(usage.completion_tokens, 42);
+        assert_eq!(usage.total_tokens, 142);
+        let details = usage.prompt_tokens_details.unwrap();
+        assert_eq!(details.cached_tokens, Some(30));
+    }
+
+    #[test]
+    fn test_anthropic_to_openai_no_cache_tokens() {
+        let mut state = AnthropicToOpenAIState::new("claude-sonnet-4");
+
+        // MessageStart without cache tokens
+        let msg_start = StreamEvent::MessageStart {
+            message: json!({
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": "claude-sonnet-4",
+                "usage": {"input_tokens": 50, "output_tokens": 0}
+            }),
+        };
+        state.translate_event(&msg_start);
+
+        let msg_delta = StreamEvent::MessageDelta {
+            delta: json!({"stop_reason": "end_turn"}),
+            usage: MessageDeltaUsage { output_tokens: 10 },
+        };
+        let chunk = state.translate_event(&msg_delta).unwrap();
+        let usage = chunk.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, 50);
+        assert!(usage.prompt_tokens_details.is_none());
+    }
+
+    #[test]
+    fn test_openai_to_anthropic_cache_tokens_in_message_start() {
+        let mut state = OpenAIToAnthropicState::new("gpt-4o");
+
+        // First chunk with usage containing cache info
+        let chunk = ChatCompletionChunk {
+            id: "chatcmpl-test".to_string(),
+            object: "chat.completion.chunk".to_string(),
+            created: 0,
+            model: "gpt-4o".to_string(),
+            choices: vec![ChatCompletionChunkChoice {
+                index: 0,
+                delta: ChatCompletionChunkDelta {
+                    role: Some("assistant".to_string()),
+                    content: None,
+                    tool_calls: None,
+                    reasoning_content: None,
+                },
+                finish_reason: None,
+                logprobs: None,
+            }],
+            usage: Some(ChatCompletionUsage {
+                prompt_tokens: 100,
+                completion_tokens: 0,
+                total_tokens: 100,
+                credits_used: None,
+                prompt_tokens_details: Some(PromptTokensDetails {
+                    cached_tokens: Some(80),
+                }),
+            }),
+            system_fingerprint: None,
+        };
+
+        let events = state.translate_chunk(&chunk);
+        // First event should be MessageStart
+        let msg_start = &events[0];
+        if let StreamEvent::MessageStart { message } = msg_start {
+            let usage = message.get("usage").unwrap();
+            assert_eq!(usage["cache_read_input_tokens"], 80);
+        } else {
+            panic!("expected MessageStart");
+        }
     }
 }

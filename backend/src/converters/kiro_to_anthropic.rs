@@ -61,11 +61,15 @@ pub fn convert_kiro_to_anthropic_response(
         AnthropicUsage {
             input_tokens: kiro_usage.input_tokens,
             output_tokens: kiro_usage.output_tokens,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
         }
     } else {
         AnthropicUsage {
             input_tokens: 0,
             output_tokens: 0,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
         }
     };
 

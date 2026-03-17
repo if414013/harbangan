@@ -96,6 +96,7 @@ pub fn convert_kiro_to_openai_response(
             completion_tokens: kiro_usage.output_tokens,
             total_tokens: kiro_usage.input_tokens + kiro_usage.output_tokens,
             credits_used: None,
+            prompt_tokens_details: None,
         }
     } else {
         ChatCompletionUsage {
@@ -103,6 +104,7 @@ pub fn convert_kiro_to_openai_response(
             completion_tokens: 0,
             total_tokens: 0,
             credits_used: None,
+            prompt_tokens_details: None,
         }
     };
 
