@@ -136,6 +136,7 @@ fn create_test_app_state() -> AppState {
         provider_oauth_pending: Arc::new(dashmap::DashMap::new()),
         token_exchanger: Arc::new(HttpTokenExchanger::new()),
         login_rate_limiter: Arc::new(dashmap::DashMap::new()),
+        rate_tracker: Arc::new(providers::rate_limiter::RateLimitTracker::new()),
     }
 }
 
