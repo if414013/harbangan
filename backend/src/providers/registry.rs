@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use uuid::Uuid;
 
+use crate::providers::rate_limiter::{AccountId, RateLimitTracker};
 use crate::providers::types::{ProviderCredentials, ProviderId};
 use crate::web_ui::config_db::ConfigDb;
 use crate::web_ui::provider_oauth::TokenExchanger;
@@ -301,6 +302,145 @@ impl ProviderRegistry {
         }
     }
 
+    /// Resolve provider with multi-account load balancing.
+    ///
+    /// Loads ALL user accounts for the target provider plus admin pool accounts,
+    /// then uses the rate limit tracker to pick the account with the most headroom.
+    /// Falls back to existing single-account resolution if no multi-account data exists.
+    ///
+    /// Returns `(ProviderId, Option<ProviderCredentials>, Option<AccountId>)` where
+    /// the AccountId can be used for rate-limit tracking after the request completes.
+    pub async fn resolve_provider_with_balancing(
+        &self,
+        user_id: Option<Uuid>,
+        model: &str,
+        db: Option<&ConfigDb>,
+        rate_tracker: &RateLimitTracker,
+    ) -> (ProviderId, Option<ProviderCredentials>, Option<AccountId>) {
+        let Some(uid) = user_id else {
+            return (ProviderId::Kiro, None, None);
+        };
+
+        // Determine target provider from model name
+        let native = if let Some((provider, _model_id)) = Self::parse_prefixed_model(model) {
+            provider
+        } else if let Some(provider) = Self::provider_for_model(model) {
+            provider
+        } else {
+            return (ProviderId::Kiro, None, None);
+        };
+
+        let Some(db) = db else {
+            return (ProviderId::Kiro, None, None);
+        };
+
+        let provider_str = native.as_str();
+
+        // Load all user accounts for this provider
+        let mut candidates: Vec<(AccountId, ProviderCredentials)> = Vec::new();
+
+        if let Ok(rows) = db.get_all_user_provider_tokens(uid, provider_str).await {
+            for row in rows {
+                let now = chrono::Utc::now();
+                if row.expires_at > now {
+                    let base_url = if provider_str == "qwen" {
+                        row.base_url.clone()
+                    } else {
+                        None
+                    };
+                    let account_id = AccountId {
+                        user_id: Some(uid),
+                        provider_id: native.clone(),
+                        account_label: row.account_label.clone(),
+                    };
+                    let creds = ProviderCredentials {
+                        provider: native.clone(),
+                        access_token: row.access_token.clone(),
+                        base_url,
+                        account_label: row.account_label.clone(),
+                    };
+                    candidates.push((account_id, creds));
+                }
+            }
+        }
+
+        // Also check Copilot as an alternative (universal provider)
+        if let Ok(Some(row)) = db.get_copilot_tokens(uid).await {
+            if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
+                (row.copilot_token, row.base_url, row.expires_at)
+            {
+                let now = chrono::Utc::now();
+                if expires_at > now {
+                    // Load user priority to decide if Copilot should be included
+                    let priority = db
+                        .get_user_provider_priority(uid)
+                        .await
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect::<HashMap<String, i32>>();
+                    let native_pri = priority.get(provider_str).copied().unwrap_or(0);
+                    let copilot_pri = priority.get("copilot").copied().unwrap_or(1);
+
+                    // Include Copilot if it has equal or better priority, or if no native accounts
+                    if candidates.is_empty() || copilot_pri <= native_pri {
+                        let account_id = AccountId {
+                            user_id: Some(uid),
+                            provider_id: ProviderId::Copilot,
+                            account_label: "default".to_string(),
+                        };
+                        let creds = ProviderCredentials {
+                            provider: ProviderId::Copilot,
+                            access_token: copilot_token,
+                            base_url: Some(base_url),
+                            account_label: "default".to_string(),
+                        };
+                        candidates.push((account_id, creds));
+                    }
+                }
+            }
+        }
+
+        // Load admin pool accounts as fallback
+        if let Ok(pool_rows) = db.get_admin_pool_accounts(provider_str).await {
+            for row in pool_rows {
+                let account_id = AccountId {
+                    user_id: None,
+                    provider_id: native.clone(),
+                    account_label: row.account_label.clone(),
+                };
+                let creds = ProviderCredentials {
+                    provider: native.clone(),
+                    access_token: row.api_key.clone(),
+                    base_url: row.base_url.clone(),
+                    account_label: row.account_label.clone(),
+                };
+                candidates.push((account_id, creds));
+            }
+        }
+
+        if candidates.is_empty() {
+            // No accounts available — fall back to existing single-account resolution
+            let (pid, creds) = self.resolve_provider(user_id, model, Some(db)).await;
+            return (pid, creds, None);
+        }
+
+        // Use rate tracker to pick the best account
+        let account_ids: Vec<AccountId> = candidates.iter().map(|(aid, _)| aid.clone()).collect();
+        if let Some(best) = rate_tracker.best_account(&account_ids) {
+            // Find the matching credentials
+            if let Some((_, creds)) = candidates.iter().find(|(aid, _)| aid == &best) {
+                let provider_id = creds.provider.clone();
+                return (provider_id, Some(creds.clone()), Some(best));
+            }
+        }
+
+        // All accounts rate-limited — return first candidate anyway with account_id
+        // so the caller can attempt and get a proper 429
+        let (account_id, creds) = candidates.into_iter().next().unwrap();
+        let provider_id = creds.provider.clone();
+        (provider_id, Some(creds), Some(account_id))
+    }
+
     /// Invalidate the cache for a user. Call after a provider token is added, removed, or refreshed.
     pub fn invalidate(&self, user_id: Uuid) {
         self.cache.remove(&user_id);
@@ -344,6 +484,7 @@ impl ProviderRegistry {
                             provider,
                             access_token,
                             base_url,
+                            account_label: "default".to_string(),
                         },
                     );
                     expires_map.insert(provider_str.to_string(), expires_at);
@@ -364,6 +505,7 @@ impl ProviderRegistry {
                             provider: ProviderId::Copilot,
                             access_token: copilot_token,
                             base_url: Some(base_url),
+                            account_label: "default".to_string(),
                         },
                     );
                     expires_map.insert("copilot".to_string(), expires_at);
@@ -543,6 +685,7 @@ mod tests {
                 provider: ProviderId::Anthropic,
                 access_token: "sk-ant-cached".to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
         );
         registry.cache.insert(
@@ -674,6 +817,7 @@ mod tests {
                 provider: ProviderId::Anthropic,
                 access_token: "still-valid".to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
         );
         registry.cache.insert(
@@ -784,6 +928,7 @@ mod tests {
                 provider: ProviderId::Anthropic,
                 access_token: "sk-ant".to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
         );
         let priority = HashMap::new();
@@ -802,6 +947,7 @@ mod tests {
                 provider: ProviderId::Copilot,
                 access_token: "cop-tok".to_string(),
                 base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
             },
         );
         let priority = HashMap::new();
@@ -820,6 +966,7 @@ mod tests {
                 provider: ProviderId::Anthropic,
                 access_token: "sk-ant".to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
         );
         creds.insert(
@@ -828,6 +975,7 @@ mod tests {
                 provider: ProviderId::Copilot,
                 access_token: "cop-tok".to_string(),
                 base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
             },
         );
         // No priority set — native default=0, copilot default=1 → native wins
@@ -846,6 +994,7 @@ mod tests {
                 provider: ProviderId::OpenAICodex,
                 access_token: "sk-oai".to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
         );
         creds.insert(
@@ -854,6 +1003,7 @@ mod tests {
                 provider: ProviderId::Copilot,
                 access_token: "cop-tok".to_string(),
                 base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
             },
         );
         // User sets copilot priority=1, openai_codex priority=2 → copilot wins
@@ -875,6 +1025,7 @@ mod tests {
                 provider: ProviderId::Anthropic,
                 access_token: "sk-ant".to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
         );
         creds.insert(
@@ -883,6 +1034,7 @@ mod tests {
                 provider: ProviderId::Copilot,
                 access_token: "cop-tok".to_string(),
                 base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
             },
         );
         // User sets anthropic priority=1, copilot priority=5 → anthropic wins
@@ -904,6 +1056,7 @@ mod tests {
                 provider: ProviderId::OpenAICodex,
                 access_token: "sk-oai".to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
         );
         creds.insert(
@@ -912,6 +1065,7 @@ mod tests {
                 provider: ProviderId::Copilot,
                 access_token: "cop-tok".to_string(),
                 base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
             },
         );
         // Equal priority → native wins (tie-break)
@@ -935,6 +1089,7 @@ mod tests {
                 provider: ProviderId::Anthropic,
                 access_token: "sk-ant".to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
         );
         creds_map.insert(
@@ -943,6 +1098,7 @@ mod tests {
                 provider: ProviderId::Copilot,
                 access_token: "cop-tok".to_string(),
                 base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
             },
         );
         let mut priority_map = HashMap::new();
@@ -976,6 +1132,7 @@ mod tests {
                 provider: ProviderId::Copilot,
                 access_token: "cop-tok".to_string(),
                 base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
             },
         );
         let priority = HashMap::new();
@@ -994,6 +1151,7 @@ mod tests {
                 provider: ProviderId::Copilot,
                 access_token: "cop-tok".to_string(),
                 base_url: Some("https://api.business.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
             },
         );
         let priority = HashMap::new();
@@ -1019,6 +1177,7 @@ mod tests {
                 provider: ProviderId::Anthropic,
                 access_token: "sk-ant".to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
         );
         registry.cache.insert(
@@ -1148,6 +1307,7 @@ mod tests {
                 provider: ProviderId::Qwen,
                 access_token: "qwen-tok-123".to_string(),
                 base_url: Some("https://custom.qwen.ai/api".to_string()),
+                account_label: "default".to_string(),
             },
         );
         registry.cache.insert(
@@ -1201,6 +1361,7 @@ mod tests {
                 provider: ProviderId::Qwen,
                 access_token: "qwen-tok".to_string(),
                 base_url: Some("https://custom.qwen.ai/api".to_string()),
+                account_label: "default".to_string(),
             },
         );
         let priority = HashMap::new();
@@ -1221,6 +1382,7 @@ mod tests {
                 provider: ProviderId::Qwen,
                 access_token: "qwen-tok".to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
         );
         creds.insert(
@@ -1229,6 +1391,7 @@ mod tests {
                 provider: ProviderId::Copilot,
                 access_token: "cop-tok".to_string(),
                 base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
             },
         );
         // No priority set — native (qwen) default=0, copilot default=1 → qwen wins
@@ -1247,6 +1410,7 @@ mod tests {
                 provider: ProviderId::Qwen,
                 access_token: "qwen-tok".to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
         );
         creds.insert(
@@ -1255,6 +1419,7 @@ mod tests {
                 provider: ProviderId::Copilot,
                 access_token: "cop-tok".to_string(),
                 base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
             },
         );
         let mut priority = HashMap::new();
@@ -1276,6 +1441,7 @@ mod tests {
                 provider: ProviderId::Copilot,
                 access_token: "cop-tok".to_string(),
                 base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
             },
         );
         let priority = HashMap::new();
@@ -1296,6 +1462,7 @@ mod tests {
                 provider: ProviderId::Qwen,
                 access_token: "qwen-tok".to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
         );
         registry.cache.insert(
@@ -1324,6 +1491,7 @@ mod tests {
                 provider: ProviderId::Qwen,
                 access_token: "qwen-tok".to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
         );
         registry.cache.insert(
@@ -1358,6 +1526,7 @@ mod tests {
                 provider: ProviderId::Qwen,
                 access_token: "qwen-still-valid".to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
         );
         registry.cache.insert(

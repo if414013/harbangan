@@ -1,3 +1,4 @@
+pub mod admin_pool;
 pub mod api_keys;
 pub mod config_api;
 pub mod config_db;
@@ -85,6 +86,9 @@ pub fn web_ui_routes(state: AppState) -> Router {
         .merge(qwen_auth::qwen_auth_routes())
         // Provider priority management
         .merge(provider_priority::provider_priority_routes())
+        // Multi-account: per-user account management + rate limits
+        .merge(admin_pool::user_account_routes())
+        .merge(admin_pool::rate_limit_routes())
         // Model registry (session-authenticated, all users)
         .nest(
             "/models/registry",
@@ -120,6 +124,8 @@ pub fn web_ui_routes(state: AppState) -> Router {
         // Usage tracking (admin only - global stats)
         .route("/admin/usage", get(usage::get_admin_usage))
         .route("/admin/usage/users", get(usage::get_admin_usage_by_users))
+        // Admin pool management
+        .merge(admin_pool::admin_pool_routes())
         // Admin password auth: create users, reset passwords
         .route(
             "/admin/users/create",

@@ -64,7 +64,7 @@ export default defineConfig({
     {
       name: 'ui-admin',
       testDir: './specs/ui',
-      testMatch: ['config.spec.ts', 'admin.spec.ts', 'admin-users.spec.ts', 'guardrails.spec.ts'],
+      testMatch: ['config.spec.ts', 'admin.spec.ts', 'admin-users.spec.ts', 'guardrails.spec.ts', 'multi-account.spec.ts'],
       use: {
         baseURL: BASE_UI_URL,
         ignoreHTTPSErrors: true,

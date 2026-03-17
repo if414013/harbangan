@@ -126,7 +126,11 @@ impl Provider for KiroProvider {
         )
         .await?;
 
-        Ok(ProviderResponse { status: 200, body })
+        Ok(ProviderResponse {
+            status: 200,
+            body,
+            headers: axum::http::HeaderMap::new(),
+        })
     }
 
     async fn stream_openai(
@@ -192,7 +196,11 @@ impl Provider for KiroProvider {
         )
         .await?;
 
-        Ok(ProviderResponse { status: 200, body })
+        Ok(ProviderResponse {
+            status: 200,
+            body,
+            headers: axum::http::HeaderMap::new(),
+        })
     }
 
     async fn stream_anthropic(

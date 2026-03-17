@@ -323,6 +323,7 @@ mod tests {
             provider_oauth_pending: Arc::new(dashmap::DashMap::new()),
             token_exchanger: Arc::new(crate::web_ui::provider_oauth::HttpTokenExchanger::new()),
             login_rate_limiter: Arc::new(dashmap::DashMap::new()),
+            rate_tracker: Arc::new(crate::providers::rate_limiter::RateLimitTracker::new()),
         }
     }
 

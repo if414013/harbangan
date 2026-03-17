@@ -332,6 +332,84 @@ export function disconnectProvider(provider: string) {
   return apiDelete(`/providers/${provider}`);
 }
 
+// --- Multi-Account Types ---
+
+export interface AdminPoolAccount {
+  id: string;
+  provider_id: string;
+  account_label: string;
+  key_prefix: string;
+  base_url: string | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserProviderAccount {
+  provider_id: string;
+  account_label: string;
+  email: string | null;
+  base_url: string | null;
+  created_at: string;
+}
+
+export interface RateLimitInfo {
+  provider_id: string;
+  account_label: string;
+  requests_remaining: number | null;
+  tokens_remaining: number | null;
+  limited_until: string | null;
+  updated_at: string | null;
+}
+
+// --- Admin Pool API ---
+
+export function getAdminPoolAccounts() {
+  return apiFetch<{ accounts: AdminPoolAccount[] }>("/admin/pool");
+}
+
+export function addAdminPoolAccount(data: {
+  provider_id: string;
+  account_label: string;
+  api_key: string;
+  key_prefix?: string;
+  base_url?: string;
+}) {
+  return apiPost<void>("/admin/pool", data);
+}
+
+export function deleteAdminPoolAccount(id: string) {
+  return apiDelete(`/admin/pool/${id}`);
+}
+
+export function toggleAdminPoolAccount(id: string, enabled: boolean) {
+  return apiFetch<void>(`/admin/pool/${id}/toggle`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+// --- User Provider Accounts API ---
+
+export function getUserProviderAccounts(provider: string) {
+  return apiFetch<{ accounts: UserProviderAccount[] }>(
+    `/providers/${provider}/accounts`,
+  );
+}
+
+export function deleteUserProviderAccount(provider: string, label: string) {
+  return apiDelete(
+    `/providers/${provider}/accounts/${encodeURIComponent(label)}`,
+  );
+}
+
+// --- Rate Limits API ---
+
+export function getProviderRateLimits() {
+  return apiFetch<{ accounts: RateLimitInfo[] }>("/providers/rate-limits");
+}
+
 // --- Copilot Types ---
 
 export interface CopilotStatus {

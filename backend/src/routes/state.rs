@@ -12,6 +12,7 @@ use crate::cache::ModelCache;
 use crate::config::Config;
 use crate::error::ApiError;
 use crate::http_client::KiroHttpClient;
+use crate::providers::rate_limiter::RateLimitTracker;
 use crate::providers::registry::ProviderRegistry;
 use crate::providers::ProviderMap;
 use crate::resolver::ModelResolver;
@@ -99,6 +100,9 @@ pub struct AppState {
     pub token_exchanger: Arc<dyn TokenExchanger>,
     /// Rate limiter for password login: email → (failure_count, first_failure_at)
     pub login_rate_limiter: Arc<DashMap<String, (u32, std::time::Instant)>>,
+    /// Per-account rate-limit tracker for multi-account load balancing
+    #[allow(dead_code)]
+    pub rate_tracker: Arc<RateLimitTracker>,
 }
 
 impl AppState {

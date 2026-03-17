@@ -358,6 +358,7 @@ async fn main() -> Result<()> {
             Arc::clone(&config_arc),
         )),
         login_rate_limiter: Arc::new(dashmap::DashMap::new()),
+        rate_tracker: Arc::new(providers::rate_limiter::RateLimitTracker::new()),
     };
 
     // ── Guardrails ────────────────────────────────────────────────

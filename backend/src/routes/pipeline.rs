@@ -1,9 +1,13 @@
+use std::time::Duration;
+
+use axum::http::HeaderMap;
 use serde_json::Value;
 
 use crate::config::Config;
 use crate::error::ApiError;
 use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::ChatCompletionRequest;
+use crate::providers::rate_limiter::{AccountId, RateLimitTracker};
 use crate::providers::registry::ProviderRegistry;
 use crate::providers::types::{ProviderCredentials, ProviderId};
 
@@ -15,6 +19,8 @@ pub(crate) struct ProviderRouting {
     pub provider_creds: Option<ProviderCredentials>,
     /// The model name with the provider prefix stripped (e.g. "claude-opus-4-6" from "anthropic/claude-opus-4-6").
     pub stripped_model: Option<String>,
+    /// Account ID for rate-limit tracking (None in proxy-only mode or single-account).
+    pub account_id: Option<AccountId>,
 }
 
 /// Resolve which provider to route a request to, refreshing OAuth tokens if needed.
@@ -42,6 +48,27 @@ pub(crate) async fn resolve_provider_routing(
         }
     }
 
+    // Use multi-account balancing when config_db is available
+    if state.config_db.is_some() {
+        let (provider_id, provider_creds, account_id) = state
+            .provider_registry
+            .resolve_provider_with_balancing(
+                user_id,
+                model,
+                state.config_db.as_deref(),
+                &state.rate_tracker,
+            )
+            .await;
+
+        return ProviderRouting {
+            provider_id,
+            provider_creds,
+            stripped_model,
+            account_id,
+        };
+    }
+
+    // Proxy-only mode: single-account resolution
     let (provider_id, provider_creds) = state
         .provider_registry
         .resolve_provider(user_id, model, state.config_db.as_deref())
@@ -51,6 +78,29 @@ pub(crate) async fn resolve_provider_routing(
         provider_id,
         provider_creds,
         stripped_model,
+        account_id: None,
+    }
+}
+
+/// Parse the Retry-After header value as seconds.
+#[allow(dead_code)]
+pub(crate) fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
+    headers
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(Duration::from_secs)
+}
+
+/// Update rate-limit tracking from response headers.
+pub(crate) fn update_rate_limits(
+    rate_tracker: &RateLimitTracker,
+    account_id: &Option<AccountId>,
+    provider_id: &ProviderId,
+    headers: &HeaderMap,
+) {
+    if let Some(aid) = account_id {
+        rate_tracker.update_from_headers(aid, provider_id, headers);
     }
 }
 
@@ -83,6 +133,7 @@ pub(crate) async fn build_kiro_credentials(
         provider: ProviderId::Kiro,
         access_token,
         base_url: Some(kiro_api_url),
+        account_label: "default".to_string(),
     })
 }
 

@@ -150,10 +150,15 @@ impl Provider for OpenAICodexProvider {
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Serialization failed: {}", e)))?;
         let response = self.send_request(ctx, body, false).await?;
         let status = response.status().as_u16();
+        let headers = response.headers().clone();
         let body: Value = response.json().await.map_err(|e| {
             ApiError::Internal(anyhow::anyhow!("Failed to parse OpenAI response: {}", e))
         })?;
-        Ok(ProviderResponse { status, body })
+        Ok(ProviderResponse {
+            status,
+            body,
+            headers,
+        })
     }
 
     async fn stream_openai(
@@ -179,10 +184,15 @@ impl Provider for OpenAICodexProvider {
         let body = Self::anthropic_to_openai_body(req);
         let response = self.send_request(ctx, body, false).await?;
         let status = response.status().as_u16();
+        let headers = response.headers().clone();
         let body: Value = response.json().await.map_err(|e| {
             ApiError::Internal(anyhow::anyhow!("Failed to parse OpenAI response: {}", e))
         })?;
-        Ok(ProviderResponse { status, body })
+        Ok(ProviderResponse {
+            status,
+            body,
+            headers,
+        })
     }
 
     async fn stream_anthropic(
@@ -266,6 +276,7 @@ mod tests {
             provider: ProviderId::OpenAICodex,
             access_token: "sk-test".to_string(),
             base_url: None,
+            account_label: "default".to_string(),
         };
         let model = "gpt-4o".to_string();
         let ctx = ProviderContext {
@@ -285,6 +296,7 @@ mod tests {
             provider: ProviderId::OpenAICodex,
             access_token: "sk-test".to_string(),
             base_url: Some("https://openrouter.ai/api".to_string()),
+            account_label: "default".to_string(),
         };
         let model = "gpt-4o".to_string();
         let ctx = ProviderContext {

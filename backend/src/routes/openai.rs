@@ -14,7 +14,7 @@ use crate::providers::types::{ProviderContext, ProviderId};
 use super::pipeline::{
     build_kiro_credentials, build_request_context_openai, extract_assistant_content,
     extract_last_user_message, read_config, resolve_provider_routing, run_input_guardrail_check,
-    run_output_guardrail_check,
+    run_output_guardrail_check, update_rate_limits,
 };
 use super::state::{AppState, UserKiroCreds};
 
@@ -90,14 +90,14 @@ pub(crate) async fn chat_completions_handler(
     }
 
     // ── Provider routing ─────────────────────────────────────────────
-    let routing = resolve_provider_routing(&state, user_creds.as_ref(), &request.model).await;
+    let mut routing = resolve_provider_routing(&state, user_creds.as_ref(), &request.model).await;
 
     // Build credentials: for Kiro, derive from user creds / global auth;
     // for direct providers, use the credentials from the registry.
-    let creds = if routing.provider_id == ProviderId::Kiro {
+    let mut creds = if routing.provider_id == ProviderId::Kiro {
         build_kiro_credentials(&state, user_creds.as_ref()).await?
     } else {
-        routing.provider_creds.unwrap()
+        routing.provider_creds.clone().unwrap()
     };
 
     // Strip provider prefix from model name if present
@@ -145,73 +145,161 @@ pub(crate) async fn chat_completions_handler(
         }
     }
 
-    // ── Provider dispatch ────────────────────────────────────────────
-    let ctx = ProviderContext {
-        credentials: &creds,
-        model: &request.model,
-    };
+    // ── Provider dispatch with failover ──────────────────────────────
+    const MAX_ATTEMPTS: usize = 3;
 
     if request.stream {
-        let stream = provider.stream_openai(&ctx, &request).await?;
-        let byte_stream = stream.map(|r| r.map_err(|e| std::io::Error::other(e.to_string())));
+        let mut last_error = None;
+        for attempt in 0..MAX_ATTEMPTS {
+            let ctx = ProviderContext {
+                credentials: &creds,
+                model: &request.model,
+            };
 
-        let response = Response::builder()
-            .status(200)
-            .header("Content-Type", "text/event-stream")
-            .header("Cache-Control", "no-cache")
-            .header("Connection", "keep-alive")
-            .body(Body::from_stream(byte_stream))
-            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e)))?;
+            match provider.stream_openai(&ctx, &request).await {
+                Ok(stream) => {
+                    let byte_stream =
+                        stream.map(|r| r.map_err(|e| std::io::Error::other(e.to_string())));
 
-        DEBUG_LOGGER.discard_buffers().await;
-        Ok(response)
-    } else {
-        let resp = provider.execute_openai(&ctx, &request).await?;
-        let body = provider.normalize_response_for_openai(&request.model, resp.body);
+                    let response = Response::builder()
+                        .status(200)
+                        .header("Content-Type", "text/event-stream")
+                        .header("Cache-Control", "no-cache")
+                        .header("Connection", "keep-alive")
+                        .body(Body::from_stream(byte_stream))
+                        .map_err(|e| {
+                            ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e))
+                        })?;
 
-        // Output guardrails (non-streaming only)
-        if config.guardrails_enabled {
-            if let Some(ref engine) = state.guardrails_engine {
-                let output_text = extract_assistant_content(&body);
-                let ctx = build_request_context_openai(&request);
-                run_output_guardrail_check(engine, &output_text, &ctx).await?;
-            }
-        }
-
-        // ── Usage tracking (non-streaming only) ──────────────────────────
-        if let (Some(config_db), Some(user_creds)) = (state.config_db.as_ref(), user_creds.as_ref())
-        {
-            if let Some(usage) = body.get("usage") {
-                let input_tokens = usage["prompt_tokens"].as_i64().unwrap_or(0) as i32;
-                let output_tokens = usage["completion_tokens"].as_i64().unwrap_or(0) as i32;
-                let cost = crate::cost::calculate_cost(
-                    &request.model,
-                    input_tokens as i64,
-                    output_tokens as i64,
-                );
-                let db = config_db.clone();
-                let user_id = user_creds.user_id;
-                let provider = routing.provider_id.to_string();
-                let model = request.model.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = db
-                        .insert_usage_record(
-                            user_id,
-                            &provider,
-                            &model,
-                            input_tokens,
-                            output_tokens,
-                            cost,
-                        )
-                        .await
-                    {
-                        tracing::warn!(error = ?e, "Failed to record usage");
+                    DEBUG_LOGGER.discard_buffers().await;
+                    return Ok(response);
+                }
+                Err(ApiError::ProviderApiError { status: 429, .. })
+                    if attempt < MAX_ATTEMPTS - 1 =>
+                {
+                    // Rate limited — mark account and retry with different one
+                    if let Some(ref aid) = routing.account_id {
+                        tracing::info!(
+                            attempt,
+                            account_label = %aid.account_label,
+                            "Rate limited, retrying with different account"
+                        );
+                        state.rate_tracker.mark_limited(aid, None);
                     }
-                });
+                    // Re-resolve to get a different account
+                    routing =
+                        resolve_provider_routing(&state, user_creds.as_ref(), &request.model).await;
+                    if let Some(ref new_creds) = routing.provider_creds {
+                        creds = new_creds.clone();
+                    } else {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    break;
+                }
             }
         }
+        return Err(last_error.unwrap_or_else(|| ApiError::RateLimited {
+            provider: routing.provider_id.as_str().to_string(),
+            retry_after_secs: 60,
+        }));
+    } else {
+        let mut last_error = None;
+        for attempt in 0..MAX_ATTEMPTS {
+            let ctx = ProviderContext {
+                credentials: &creds,
+                model: &request.model,
+            };
 
-        DEBUG_LOGGER.discard_buffers().await;
-        Ok(Json(body).into_response())
+            match provider.execute_openai(&ctx, &request).await {
+                Ok(resp) => {
+                    // Update rate limits from response headers
+                    update_rate_limits(
+                        &state.rate_tracker,
+                        &routing.account_id,
+                        &routing.provider_id,
+                        &resp.headers,
+                    );
+
+                    let body = provider.normalize_response_for_openai(&request.model, resp.body);
+
+                    // Output guardrails (non-streaming only)
+                    if config.guardrails_enabled {
+                        if let Some(ref engine) = state.guardrails_engine {
+                            let output_text = extract_assistant_content(&body);
+                            let ctx = build_request_context_openai(&request);
+                            run_output_guardrail_check(engine, &output_text, &ctx).await?;
+                        }
+                    }
+
+                    // Usage tracking (non-streaming only)
+                    if let (Some(config_db), Some(user_creds)) =
+                        (state.config_db.as_ref(), user_creds.as_ref())
+                    {
+                        if let Some(usage) = body.get("usage") {
+                            let input_tokens = usage["prompt_tokens"].as_i64().unwrap_or(0) as i32;
+                            let output_tokens =
+                                usage["completion_tokens"].as_i64().unwrap_or(0) as i32;
+                            let cost = crate::cost::calculate_cost(
+                                &request.model,
+                                input_tokens as i64,
+                                output_tokens as i64,
+                            );
+                            let db = config_db.clone();
+                            let user_id = user_creds.user_id;
+                            let provider_str = routing.provider_id.to_string();
+                            let model = request.model.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = db
+                                    .insert_usage_record(
+                                        user_id,
+                                        &provider_str,
+                                        &model,
+                                        input_tokens,
+                                        output_tokens,
+                                        cost,
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(error = ?e, "Failed to record usage");
+                                }
+                            });
+                        }
+                    }
+
+                    DEBUG_LOGGER.discard_buffers().await;
+                    return Ok(Json(body).into_response());
+                }
+                Err(ApiError::ProviderApiError { status: 429, .. })
+                    if attempt < MAX_ATTEMPTS - 1 =>
+                {
+                    if let Some(ref aid) = routing.account_id {
+                        tracing::info!(
+                            attempt,
+                            account_label = %aid.account_label,
+                            "Rate limited, retrying with different account"
+                        );
+                        state.rate_tracker.mark_limited(aid, None);
+                    }
+                    routing =
+                        resolve_provider_routing(&state, user_creds.as_ref(), &request.model).await;
+                    if let Some(ref new_creds) = routing.provider_creds {
+                        creds = new_creds.clone();
+                    } else {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    break;
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| ApiError::RateLimited {
+            provider: routing.provider_id.as_str().to_string(),
+            retry_after_secs: 60,
+        }))
     }
 }

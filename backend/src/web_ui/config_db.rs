@@ -86,6 +86,37 @@ pub struct RegistryModel {
     pub updated_at: DateTime<Utc>,
 }
 
+/// A row from the `user_provider_tokens` table (multi-account aware).
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct UserProviderTokenRow {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub provider_id: String,
+    pub account_label: String,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_at: DateTime<Utc>,
+    pub email: String,
+    pub base_url: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// A row from the `admin_provider_pool` table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AdminPoolRow {
+    pub id: Uuid,
+    pub provider_id: String,
+    pub account_label: String,
+    pub api_key: String,
+    pub key_prefix: String,
+    pub base_url: Option<String>,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 /// A record of a configuration change.
 #[derive(Debug, Clone)]
 pub struct ConfigChange {
@@ -371,6 +402,17 @@ impl ConfigDb {
 
         if max_version.unwrap_or(1) < 19 {
             self.migrate_to_v19().await?;
+        }
+
+        // Re-read max version after v19 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 20 {
+            self.migrate_to_v20().await?;
         }
 
         Ok(())
@@ -2812,6 +2854,85 @@ impl ConfigDb {
         Ok(())
     }
 
+    /// Version 20 migration: multi-account support + admin provider pool.
+    async fn migrate_to_v20(&self) -> Result<()> {
+        tracing::info!("Running database migration to version 20 (multi-account + admin pool)...");
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v20 migration transaction")?;
+
+        // 1. Drop existing unique constraint on user_provider_tokens(user_id, provider_id)
+        sqlx::query(
+            "ALTER TABLE user_provider_tokens
+             DROP CONSTRAINT IF EXISTS user_provider_tokens_user_id_provider_id_key",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to drop user_provider_tokens unique constraint")?;
+
+        // 2. Add account_label column
+        sqlx::query(
+            "ALTER TABLE user_provider_tokens
+             ADD COLUMN IF NOT EXISTS account_label TEXT NOT NULL DEFAULT 'default'",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to add account_label column to user_provider_tokens")?;
+
+        // 3. Add new unique constraint including account_label
+        sqlx::query(
+            "DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'user_provider_tokens_user_provider_label_key'
+                ) THEN
+                    ALTER TABLE user_provider_tokens
+                    ADD CONSTRAINT user_provider_tokens_user_provider_label_key
+                    UNIQUE (user_id, provider_id, account_label);
+                END IF;
+            END $$",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to add new unique constraint on user_provider_tokens")?;
+
+        // 4. Create admin_provider_pool table
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS admin_provider_pool (
+                id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                provider_id   TEXT NOT NULL CHECK (provider_id IN ('kiro', 'anthropic', 'openai_codex', 'copilot', 'qwen')),
+                account_label TEXT NOT NULL DEFAULT 'pool-1',
+                api_key       TEXT NOT NULL,
+                key_prefix    TEXT NOT NULL DEFAULT '',
+                base_url      TEXT,
+                enabled       BOOLEAN NOT NULL DEFAULT true,
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (provider_id, account_label)
+            )",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to create admin_provider_pool table")?;
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(20_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 20")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit v20 migration")?;
+
+        tracing::info!("Database migration to version 20 complete");
+        Ok(())
+    }
+
     // ── Model Registry ───────────────────────────────────────────
 
     /// Get all models in the registry.
@@ -3295,7 +3416,7 @@ impl ConfigDb {
 
     // ── Provider OAuth Tokens ──────────────────────────────────────
 
-    /// Upsert a user's OAuth token for a provider.
+    /// Upsert a user's OAuth token for a provider (uses 'default' account label).
     /// Only overwrites `refresh_token` if the new value is non-empty (preserves existing on re-auth).
     #[allow(dead_code)]
     pub async fn upsert_user_provider_token(
@@ -3310,9 +3431,9 @@ impl ConfigDb {
         if refresh_token.is_empty() {
             // Preserve existing refresh_token
             sqlx::query(
-                "INSERT INTO user_provider_tokens (user_id, provider_id, access_token, expires_at, email, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, NOW())
-                 ON CONFLICT (user_id, provider_id) DO UPDATE SET
+                "INSERT INTO user_provider_tokens (user_id, provider_id, account_label, access_token, expires_at, email, updated_at)
+                 VALUES ($1, $2, 'default', $3, $4, $5, NOW())
+                 ON CONFLICT (user_id, provider_id, account_label) DO UPDATE SET
                    access_token  = EXCLUDED.access_token,
                    expires_at    = EXCLUDED.expires_at,
                    email         = CASE WHEN EXCLUDED.email = '' THEN user_provider_tokens.email ELSE EXCLUDED.email END,
@@ -3328,9 +3449,9 @@ impl ConfigDb {
             .context("Failed to upsert user provider token")?;
         } else {
             sqlx::query(
-                "INSERT INTO user_provider_tokens (user_id, provider_id, access_token, refresh_token, expires_at, email, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, NOW())
-                 ON CONFLICT (user_id, provider_id) DO UPDATE SET
+                "INSERT INTO user_provider_tokens (user_id, provider_id, account_label, access_token, refresh_token, expires_at, email, updated_at)
+                 VALUES ($1, $2, 'default', $3, $4, $5, $6, NOW())
+                 ON CONFLICT (user_id, provider_id, account_label) DO UPDATE SET
                    access_token  = EXCLUDED.access_token,
                    refresh_token = EXCLUDED.refresh_token,
                    expires_at    = EXCLUDED.expires_at,
@@ -3451,6 +3572,279 @@ impl ConfigDb {
         .context("Failed to get user connected OAuth providers")?;
 
         Ok(rows)
+    }
+
+    // ── Multi-Account Provider Tokens ─────────────────────────────
+
+    /// Get all OAuth tokens for a user + provider (multi-account).
+    #[allow(dead_code, clippy::type_complexity)]
+    pub async fn get_all_user_provider_tokens(
+        &self,
+        user_id: Uuid,
+        provider_id: &str,
+    ) -> Result<Vec<UserProviderTokenRow>> {
+        let rows: Vec<(
+            Uuid,
+            Uuid,
+            String,
+            String,
+            String,
+            String,
+            DateTime<Utc>,
+            String,
+            Option<String>,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        )> = sqlx::query_as(
+            "SELECT id, user_id, provider_id, account_label, access_token, refresh_token,
+                    expires_at, email, base_url, created_at, updated_at
+             FROM user_provider_tokens
+             WHERE user_id = $1 AND provider_id = $2
+             ORDER BY account_label",
+        )
+        .bind(user_id)
+        .bind(provider_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get all user provider tokens")?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    id,
+                    user_id,
+                    provider_id,
+                    account_label,
+                    access_token,
+                    refresh_token,
+                    expires_at,
+                    email,
+                    base_url,
+                    created_at,
+                    updated_at,
+                )| {
+                    UserProviderTokenRow {
+                        id,
+                        user_id,
+                        provider_id,
+                        account_label,
+                        access_token,
+                        refresh_token,
+                        expires_at,
+                        email,
+                        base_url,
+                        created_at,
+                        updated_at,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    /// Upsert a user's OAuth token for a provider with a specific account label.
+    #[allow(dead_code, clippy::too_many_arguments)]
+    pub async fn upsert_user_provider_token_labeled(
+        &self,
+        user_id: Uuid,
+        provider_id: &str,
+        account_label: &str,
+        access_token: &str,
+        refresh_token: Option<&str>,
+        expires_at: Option<DateTime<Utc>>,
+        email: Option<&str>,
+        base_url: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO user_provider_tokens
+                (user_id, provider_id, account_label, access_token, refresh_token, expires_at, email, base_url, updated_at)
+             VALUES ($1, $2, $3, $4, COALESCE($5, ''), COALESCE($6, NOW()), COALESCE($7, ''), $8, NOW())
+             ON CONFLICT (user_id, provider_id, account_label) DO UPDATE SET
+               access_token  = EXCLUDED.access_token,
+               refresh_token = CASE WHEN EXCLUDED.refresh_token = '' THEN user_provider_tokens.refresh_token ELSE EXCLUDED.refresh_token END,
+               expires_at    = EXCLUDED.expires_at,
+               email         = CASE WHEN EXCLUDED.email = '' THEN user_provider_tokens.email ELSE EXCLUDED.email END,
+               base_url      = COALESCE(EXCLUDED.base_url, user_provider_tokens.base_url),
+               updated_at    = NOW()",
+        )
+        .bind(user_id)
+        .bind(provider_id)
+        .bind(account_label)
+        .bind(access_token)
+        .bind(refresh_token)
+        .bind(expires_at)
+        .bind(email)
+        .bind(base_url)
+        .execute(&self.pool)
+        .await
+        .context("Failed to upsert labeled user provider token")?;
+
+        Ok(())
+    }
+
+    /// Delete a user's OAuth token for a specific provider + account label.
+    #[allow(dead_code)]
+    pub async fn delete_user_provider_token_labeled(
+        &self,
+        user_id: Uuid,
+        provider_id: &str,
+        account_label: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "DELETE FROM user_provider_tokens
+             WHERE user_id = $1 AND provider_id = $2 AND account_label = $3",
+        )
+        .bind(user_id)
+        .bind(provider_id)
+        .bind(account_label)
+        .execute(&self.pool)
+        .await
+        .context("Failed to delete labeled user provider token")?;
+
+        Ok(())
+    }
+
+    // ── Admin Provider Pool ───────────────────────────────────────
+
+    /// Get all admin pool accounts for a specific provider.
+    #[allow(dead_code, clippy::type_complexity)]
+    pub async fn get_admin_pool_accounts(&self, provider_id: &str) -> Result<Vec<AdminPoolRow>> {
+        let rows: Vec<(
+            Uuid,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            bool,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        )> = sqlx::query_as(
+            "SELECT id, provider_id, account_label, api_key, key_prefix, base_url,
+                    enabled, created_at, updated_at
+             FROM admin_provider_pool
+             WHERE provider_id = $1
+             ORDER BY account_label",
+        )
+        .bind(provider_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get admin pool accounts")?;
+
+        Ok(rows.into_iter().map(Self::row_to_admin_pool).collect())
+    }
+
+    /// Get all admin pool accounts across all providers.
+    #[allow(dead_code, clippy::type_complexity)]
+    pub async fn get_all_admin_pool_accounts(&self) -> Result<Vec<AdminPoolRow>> {
+        let rows: Vec<(
+            Uuid,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            bool,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        )> = sqlx::query_as(
+            "SELECT id, provider_id, account_label, api_key, key_prefix, base_url,
+                    enabled, created_at, updated_at
+             FROM admin_provider_pool
+             ORDER BY provider_id, account_label",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get all admin pool accounts")?;
+
+        Ok(rows.into_iter().map(Self::row_to_admin_pool).collect())
+    }
+
+    /// Upsert an admin pool account for a provider.
+    #[allow(dead_code)]
+    pub async fn upsert_admin_pool_account(
+        &self,
+        provider_id: &str,
+        account_label: &str,
+        api_key: &str,
+        key_prefix: &str,
+        base_url: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO admin_provider_pool
+                (provider_id, account_label, api_key, key_prefix, base_url, updated_at)
+             VALUES ($1, $2, $3, $4, $5, NOW())
+             ON CONFLICT (provider_id, account_label) DO UPDATE SET
+               api_key    = EXCLUDED.api_key,
+               key_prefix = EXCLUDED.key_prefix,
+               base_url   = EXCLUDED.base_url,
+               updated_at = NOW()",
+        )
+        .bind(provider_id)
+        .bind(account_label)
+        .bind(api_key)
+        .bind(key_prefix)
+        .bind(base_url)
+        .execute(&self.pool)
+        .await
+        .context("Failed to upsert admin pool account")?;
+
+        Ok(())
+    }
+
+    /// Delete an admin pool account by ID.
+    #[allow(dead_code)]
+    pub async fn delete_admin_pool_account(&self, id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM admin_provider_pool WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .context("Failed to delete admin pool account")?;
+
+        Ok(())
+    }
+
+    /// Enable or disable an admin pool account.
+    #[allow(dead_code)]
+    pub async fn set_admin_pool_account_enabled(&self, id: Uuid, enabled: bool) -> Result<()> {
+        sqlx::query(
+            "UPDATE admin_provider_pool SET enabled = $2, updated_at = NOW() WHERE id = $1",
+        )
+        .bind(id)
+        .bind(enabled)
+        .execute(&self.pool)
+        .await
+        .context("Failed to set admin pool account enabled")?;
+
+        Ok(())
+    }
+
+    /// Convert a raw admin_provider_pool row tuple to an AdminPoolRow.
+    #[allow(clippy::type_complexity)]
+    fn row_to_admin_pool(
+        row: (
+            Uuid,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            bool,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        ),
+    ) -> AdminPoolRow {
+        AdminPoolRow {
+            id: row.0,
+            provider_id: row.1,
+            account_label: row.2,
+            api_key: row.3,
+            key_prefix: row.4,
+            base_url: row.5,
+            enabled: row.6,
+            created_at: row.7,
+            updated_at: row.8,
+        }
     }
 
     /// Expose the connection pool for direct use in transactional operations.
@@ -3640,6 +4034,10 @@ mod tests {
             .await
             .ok();
         sqlx::query("DELETE FROM user_kiro_tokens")
+            .execute(&db.pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM admin_provider_pool")
             .execute(&db.pool)
             .await
             .ok();
@@ -4480,5 +4878,220 @@ mod tests {
             .unwrap();
         assert_eq!(t1.0, "a1");
         assert_eq!(t2.0, "a2");
+    }
+
+    #[tokio::test]
+    async fn test_migration_v20_adds_account_label() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+
+        // Verify schema_version includes v20
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+        assert!(max_version.unwrap_or(0) >= 20);
+
+        // Verify account_label column exists on user_provider_tokens
+        let col_exists: Option<i64> = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM information_schema.columns
+             WHERE table_name = 'user_provider_tokens' AND column_name = 'account_label'",
+        )
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(col_exists, Some(1));
+
+        // Verify admin_provider_pool table exists
+        let table_exists: Option<i64> = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM information_schema.tables
+             WHERE table_name = 'admin_provider_pool'",
+        )
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(table_exists, Some(1));
+
+        // Verify new unique constraint exists
+        let constraint_exists: Option<i64> = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pg_constraint
+             WHERE conname = 'user_provider_tokens_user_provider_label_key'",
+        )
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(constraint_exists, Some(1));
+    }
+
+    #[tokio::test]
+    async fn test_multi_account_token_crud() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+        let user_id = create_test_user(&db, "multi@example.com").await;
+        let expires = Utc::now() + chrono::Duration::hours(1);
+
+        // Insert two accounts for the same provider
+        db.upsert_user_provider_token_labeled(
+            user_id,
+            "anthropic",
+            "work",
+            "access_work",
+            Some("refresh_work"),
+            Some(expires),
+            Some("work@anthropic.com"),
+            None,
+        )
+        .await
+        .unwrap();
+
+        db.upsert_user_provider_token_labeled(
+            user_id,
+            "anthropic",
+            "personal",
+            "access_personal",
+            Some("refresh_personal"),
+            Some(expires),
+            Some("personal@anthropic.com"),
+            None,
+        )
+        .await
+        .unwrap();
+
+        // Retrieve all tokens for the provider
+        let tokens = db
+            .get_all_user_provider_tokens(user_id, "anthropic")
+            .await
+            .unwrap();
+        assert_eq!(tokens.len(), 2);
+
+        // Ordered by account_label: "personal" before "work"
+        assert_eq!(tokens[0].account_label, "personal");
+        assert_eq!(tokens[0].access_token, "access_personal");
+        assert_eq!(tokens[1].account_label, "work");
+        assert_eq!(tokens[1].access_token, "access_work");
+
+        // Upsert updates existing labeled token
+        db.upsert_user_provider_token_labeled(
+            user_id,
+            "anthropic",
+            "work",
+            "access_work_v2",
+            None,
+            Some(expires),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let tokens = db
+            .get_all_user_provider_tokens(user_id, "anthropic")
+            .await
+            .unwrap();
+        assert_eq!(tokens.len(), 2);
+        let work_token = tokens.iter().find(|t| t.account_label == "work").unwrap();
+        assert_eq!(work_token.access_token, "access_work_v2");
+        // refresh_token preserved when None passed
+        assert_eq!(work_token.refresh_token, "refresh_work");
+
+        // Delete one account
+        db.delete_user_provider_token_labeled(user_id, "anthropic", "personal")
+            .await
+            .unwrap();
+        let tokens = db
+            .get_all_user_provider_tokens(user_id, "anthropic")
+            .await
+            .unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].account_label, "work");
+
+        // Legacy method still works (uses 'default' label)
+        db.upsert_user_provider_token(
+            user_id,
+            "anthropic",
+            "access_default",
+            "refresh_default",
+            expires,
+            "default@anthropic.com",
+        )
+        .await
+        .unwrap();
+        let tokens = db
+            .get_all_user_provider_tokens(user_id, "anthropic")
+            .await
+            .unwrap();
+        assert_eq!(tokens.len(), 2); // "default" + "work"
+    }
+
+    #[tokio::test]
+    async fn test_admin_pool_crud() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+
+        // Insert pool accounts
+        db.upsert_admin_pool_account("anthropic", "pool-1", "sk-ant-key1", "sk-ant-", None)
+            .await
+            .unwrap();
+        db.upsert_admin_pool_account(
+            "anthropic",
+            "pool-2",
+            "sk-ant-key2",
+            "sk-ant-",
+            Some("https://api.anthropic.com"),
+        )
+        .await
+        .unwrap();
+        db.upsert_admin_pool_account("openai_codex", "pool-1", "sk-oai-key1", "sk-oai-", None)
+            .await
+            .unwrap();
+
+        // Get by provider
+        let anthropic_accounts = db.get_admin_pool_accounts("anthropic").await.unwrap();
+        assert_eq!(anthropic_accounts.len(), 2);
+        assert_eq!(anthropic_accounts[0].account_label, "pool-1");
+        assert_eq!(anthropic_accounts[1].account_label, "pool-2");
+        assert_eq!(
+            anthropic_accounts[1].base_url,
+            Some("https://api.anthropic.com".to_string())
+        );
+
+        // Get all
+        let all = db.get_all_admin_pool_accounts().await.unwrap();
+        assert_eq!(all.len(), 3);
+
+        // Upsert updates existing
+        db.upsert_admin_pool_account("anthropic", "pool-1", "sk-ant-key1-v2", "sk-ant-", None)
+            .await
+            .unwrap();
+        let accounts = db.get_admin_pool_accounts("anthropic").await.unwrap();
+        assert_eq!(accounts[0].api_key, "sk-ant-key1-v2");
+
+        // Disable an account
+        let pool1_id = accounts[0].id;
+        db.set_admin_pool_account_enabled(pool1_id, false)
+            .await
+            .unwrap();
+        let accounts = db.get_admin_pool_accounts("anthropic").await.unwrap();
+        assert!(!accounts[0].enabled);
+
+        // Re-enable
+        db.set_admin_pool_account_enabled(pool1_id, true)
+            .await
+            .unwrap();
+        let accounts = db.get_admin_pool_accounts("anthropic").await.unwrap();
+        assert!(accounts[0].enabled);
+
+        // Delete by ID
+        db.delete_admin_pool_account(pool1_id).await.unwrap();
+        let accounts = db.get_admin_pool_accounts("anthropic").await.unwrap();
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].account_label, "pool-2");
     }
 }

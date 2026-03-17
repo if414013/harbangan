@@ -301,10 +301,15 @@ impl Provider for QwenProvider {
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Serialization failed: {}", e)))?;
         let response = self.send_request(ctx, body, false).await?;
         let status = response.status().as_u16();
+        let headers = response.headers().clone();
         let body: Value = response.json().await.map_err(|e| {
             ApiError::Internal(anyhow::anyhow!("Failed to parse Qwen response: {}", e))
         })?;
-        Ok(ProviderResponse { status, body })
+        Ok(ProviderResponse {
+            status,
+            body,
+            headers,
+        })
     }
 
     async fn stream_openai(
@@ -329,10 +334,15 @@ impl Provider for QwenProvider {
         let body = Self::anthropic_to_openai_body(req);
         let response = self.send_request(ctx, body, false).await?;
         let status = response.status().as_u16();
+        let headers = response.headers().clone();
         let body: Value = response.json().await.map_err(|e| {
             ApiError::Internal(anyhow::anyhow!("Failed to parse Qwen response: {}", e))
         })?;
-        Ok(ProviderResponse { status, body })
+        Ok(ProviderResponse {
+            status,
+            body,
+            headers,
+        })
     }
 
     async fn stream_anthropic(
@@ -371,6 +381,7 @@ mod tests {
             provider: ProviderId::Qwen,
             access_token: "tok".to_string(),
             base_url: None,
+            account_label: "default".to_string(),
         };
         let model = "qwen-coder-plus".to_string();
         let ctx = ProviderContext {
@@ -389,6 +400,7 @@ mod tests {
             provider: ProviderId::Qwen,
             access_token: "tok".to_string(),
             base_url: Some("https://custom.qwen.ai/api".to_string()),
+            account_label: "default".to_string(),
         };
         let model = "qwen-coder-plus".to_string();
         let ctx = ProviderContext {
@@ -712,6 +724,7 @@ mod tests {
             provider: ProviderId::Qwen,
             access_token: "tok".to_string(),
             base_url: Some("https://custom.qwen.ai/api/".to_string()),
+            account_label: "default".to_string(),
         };
         let model = "qwen-coder-plus".to_string();
         let ctx = ProviderContext {

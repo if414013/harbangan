@@ -61,6 +61,9 @@ pub struct ProviderCredentials {
     pub access_token: String,
     /// Override the default API endpoint (optional).
     pub base_url: Option<String>,
+    /// Label identifying this account (for multi-account load balancing).
+    #[allow(dead_code)]
+    pub account_label: String,
 }
 
 /// Per-request context passed to a provider implementation.
@@ -78,6 +81,8 @@ pub struct ProviderResponse {
     pub status: u16,
     /// Parsed JSON body from the provider response.
     pub body: Value,
+    /// HTTP headers from the provider response (for rate-limit tracking).
+    pub headers: axum::http::HeaderMap,
 }
 
 /// A single item in a provider streaming response.
@@ -158,6 +163,7 @@ mod tests {
             provider: ProviderId::Anthropic,
             access_token: "sk-ant-test".to_string(),
             base_url: None,
+            account_label: "default".to_string(),
         };
         let cloned = creds.clone();
         assert_eq!(cloned.provider, ProviderId::Anthropic);
@@ -202,6 +208,7 @@ mod tests {
             provider: ProviderId::Copilot,
             access_token: "cop-tok".to_string(),
             base_url: Some("https://api.business.githubcopilot.com".to_string()),
+            account_label: "default".to_string(),
         };
         let cloned = creds.clone();
         assert_eq!(cloned.provider, ProviderId::Copilot);
@@ -270,6 +277,7 @@ mod tests {
             provider: ProviderId::Qwen,
             access_token: "qwen-tok-abc".to_string(),
             base_url: Some("https://custom.qwen.ai/api".to_string()),
+            account_label: "default".to_string(),
         };
         let cloned = creds.clone();
         assert_eq!(cloned.provider, ProviderId::Qwen);
@@ -283,6 +291,7 @@ mod tests {
             provider: ProviderId::Qwen,
             access_token: "qwen-tok".to_string(),
             base_url: None,
+            account_label: "default".to_string(),
         };
         assert!(creds.base_url.is_none());
     }

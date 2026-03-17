@@ -1807,6 +1807,60 @@ select.config-input {
   color: var(--text-tertiary);
 }
 
+/* ---- Account List (multi-account) ---- */
+
+.account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.account-row:last-child {
+  border-bottom: none;
+}
+
+.account-row:hover {
+  background: var(--surface-hover);
+}
+
+.account-row-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.account-label {
+  color: var(--green);
+  font-weight: 500;
+}
+
+.account-email {
+  color: var(--text-tertiary);
+  font-size: 0.65rem;
+}
+
+.account-rate {
+  font-size: 0.6rem;
+  color: var(--text-tertiary);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--green-dim);
+}
+
 /* ---- Copilot Setup ---- */
 
 .copilot-info {

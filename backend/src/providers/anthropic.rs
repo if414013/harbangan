@@ -145,10 +145,15 @@ impl Provider for AnthropicProvider {
         let body = Self::openai_to_anthropic_body(req);
         let response = self.send_request(ctx, body, false).await?;
         let status = response.status().as_u16();
+        let headers = response.headers().clone();
         let body: Value = response.json().await.map_err(|e| {
             ApiError::Internal(anyhow::anyhow!("Failed to parse Anthropic response: {}", e))
         })?;
-        Ok(ProviderResponse { status, body })
+        Ok(ProviderResponse {
+            status,
+            body,
+            headers,
+        })
     }
 
     async fn stream_openai(
@@ -172,10 +177,15 @@ impl Provider for AnthropicProvider {
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Serialization failed: {}", e)))?;
         let response = self.send_request(ctx, body, false).await?;
         let status = response.status().as_u16();
+        let headers = response.headers().clone();
         let body: Value = response.json().await.map_err(|e| {
             ApiError::Internal(anyhow::anyhow!("Failed to parse Anthropic response: {}", e))
         })?;
-        Ok(ProviderResponse { status, body })
+        Ok(ProviderResponse {
+            status,
+            body,
+            headers,
+        })
     }
 
     async fn stream_anthropic(
@@ -254,6 +264,7 @@ mod tests {
                 provider: ProviderId::Anthropic,
                 access_token: token.to_string(),
                 base_url: None,
+                account_label: "default".to_string(),
             },
             "claude-sonnet-4".to_string(),
         )
@@ -285,6 +296,7 @@ mod tests {
             provider: ProviderId::Anthropic,
             access_token: "sk-ant-test".to_string(),
             base_url: Some("https://custom.example.com".to_string()),
+            account_label: "default".to_string(),
         };
         let model = "claude-sonnet-4".to_string();
         let ctx = ProviderContext {

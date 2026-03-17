@@ -9,6 +9,7 @@ pub mod copilot;
 pub mod kiro;
 pub mod openai_codex;
 pub mod qwen;
+pub mod rate_limiter;
 pub mod registry;
 pub mod traits;
 pub mod types;
