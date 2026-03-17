@@ -55,10 +55,7 @@ services:
     image: harbangan-frontend:latest
     restart: unless-stopped
     ports:
-      - "5173:5173"
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
+      - "5173:80"
     depends_on:
       backend:
         condition: service_healthy
