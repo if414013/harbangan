@@ -24,15 +24,42 @@ This gateway embodies the same philosophy:
 
 > Further reading on Batak Toba philosophy: [Form and Meaning of Batak Toba House](https://repository.petra.ac.id/18044/1/Publikasi1_03007_4499.pdf) · [Dalihan Na Tolu: Vision of Integrity](https://journalppw.com/index.php/jpsp/article/download/12366/8016/14827) · [Batak Cultural Values](https://ojs.unimal.ac.id/mspr/article/download/10948/4863)
 
-## Supported Models
+## Supported Providers & Models
 
-| Model                 | Description                                           |
-| --------------------- | ----------------------------------------------------- |
-| **Claude Opus 4.6**   | Latest flagship. Adaptive thinking, complex reasoning |
-| **Claude Sonnet 4.6** | Latest balanced. Coding, writing, general-purpose     |
-| **Claude Haiku 4.5**  | Lightning fast. Quick responses, simple tasks         |
+Model availability depends on your deployment mode.
 
-> **Smart Model Resolution:** Use any model name format — `claude-sonnet-4-6`, `claude-sonnet-4.6`, or versioned names like `claude-sonnet-4-20250514`. The gateway normalizes them automatically.
+### Kiro (proxy-only + full deployment)
+
+All Claude models via AWS CodeWhisperer. Default provider — available in both modes.
+
+| Model | ID | Description |
+|-------|----|-------------|
+| Claude Opus 4.6 | `claude-opus-4.6` | Latest flagship. Complex reasoning |
+| Claude Sonnet 4.6 | `claude-sonnet-4.6` | Balanced. Coding, general-purpose |
+| Claude Haiku 4.5 | `claude-haiku-4.5` | Fast. Quick responses, simple tasks |
+| Claude Sonnet 4 | `claude-sonnet-4` | Previous generation balanced |
+| Claude 3.7 Sonnet | `claude-3.7-sonnet` | Legacy |
+| Claude 3.5 Sonnet v2 | `claude-3-5-sonnet-20241022` | Legacy |
+| Claude 3.5 Sonnet v1 | `claude-3-5-sonnet-20240620` | Legacy |
+| Claude 3.5 Haiku | `claude-3-5-haiku-20241022` | Legacy |
+| Claude 3 Opus | `claude-3-opus-20240229` | Legacy |
+| Claude 3 Sonnet | `claude-3-sonnet-20240229` | Legacy |
+| Claude 3 Haiku | `claude-3-haiku-20240307` | Legacy |
+
+> **Smart Model Resolution:** Use any name format — `claude-sonnet-4-6`, `claude-sonnet-4.6`, or versioned like `claude-sonnet-4-20250514`. The gateway normalizes automatically.
+
+### Direct Providers (full deployment only)
+
+Requires per-user OAuth tokens configured in the Web UI. Use the `provider/model` prefix format.
+
+| Provider | Prefix | Example Models |
+|----------|--------|----------------|
+| Anthropic | `anthropic/` | Claude family (direct API, bypasses Kiro) |
+| OpenAI Codex | `openai_codex/` | `gpt-4`, `o1-*`, `o3-*`, `o4-*`, `chatgpt-*` |
+| GitHub Copilot | `copilot/` | Copilot models |
+| Qwen | `qwen/` | `qwen-*`, `qwen3-*`, `qwq-*` |
+
+> Direct providers bypass Kiro entirely and require full deployment with PostgreSQL. See [Client Setup](https://if414013.github.io/harbangan/docs/client-setup) for configuration details.
 
 ## Features
 

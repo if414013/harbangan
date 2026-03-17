@@ -7,7 +7,7 @@ nav_order: 7
 # Client Setup
 {: .no_toc }
 
-Configure your favorite AI tools and SDKs to use Kiro Gateway as their backend. Each client points at your gateway's base URL and authenticates with a personal API key generated from the Web UI (or the shared `PROXY_API_KEY` in proxy-only mode).
+Configure your AI tools and SDKs to use Harbangan as their backend. Each client points at your gateway's base URL and authenticates with a personal API key.
 
 <details open markdown="block">
   <summary>Table of contents</summary>
@@ -15,6 +15,19 @@ Configure your favorite AI tools and SDKs to use Kiro Gateway as their backend. 
 1. TOC
 {:toc}
 </details>
+
+---
+
+## Before You Start
+
+Your configuration depends on your deployment mode:
+
+| | Proxy-Only | Full Deployment |
+|---|---|---|
+| **API Key** | `PROXY_API_KEY` from `.env.proxy` | Personal key from Web UI (`/_ui/`) |
+| **Providers** | Kiro only | Kiro + Anthropic, OpenAI Codex, Copilot, Qwen |
+| **Models** | `claude-*` names, `auto` | + `anthropic/`, `openai_codex/`, `copilot/`, `qwen/` prefixes |
+| **Web UI** | Not available | Available at `/_ui/` for OAuth setup |
 
 ---
 
@@ -63,7 +76,7 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `1` | Prevents non-essential network requests |
 
 {: .note }
-Replace `gateway.example.com` with your actual domain and `YOUR_API_KEY` with a key generated from the Web UI (or your `PROXY_API_KEY` in proxy-only mode).
+Replace `gateway.example.com` with your actual domain. For the API key: use a personal key from the Web UI (`/_ui/ → API Keys`) in full deployment, or your `PROXY_API_KEY` from `.env.proxy` in proxy-only mode.
 
 ---
 
@@ -94,6 +107,9 @@ Restart Zed after saving the configuration for changes to take effect.
 ---
 
 ## OpenCode
+
+{: .note }
+The configuration below uses Kiro models (works in both modes). In full deployment, you can add direct provider models using the `provider/model` prefix — see [Model Naming](#model-naming).
 
 ### Tested model limits
 
@@ -235,6 +251,34 @@ message = client.messages.create(
 
 print(message.content[0].text)
 ```
+
+---
+
+## Model Naming
+
+### Kiro pipeline (default)
+
+Use Claude model names directly. The gateway normalizes variants automatically:
+
+| You Send | Gateway Resolves |
+|----------|-----------------|
+| `claude-sonnet-4-6` | `claude-sonnet-4.6` |
+| `claude-3-7-sonnet-20250219` | `claude-3.7-sonnet` |
+| `claude-haiku-4-5-latest` | `claude-haiku-4.5` |
+| `auto` | Gateway picks the best available model |
+
+### Direct providers (full deployment only)
+
+Prefix with the provider name to bypass Kiro and route to a direct API:
+
+| Model String | Routes To |
+|-------------|-----------|
+| `anthropic/claude-opus-4-6` | Anthropic API directly |
+| `openai_codex/gpt-4` | OpenAI Codex |
+| `qwen/qwen-coder` | Qwen |
+| `copilot/gpt-4` | GitHub Copilot |
+
+Direct providers require per-user OAuth tokens configured in the Web UI **Providers** page. Without OAuth tokens, requests fall back to Kiro automatically.
 
 ---
 
