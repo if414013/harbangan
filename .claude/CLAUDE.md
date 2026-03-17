@@ -16,9 +16,10 @@ This directory contains the multi-agent workflow system for Harbangan. See [READ
 │   ├── backend-qa.md            # Rust unit/integration tests
 │   ├── frontend-qa.md           # Playwright E2E tests
 │   └── document-writer.md       # Notion, Slack, documentation
-├── skills/                      # 10 invocable skills (/skill-name)
+├── skills/                      # 11 invocable skills (/skill-name)
 │   ├── team-plan/               # Scope analysis and implementation planning
 │   ├── team-implement/          # Full lifecycle: spawn → assign → verify → PR → shutdown
+│   ├── team-status/             # Show team health and agent activity
 │   ├── team-review/             # Multi-dimensional code review
 │   ├── team-debug/              # Hypothesis-driven debugging
 │   ├── merge-pr/                # Squash-merge PR, cleanup branches, return to main
@@ -51,7 +52,8 @@ All agent work must follow the PR flow — never commit directly to `main`.
 | Action | Skill |
 |--------|-------|
 | Plan a feature | `/team-plan "description"` |
-| Implement a feature | `/team-implement "description" --preset fullstack` |
+| Implement a feature | `/team-implement "description"` |
+| Check team health | `/team-status [team-name]` |
 | Code review | `/team-review --diff` |
 | Debug an issue | `/team-debug "error message"` |
 | Merge & cleanup | `/merge-pr` |

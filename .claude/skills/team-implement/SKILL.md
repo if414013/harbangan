@@ -1,7 +1,7 @@
 ---
 name: team-implement
-description: Full lifecycle feature implementation — spawns teams, assigns tasks, monitors progress, verifies quality, creates PRs, and shuts down. Absorbs team-spawn, team-feature, team-delegate, team-status, and team-shutdown into one unified workflow. Use when user says 'implement this', 'build this feature', 'start working on X', or 'execute the plan'.
-argument-hint: "[feature-or-plan] [--preset name] [--worktree] [--no-worktree] [--shutdown team-name] [--status team-name] [--delegate team-name]"
+description: Full lifecycle feature implementation — spawns teams, assigns tasks, monitors progress, verifies quality, creates PRs, and shuts down. Use when user says 'implement this', 'build this feature', 'start working on X', or 'execute the plan'.
+argument-hint: "[feature-or-plan]"
 allowed-tools:
   - Bash
   - Read
@@ -22,13 +22,6 @@ allowed-tools:
 
 Full lifecycle feature implementation. Spawns teams, assigns tasks, monitors progress, verifies quality, creates PRs, and shuts down.
 
-## Sub-Commands
-
-- **No flags**: Full lifecycle (spawn → implement → verify → PR → shutdown)
-- `--status team-name`: Show team status only
-- `--delegate team-name`: Interactive task assignment
-- `--shutdown team-name`: Graceful shutdown only
-
 ---
 
 ## Full Lifecycle
@@ -42,31 +35,32 @@ Full lifecycle feature implementation. Spawns teams, assigns tasks, monitors pro
 
 ### Phase 2: Resolve Composition
 
-Select a team preset based on the feature scope. Match using keywords from the Service Map.
+Auto-detect team composition from affected services using the Service Map keywords. If ambiguous, ask the user via AskUserQuestion.
 
-| Preset | Composition | Use When |
-|--------|-------------|----------|
-| `fullstack` | coordinator + all service agents + QA agents | Full-stack feature touching backend + frontend |
-| `backend-feature` | coordinator + backend + database + backend-qa | Backend-only feature |
-| `frontend-feature` | coordinator + frontend + frontend-qa | Frontend-only feature |
-| `infra` | coordinator + infra + backend | Infrastructure changes |
-| `docs` | coordinator + document-writer | Documentation |
-| `research` | 3 general-purpose agents | Codebase exploration, investigation |
-| `security` | 4 reviewer agents (OWASP, auth, deps, config) | Security audit |
-| `migration` | coordinator + 2 service agents + 1 reviewer | Data/schema migration |
-| `refactor` | coordinator + 2 service agents + 1 reviewer | Code refactoring |
-| `hotfix` | 1 service agent + 1 QA agent | Urgent bug fix |
+| Composition | Use When |
+|-------------|----------|
+| coordinator + all service agents + QA agents | Full-stack feature touching backend + frontend |
+| coordinator + backend + database + backend-qa | Backend-only feature |
+| coordinator + frontend + frontend-qa | Frontend-only feature |
+| coordinator + infra + backend | Infrastructure changes |
+| coordinator + document-writer | Documentation |
+| 3 general-purpose agents | Codebase exploration, investigation |
+| 4 reviewer agents (OWASP, auth, deps, config) | Security audit |
+| coordinator + 2 service agents + 1 reviewer | Data/schema migration |
+| coordinator + 2 service agents + 1 reviewer | Code refactoring |
+| 1 service agent + 1 QA agent | Urgent bug fix |
 
 ### Phase 3: Worktree Resolution
 
+Always create a worktree for team work to isolate changes from the main directory:
+
 1. Check for active teams: `ls .trees/ 2>/dev/null`
-2. If `--worktree` flag or other teams active, create worktree:
+2. Create worktree:
    ```bash
    BRANCH="feat/{feature-slug}"
    git worktree add .trees/{team-name} -b $BRANCH
    ```
-3. If `--no-worktree`, work in main directory
-4. Record working directory in team config
+3. Record working directory in team config
 
 ### Phase 4: Plan Decomposition
 
@@ -197,24 +191,11 @@ Output final status:
 
 ---
 
-## Status Sub-Command (`--status team-name`)
+## Secondary Operations
 
-1. Load team config from TeamCreate output
-2. Check agent activity:
-   - `git log --author={agent}` for recent commits
-   - File modification times in owned directories
-   - TaskList status for assigned tasks
-3. Classify each agent:
-   - **Active**: commits or file changes in last 5 minutes
-   - **Quiet**: no activity for 5-15 minutes
-   - **Stale**: no activity for 15+ minutes
-4. Cross-reference TaskList vs GitHub Issues for drift
-5. Context exhaustion check: 3+ idle notifications with in_progress task
-6. Output alerts for stale/stuck agents
+These can be invoked inline during a team session but are not primary entry points.
 
----
-
-## Delegate Sub-Command (`--delegate team-name`)
+### Delegate (`--delegate team-name`)
 
 Interactive task management menu:
 
@@ -228,9 +209,7 @@ Agent validation is dynamic — read team config for current members, never hard
 
 Blocked task detection: check GitHub Issue labels for `status:blocked`, warn before assigning.
 
----
-
-## Shutdown Sub-Command (`--shutdown team-name`)
+### Shutdown (`--shutdown team-name`)
 
 1. Check for uncommitted changes in worktree
 2. Check for unpushed commits
