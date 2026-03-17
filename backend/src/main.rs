@@ -335,76 +335,16 @@ async fn main() -> Result<()> {
 
     // Build provider registry (with proxy credentials in proxy mode)
     let provider_registry = if config.is_proxy_only() {
-        let mut proxy_creds = std::collections::HashMap::new();
-        let mut custom_models = std::collections::HashSet::new();
-        if let Some(ref proxy) = config.proxy {
-            if let Some(ref key) = proxy.anthropic_api_key {
-                proxy_creds.insert(
-                    providers::types::ProviderId::Anthropic,
-                    providers::types::ProviderCredentials {
-                        provider: providers::types::ProviderId::Anthropic,
-                        access_token: key.clone(),
-                        base_url: None,
-                        account_label: "proxy".into(),
-                    },
-                );
-            }
-            if let Some(ref key) = proxy.openai_api_key {
-                proxy_creds.insert(
-                    providers::types::ProviderId::OpenAICodex,
-                    providers::types::ProviderCredentials {
-                        provider: providers::types::ProviderId::OpenAICodex,
-                        access_token: key.clone(),
-                        base_url: proxy.openai_base_url.clone(),
-                        account_label: "proxy".into(),
-                    },
-                );
-            }
-            if let Some(ref token) = proxy.copilot_token {
-                proxy_creds.insert(
-                    providers::types::ProviderId::Copilot,
-                    providers::types::ProviderCredentials {
-                        provider: providers::types::ProviderId::Copilot,
-                        access_token: token.clone(),
-                        base_url: proxy.copilot_base_url.clone(),
-                        account_label: "proxy".into(),
-                    },
-                );
-            }
-            if let Some(ref token) = proxy.qwen_token {
-                proxy_creds.insert(
-                    providers::types::ProviderId::Qwen,
-                    providers::types::ProviderCredentials {
-                        provider: providers::types::ProviderId::Qwen,
-                        access_token: token.clone(),
-                        base_url: proxy.qwen_base_url.clone(),
-                        account_label: "proxy".into(),
-                    },
-                );
-            }
-            if let Some(ref url) = proxy.custom_provider_url {
-                proxy_creds.insert(
-                    providers::types::ProviderId::Custom,
-                    providers::types::ProviderCredentials {
-                        provider: providers::types::ProviderId::Custom,
-                        access_token: proxy.custom_provider_key.clone().unwrap_or_default(),
-                        base_url: Some(url.clone()),
-                        account_label: "proxy".into(),
-                    },
-                );
-            }
-            if let Some(ref models) = proxy.custom_provider_models {
-                custom_models = models.split(',').map(|s| s.trim().to_string()).collect();
-            }
-        }
-        if !proxy_creds.is_empty() {
-            let count = proxy_creds.len();
+        let registry = if let Some(ref proxy) = config.proxy {
+            providers::registry::ProviderRegistry::from_proxy_config(proxy)
+        } else {
+            providers::registry::ProviderRegistry::new()
+        };
+        if let Some(ref creds) = registry.proxy_credentials() {
+            let count = creds.len();
             tracing::info!(count, "Proxy mode: loaded provider credentials from env");
         }
-        Arc::new(providers::registry::ProviderRegistry::new_with_proxy(
-            proxy_creds,
-            custom_models,
-        ))
+        Arc::new(registry)
     } else {
         Arc::new(providers::registry::ProviderRegistry::new())
     };

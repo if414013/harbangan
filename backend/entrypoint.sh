@@ -20,6 +20,11 @@ QWEN_OAUTH_CLIENT_ID="${QWEN_OAUTH_CLIENT_ID:-f0304373b74a44d2b584a3fb70ca9e56}"
 QWEN_DEVICE_AUTH_URL="https://dashscope.aliyuncs.com/compatible-mode/v1/device/code"
 QWEN_TOKEN_URL="https://dashscope.aliyuncs.com/compatible-mode/v1/device/token"
 
+# ── Skip device flows override ─────────────────────────────────────────
+if [ "${SKIP_DEVICE_FLOWS:-}" = "true" ]; then
+    echo "SKIP_DEVICE_FLOWS=true, skipping all device flows"
+fi
+
 # ── Validate ─────────────────────────────────────────────────────────
 if [ -z "${PROXY_API_KEY:-}" ]; then
     echo "ERROR: PROXY_API_KEY is required" >&2
@@ -107,6 +112,12 @@ if [ -z "${KIRO_REFRESH_TOKEN:-}" ]; then
         export KIRO_CLIENT_ID="$CACHED_OIDC_ID"
         export KIRO_CLIENT_SECRET="$CACHED_OIDC_SEC"
     else
+        # Skip device flow if explicitly disabled or non-interactive
+        if [ "${SKIP_DEVICE_FLOWS:-}" = "true" ]; then
+            echo "  Skipping Kiro device flow (SKIP_DEVICE_FLOWS=true)"
+        elif [ ! -t 0 ] && [ "${SKIP_DEVICE_FLOWS:-}" != "false" ]; then
+            echo "  Non-interactive mode detected, skipping Kiro device flow"
+        else
         echo ""
         echo "┌─────────────────────────────────────────────────────────┐"
         echo "│  Kiro Gateway — Proxy-Only Mode                         │"
@@ -221,6 +232,7 @@ if [ -z "${KIRO_REFRESH_TOKEN:-}" ]; then
         export KIRO_REFRESH_TOKEN="$REFRESH_TOKEN"
         export KIRO_CLIENT_ID="$OIDC_CID"
         export KIRO_CLIENT_SECRET="$OIDC_CSEC"
+    fi # end device flow skip check
     fi
 fi
 
@@ -256,6 +268,10 @@ fi
 # when the token is not set and not cached.
 
 run_copilot_device_flow() {
+    if [ ! -t 0 ] && [ "${SKIP_DEVICE_FLOWS:-}" != "false" ]; then
+        echo "  Non-interactive mode detected, skipping Copilot device flow"
+        return 0
+    fi
     echo ""
     echo "┌─────────────────────────────────────────────────────────┐"
     echo "│  GitHub Copilot — Device Code Authorization              │"
@@ -351,12 +367,12 @@ run_copilot_device_flow() {
 
     CP_BASE="${CP_API:-${COPILOT_DEFAULT_BASE_URL}}"
 
-    # Cache the GitHub access token (used to refresh Copilot sessions)
+    # Cache only the Copilot session token — do NOT persist the GitHub access token
+    # (it has read:user scope, never expires, and should only live in-memory)
     write_cache_provider copilot "$(jq -n \
         --arg token "$CP_TK" \
-        --arg gh "$GH_ACCESS" \
         --arg base_url "$CP_BASE" \
-        '{token: $token, gh_token: $gh, base_url: $base_url}')"
+        '{token: $token, base_url: $base_url}')"
 
     echo "  Copilot credentials cached to ${TOKEN_CACHE}"
 
@@ -365,6 +381,10 @@ run_copilot_device_flow() {
 }
 
 run_qwen_device_flow() {
+    if [ ! -t 0 ] && [ "${SKIP_DEVICE_FLOWS:-}" != "false" ]; then
+        echo "  Non-interactive mode detected, skipping Qwen device flow"
+        return 0
+    fi
     echo ""
     echo "┌─────────────────────────────────────────────────────────┐"
     echo "│  Qwen — Device Code Authorization                       │"
@@ -461,11 +481,11 @@ run_qwen_device_flow() {
 }
 
 # Run device flows for providers that still need tokens
-if [ -z "${COPILOT_TOKEN:-}" ]; then
+if [ -z "${COPILOT_TOKEN:-}" ] && [ "${SKIP_DEVICE_FLOWS:-}" != "true" ]; then
     run_copilot_device_flow || echo "  Skipping Copilot (device flow failed or declined)"
 fi
 
-if [ -z "${QWEN_TOKEN:-}" ]; then
+if [ -z "${QWEN_TOKEN:-}" ] && [ "${SKIP_DEVICE_FLOWS:-}" != "true" ]; then
     run_qwen_device_flow || echo "  Skipping Qwen (device flow failed or declined)"
 fi
 

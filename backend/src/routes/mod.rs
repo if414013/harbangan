@@ -193,6 +193,68 @@ mod tests {
         }
     }
 
+    fn create_proxy_test_state() -> AppState {
+        use crate::config::ProxyConfig;
+        let proxy = ProxyConfig {
+            api_key: "test-key-long-enough".to_string(),
+            anthropic_api_key: Some("sk-ant-test".to_string()),
+            openai_api_key: Some("sk-proj-test".to_string()),
+            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
+            custom_provider_models: Some("llama3,deepseek-r1".to_string()),
+            ..Default::default()
+        };
+        let registry = ProviderRegistry::from_proxy_config(&proxy);
+
+        let mut state = create_test_state();
+        state.provider_registry = Arc::new(registry);
+        state
+    }
+
+    #[tokio::test]
+    async fn test_get_models_proxy_known_models_appear() {
+        let state = create_proxy_test_state();
+        let result = openai::get_models_handler(State(state)).await.unwrap().0;
+        let ids: Vec<&str> = result.data.iter().map(|m| m.id.as_str()).collect();
+
+        // Anthropic known models should appear
+        assert!(ids.contains(&"claude-opus-4-6"), "missing claude-opus-4-6");
+        assert!(
+            ids.contains(&"claude-sonnet-4-6"),
+            "missing claude-sonnet-4-6"
+        );
+        // OpenAI known models should appear
+        assert!(ids.contains(&"gpt-4o"), "missing gpt-4o");
+        assert!(ids.contains(&"o3"), "missing o3");
+    }
+
+    #[tokio::test]
+    async fn test_get_models_proxy_custom_models_appear() {
+        let state = create_proxy_test_state();
+        let result = openai::get_models_handler(State(state)).await.unwrap().0;
+        let ids: Vec<&str> = result.data.iter().map(|m| m.id.as_str()).collect();
+
+        // Custom models from env should appear
+        assert!(ids.contains(&"llama3"), "missing llama3");
+        assert!(ids.contains(&"deepseek-r1"), "missing deepseek-r1");
+
+        // Custom models should have "custom" owned_by
+        let llama = result.data.iter().find(|m| m.id == "llama3").unwrap();
+        assert_eq!(llama.owned_by, "custom");
+    }
+
+    #[tokio::test]
+    async fn test_get_models_proxy_no_duplicates() {
+        let state = create_proxy_test_state();
+        let result = openai::get_models_handler(State(state)).await.unwrap().0;
+        let ids: Vec<&str> = result.data.iter().map(|m| m.id.as_str()).collect();
+
+        // No duplicate model IDs
+        let mut seen = std::collections::HashSet::new();
+        for id in &ids {
+            assert!(seen.insert(id), "duplicate model ID: {}", id);
+        }
+    }
+
     /// Helper: build an axum::http::Request from JSON body and optional headers.
     fn build_anthropic_request(
         body: &crate::models::anthropic::AnthropicMessagesRequest,

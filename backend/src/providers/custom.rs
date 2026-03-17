@@ -8,6 +8,8 @@ use async_trait::async_trait;
 use futures::stream::{Stream, StreamExt};
 use serde_json::{json, Value};
 
+use crate::providers::anthropic_to_openai_body;
+
 use crate::error::ApiError;
 use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::ChatCompletionRequest;
@@ -40,54 +42,6 @@ impl CustomProvider {
             let trimmed = base.trim_end_matches('/');
             Ok(format!("{}/chat/completions", trimmed))
         }
-    }
-
-    /// Convert Anthropic messages format to OpenAI chat completions format.
-    fn anthropic_to_openai_body(req: &AnthropicMessagesRequest) -> Value {
-        let mut messages: Vec<Value> = Vec::new();
-
-        if let Some(system) = &req.system {
-            let system_text = system
-                .as_str()
-                .map(String::from)
-                .or_else(|| {
-                    system.as_array().map(|blocks| {
-                        blocks
-                            .iter()
-                            .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    })
-                })
-                .unwrap_or_default();
-            if !system_text.is_empty() {
-                messages.push(json!({ "role": "system", "content": system_text }));
-            }
-        }
-
-        for msg in &req.messages {
-            let content = msg
-                .content
-                .as_str()
-                .map(|s| json!(s))
-                .unwrap_or_else(|| msg.content.clone());
-            messages.push(json!({ "role": msg.role, "content": content }));
-        }
-
-        let mut body = json!({
-            "model": req.model,
-            "messages": messages,
-            "stream": false,
-        });
-
-        if req.max_tokens > 0 {
-            body["max_tokens"] = json!(req.max_tokens);
-        }
-        if let Some(temp) = req.temperature {
-            body["temperature"] = json!(temp);
-        }
-
-        body
     }
 
     async fn send_request(
@@ -188,7 +142,7 @@ impl Provider for CustomProvider {
         ctx: &ProviderContext<'_>,
         req: &AnthropicMessagesRequest,
     ) -> Result<ProviderResponse, ApiError> {
-        let body = Self::anthropic_to_openai_body(req);
+        let body = anthropic_to_openai_body(req);
         let response = self.send_request(ctx, body, false).await?;
         let status = response.status().as_u16();
         let headers = response.headers().clone();
@@ -210,7 +164,7 @@ impl Provider for CustomProvider {
         ctx: &ProviderContext<'_>,
         req: &AnthropicMessagesRequest,
     ) -> Result<Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>, ApiError> {
-        let body = Self::anthropic_to_openai_body(req);
+        let body = anthropic_to_openai_body(req);
         let response = self.send_request(ctx, body, true).await?;
         let byte_stream = response.bytes_stream();
         let sse_values = parse_sse_stream(byte_stream);
@@ -226,6 +180,8 @@ impl Provider for CustomProvider {
 mod tests {
     use super::*;
     use crate::models::anthropic::{AnthropicMessage, AnthropicMessagesRequest};
+    use crate::models::openai::ChatCompletionRequest;
+    use crate::providers::anthropic_to_openai_body;
     use crate::providers::types::ProviderCredentials;
 
     #[test]
@@ -324,7 +280,7 @@ mod tests {
             disable_parallel_tool_use: None,
         };
 
-        let body = CustomProvider::anthropic_to_openai_body(&req);
+        let body = anthropic_to_openai_body(&req);
         assert_eq!(body["model"], "llama3");
         assert_eq!(body["max_tokens"], 1000);
         assert_eq!(body["messages"][0]["role"], "user");
@@ -353,7 +309,7 @@ mod tests {
             disable_parallel_tool_use: None,
         };
 
-        let body = CustomProvider::anthropic_to_openai_body(&req);
+        let body = anthropic_to_openai_body(&req);
         assert_eq!(body["messages"][0]["role"], "system");
         assert_eq!(body["messages"][0]["content"], "Be helpful");
         assert_eq!(body["messages"][1]["role"], "user");
@@ -381,7 +337,7 @@ mod tests {
             disable_parallel_tool_use: None,
         };
 
-        let body = CustomProvider::anthropic_to_openai_body(&req);
+        let body = anthropic_to_openai_body(&req);
         let temp = body["temperature"].as_f64().unwrap();
         assert!((temp - 0.5).abs() < 0.01);
     }
@@ -408,7 +364,7 @@ mod tests {
             disable_parallel_tool_use: None,
         };
 
-        let body = CustomProvider::anthropic_to_openai_body(&req);
+        let body = anthropic_to_openai_body(&req);
         assert!(body.get("max_tokens").is_none());
     }
 
@@ -437,7 +393,7 @@ mod tests {
             disable_parallel_tool_use: None,
         };
 
-        let body = CustomProvider::anthropic_to_openai_body(&req);
+        let body = anthropic_to_openai_body(&req);
         assert_eq!(body["messages"][0]["role"], "system");
         assert_eq!(body["messages"][0]["content"], "First block\nSecond block");
     }
@@ -474,7 +430,7 @@ mod tests {
             disable_parallel_tool_use: None,
         };
 
-        let body = CustomProvider::anthropic_to_openai_body(&req);
+        let body = anthropic_to_openai_body(&req);
         let messages = body["messages"].as_array().unwrap();
         assert_eq!(messages.len(), 3);
         assert_eq!(messages[0]["role"], "user");
@@ -487,5 +443,183 @@ mod tests {
     fn test_custom_provider_default() {
         let provider = CustomProvider::default();
         assert_eq!(provider.id(), ProviderId::Custom);
+    }
+
+    // ── HTTP execution tests (mockito) ──────────────────────────────
+
+    fn make_ctx_with_url(url: &str, token: &str) -> (ProviderCredentials, String) {
+        (
+            ProviderCredentials {
+                provider: ProviderId::Custom,
+                access_token: token.to_string(),
+                base_url: Some(url.to_string()),
+                account_label: "proxy".to_string(),
+            },
+            "test-model".to_string(),
+        )
+    }
+
+    fn make_test_openai_req() -> ChatCompletionRequest {
+        serde_json::from_value(json!({
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "Hello"}]
+        }))
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_execute_openai_sends_correct_request() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/chat/completions")
+            .match_header("content-type", "application/json")
+            .match_header("authorization", "Bearer test-key-123")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"chatcmpl-1","choices":[{"message":{"content":"Hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2}}"#)
+            .create_async()
+            .await;
+
+        let provider = CustomProvider::new();
+        let (creds, model) = make_ctx_with_url(&server.url(), "test-key-123");
+        let ctx = ProviderContext {
+            credentials: &creds,
+            model: &model,
+        };
+        let req = make_test_openai_req();
+        let result = provider.execute_openai(&ctx, &req).await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.body["choices"][0]["message"]["content"], "Hi");
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_send_request_skips_auth_when_token_empty() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/chat/completions")
+            .match_header("content-type", "application/json")
+            // Verify NO Authorization header is sent
+            .match_header("authorization", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"chatcmpl-1","choices":[]}"#)
+            .create_async()
+            .await;
+
+        let provider = CustomProvider::new();
+        let (creds, _model) = make_ctx_with_url(&server.url(), "");
+        let ctx = ProviderContext {
+            credentials: &creds,
+            model: "test-model",
+        };
+        let body = json!({"model": "test-model", "messages": []});
+        let result = provider.send_request(&ctx, body, false).await;
+        assert!(result.is_ok());
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_send_request_returns_error_on_4xx() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("POST", "/chat/completions")
+            .with_status(401)
+            .with_body(r#"{"error":"unauthorized"}"#)
+            .create_async()
+            .await;
+
+        let provider = CustomProvider::new();
+        let (creds, _model) = make_ctx_with_url(&server.url(), "bad-key");
+        let ctx = ProviderContext {
+            credentials: &creds,
+            model: "test-model",
+        };
+        let body = json!({"model": "test-model", "messages": []});
+        let result = provider.send_request(&ctx, body, false).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ApiError::ProviderApiError {
+                provider,
+                status,
+                message,
+            } => {
+                assert_eq!(provider, "custom");
+                assert_eq!(status, 401);
+                assert!(message.contains("unauthorized"));
+            }
+            other => panic!("Expected ProviderApiError, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_send_request_returns_error_on_5xx() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("POST", "/chat/completions")
+            .with_status(500)
+            .with_body("Internal Server Error")
+            .create_async()
+            .await;
+
+        let provider = CustomProvider::new();
+        let (creds, _model) = make_ctx_with_url(&server.url(), "key");
+        let ctx = ProviderContext {
+            credentials: &creds,
+            model: "test-model",
+        };
+        let body = json!({"model": "test-model", "messages": []});
+        let result = provider.send_request(&ctx, body, false).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ApiError::ProviderApiError { status, .. } => assert_eq!(status, 500),
+            other => panic!("Expected ProviderApiError, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_execute_anthropic_converts_and_sends() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/chat/completions")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"chatcmpl-1","choices":[{"message":{"content":"Hello!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2}}"#)
+            .create_async()
+            .await;
+
+        let provider = CustomProvider::new();
+        let (creds, _model) = make_ctx_with_url(&server.url(), "test-key");
+        let ctx = ProviderContext {
+            credentials: &creds,
+            model: "llama3",
+        };
+        let req = AnthropicMessagesRequest {
+            model: "llama3".to_string(),
+            messages: vec![AnthropicMessage {
+                role: "user".to_string(),
+                content: json!("Hello"),
+            }],
+            max_tokens: 100,
+            system: None,
+            stream: false,
+            tools: None,
+            tool_choice: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            stop_sequences: None,
+            metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
+        };
+        let result = provider.execute_anthropic(&ctx, &req).await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.body["choices"][0]["message"]["content"], "Hello!");
+        mock.assert_async().await;
     }
 }

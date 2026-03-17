@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use crate::error::ApiError;
 use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::ChatCompletionRequest;
+use crate::providers::anthropic_to_openai_body;
 use crate::providers::traits::Provider;
 use crate::providers::types::{ProviderContext, ProviderId, ProviderResponse, ProviderStreamItem};
 use crate::streaming::sse::parse_sse_stream;
@@ -37,56 +38,6 @@ impl OpenAICodexProvider {
 
     fn completions_url(&self, ctx: &ProviderContext<'_>) -> String {
         format!("{}/v1/chat/completions", self.base_url(ctx))
-    }
-
-    /// Convert Anthropic messages format to OpenAI chat completions format.
-    fn anthropic_to_openai_body(req: &AnthropicMessagesRequest) -> Value {
-        let mut messages: Vec<Value> = Vec::new();
-
-        // Add system prompt if present
-        if let Some(system) = &req.system {
-            let system_text = system
-                .as_str()
-                .map(String::from)
-                .or_else(|| {
-                    system.as_array().map(|blocks| {
-                        blocks
-                            .iter()
-                            .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    })
-                })
-                .unwrap_or_default();
-            if !system_text.is_empty() {
-                messages.push(json!({ "role": "system", "content": system_text }));
-            }
-        }
-
-        // Add conversation messages
-        for msg in &req.messages {
-            let content = msg
-                .content
-                .as_str()
-                .map(|s| json!(s))
-                .unwrap_or_else(|| msg.content.clone());
-            messages.push(json!({ "role": msg.role, "content": content }));
-        }
-
-        let mut body = json!({
-            "model": req.model,
-            "messages": messages,
-            "stream": false,
-        });
-
-        if req.max_tokens > 0 {
-            body["max_tokens"] = json!(req.max_tokens);
-        }
-        if let Some(temp) = req.temperature {
-            body["temperature"] = json!(temp);
-        }
-
-        body
     }
 
     async fn send_request(
@@ -181,7 +132,7 @@ impl Provider for OpenAICodexProvider {
         ctx: &ProviderContext<'_>,
         req: &AnthropicMessagesRequest,
     ) -> Result<ProviderResponse, ApiError> {
-        let body = Self::anthropic_to_openai_body(req);
+        let body = anthropic_to_openai_body(req);
         let response = self.send_request(ctx, body, false).await?;
         let status = response.status().as_u16();
         let headers = response.headers().clone();
@@ -200,7 +151,7 @@ impl Provider for OpenAICodexProvider {
         ctx: &ProviderContext<'_>,
         req: &AnthropicMessagesRequest,
     ) -> Result<Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>, ApiError> {
-        let body = Self::anthropic_to_openai_body(req);
+        let body = anthropic_to_openai_body(req);
         let response = self.send_request(ctx, body, true).await?;
         let byte_stream = response.bytes_stream();
         let sse_values = parse_sse_stream(byte_stream);
@@ -262,6 +213,7 @@ pub fn openai_response_to_anthropic(model: &str, body: &Value) -> Value {
 mod tests {
     use super::*;
     use crate::models::anthropic::{AnthropicMessage, AnthropicMessagesRequest};
+    use crate::providers::anthropic_to_openai_body;
     use crate::providers::types::ProviderCredentials;
 
     #[test]
@@ -331,7 +283,7 @@ mod tests {
             disable_parallel_tool_use: None,
         };
 
-        let body = OpenAICodexProvider::anthropic_to_openai_body(&req);
+        let body = anthropic_to_openai_body(&req);
         assert_eq!(body["model"], "claude-sonnet-4");
         assert_eq!(body["max_tokens"], 1000);
         assert_eq!(body["messages"][0]["role"], "user");
@@ -360,7 +312,7 @@ mod tests {
             disable_parallel_tool_use: None,
         };
 
-        let body = OpenAICodexProvider::anthropic_to_openai_body(&req);
+        let body = anthropic_to_openai_body(&req);
         assert_eq!(body["messages"][0]["role"], "system");
         assert_eq!(body["messages"][0]["content"], "Be helpful");
         assert_eq!(body["messages"][1]["role"], "user");

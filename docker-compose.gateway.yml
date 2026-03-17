@@ -60,6 +60,8 @@ services:
       CUSTOM_PROVIDER_URL: "${CUSTOM_PROVIDER_URL:-}"
       CUSTOM_PROVIDER_KEY: "${CUSTOM_PROVIDER_KEY:-}"
       CUSTOM_PROVIDER_MODELS: "${CUSTOM_PROVIDER_MODELS:-}"
+      # Device flow control
+      SKIP_DEVICE_FLOWS: "${SKIP_DEVICE_FLOWS:-}"
     volumes:
       - gateway-data:/data
     deploy:

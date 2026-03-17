@@ -11,7 +11,7 @@ use crate::providers::rate_limiter::{AccountId, RateLimitTracker};
 use crate::providers::registry::ProviderRegistry;
 use crate::providers::types::{ProviderCredentials, ProviderId};
 
-use super::state::{AppState, UserKiroCreds};
+use super::state::{AppState, UserKiroCreds, PROXY_USER_ID};
 
 /// Result of provider routing: which provider to use and optional credentials.
 pub(crate) struct ProviderRouting {
@@ -23,20 +23,26 @@ pub(crate) struct ProviderRouting {
     pub account_id: Option<AccountId>,
 }
 
+/// Resolve the effective user_id for provider routing.
+///
+/// If user credentials are present, uses their user_id. In proxy mode (no user creds),
+/// falls back to the sentinel PROXY_USER_ID so the registry can still route.
+pub(crate) fn resolve_user_id(
+    user_creds: Option<&UserKiroCreds>,
+    is_proxy: bool,
+) -> Option<uuid::Uuid> {
+    user_creds
+        .map(|c| c.user_id)
+        .or(if is_proxy { Some(PROXY_USER_ID) } else { None })
+}
+
 /// Resolve which provider to route a request to, refreshing OAuth tokens if needed.
 pub(crate) async fn resolve_provider_routing(
     state: &AppState,
     user_creds: Option<&UserKiroCreds>,
     model: &str,
 ) -> ProviderRouting {
-    let user_id = user_creds.map(|c| c.user_id).or_else(|| {
-        // Proxy mode without Kiro creds: use sentinel UUID so registry can route
-        if state.proxy_api_key_hash.is_some() {
-            Some(super::state::PROXY_USER_ID)
-        } else {
-            None
-        }
-    });
+    let user_id = resolve_user_id(user_creds, state.proxy_api_key_hash.is_some());
     let (raw_model, stripped_model) =
         if let Some((_provider, model_id)) = ProviderRegistry::parse_prefixed_model(model) {
             (model.to_string(), Some(model_id))
@@ -311,5 +317,38 @@ pub(crate) async fn run_output_guardrail_check(
             );
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_resolve_user_id_with_creds() {
+        let uid = Uuid::new_v4();
+        let creds = UserKiroCreds {
+            user_id: uid,
+            access_token: "tok".to_string(),
+            refresh_token: "rtok".to_string(),
+            region: "us-east-1".to_string(),
+        };
+        // With creds, always returns creds.user_id regardless of proxy flag
+        assert_eq!(resolve_user_id(Some(&creds), false), Some(uid));
+        assert_eq!(resolve_user_id(Some(&creds), true), Some(uid));
+    }
+
+    #[test]
+    fn test_resolve_user_id_proxy_no_creds() {
+        // Proxy mode without creds → PROXY_USER_ID sentinel
+        let result = resolve_user_id(None, true);
+        assert_eq!(result, Some(PROXY_USER_ID));
+    }
+
+    #[test]
+    fn test_resolve_user_id_non_proxy_no_creds() {
+        // Non-proxy mode without creds → None
+        assert_eq!(resolve_user_id(None, false), None);
     }
 }
