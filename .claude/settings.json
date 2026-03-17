@@ -20,7 +20,7 @@
     "rust-analyzer-lsp@claude-plugins-official": true
   },
   "plansDirectory": "/Users/hikennoace/ai-gateway/harbangan/.claude/plans",
-  "teammateMode": "auto",
+  "teammateMode": "in-process",
   "skipDangerousModePermissionPrompt": true,
   "hooks": {
     "PreToolUse": [
