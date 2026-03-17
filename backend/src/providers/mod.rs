@@ -6,7 +6,9 @@ use crate::providers::types::ProviderId;
 
 pub mod anthropic;
 pub mod copilot;
+pub mod custom;
 pub mod kiro;
+pub mod known_models;
 pub mod openai_codex;
 pub mod qwen;
 pub mod rate_limiter;
@@ -43,6 +45,10 @@ pub fn build_provider_map(
     map.insert(
         ProviderId::Qwen,
         Arc::new(qwen::QwenProvider::new()) as Arc<dyn Provider>,
+    );
+    map.insert(
+        ProviderId::Custom,
+        Arc::new(custom::CustomProvider::new()) as Arc<dyn Provider>,
     );
     Arc::new(map)
 }

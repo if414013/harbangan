@@ -3,13 +3,27 @@
 # Required env vars (set in .env.proxy or pass directly):
 #   PROXY_API_KEY        — API key clients use to authenticate
 #
-# Optional:
+# Optional (Kiro):
+#   KIRO_REGION          — Kiro API region (default: us-east-1)
+#   KIRO_SSO_REGION      — SSO OIDC region (default: same as KIRO_REGION)
+#   KIRO_SSO_URL         — SSO issuer URL (auto-derived if omitted)
+#
+# Optional (multi-provider):
+#   ANTHROPIC_API_KEY    — Anthropic API key (enables claude-* models)
+#   OPENAI_API_KEY       — OpenAI API key (enables gpt-* models)
+#   OPENAI_BASE_URL      — OpenAI base URL (default: https://api.openai.com/v1)
+#   COPILOT_TOKEN        — GitHub Copilot token (or obtained via device flow)
+#   COPILOT_BASE_URL     — Copilot API base URL
+#   QWEN_TOKEN           — Qwen token (or obtained via device flow)
+#   QWEN_BASE_URL        — Qwen API base URL
+#   CUSTOM_PROVIDER_URL  — Custom OpenAI-compatible endpoint
+#   CUSTOM_PROVIDER_KEY  — Custom provider API key
+#   CUSTOM_PROVIDER_MODELS — Comma-separated model names for custom provider
+#
+# Optional (general):
 #   SERVER_PORT          — Listen port (default: 8000)
 #   LOG_LEVEL            — info, debug, warn, error (default: info)
 #   DEBUG_MODE           — off, errors, all (default: off)
-#   KIRO_SSO_URL         — SSO issuer URL (auto-derived if omitted)
-#   KIRO_SSO_REGION      — SSO OIDC region (default: same as KIRO_REGION)
-#   KIRO_REGION          — Kiro API region (default: us-east-1)
 #
 # Usage:
 #   docker compose -f docker-compose.gateway.yml --env-file .env.proxy up -d
@@ -35,6 +49,17 @@ services:
       KIRO_SSO_URL: "${KIRO_SSO_URL:-}"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       DEBUG_MODE: "${DEBUG_MODE:-off}"
+      # Multi-provider credentials (all optional)
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-}"
+      COPILOT_TOKEN: "${COPILOT_TOKEN:-}"
+      COPILOT_BASE_URL: "${COPILOT_BASE_URL:-}"
+      QWEN_TOKEN: "${QWEN_TOKEN:-}"
+      QWEN_BASE_URL: "${QWEN_BASE_URL:-}"
+      CUSTOM_PROVIDER_URL: "${CUSTOM_PROVIDER_URL:-}"
+      CUSTOM_PROVIDER_KEY: "${CUSTOM_PROVIDER_KEY:-}"
+      CUSTOM_PROVIDER_MODELS: "${CUSTOM_PROVIDER_MODELS:-}"
     volumes:
       - gateway-data:/data
     deploy:

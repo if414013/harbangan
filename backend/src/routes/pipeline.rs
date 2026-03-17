@@ -29,7 +29,14 @@ pub(crate) async fn resolve_provider_routing(
     user_creds: Option<&UserKiroCreds>,
     model: &str,
 ) -> ProviderRouting {
-    let user_id = user_creds.map(|c| c.user_id);
+    let user_id = user_creds.map(|c| c.user_id).or_else(|| {
+        // Proxy mode without Kiro creds: use sentinel UUID so registry can route
+        if state.proxy_api_key_hash.is_some() {
+            Some(super::state::PROXY_USER_ID)
+        } else {
+            None
+        }
+    });
     let (raw_model, stripped_model) =
         if let Some((_provider, model_id)) = ProviderRegistry::parse_prefixed_model(model) {
             (model.to_string(), Some(model_id))

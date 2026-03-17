@@ -333,6 +333,82 @@ async fn main() -> Result<()> {
     let auth_manager = Arc::new(tokio::sync::RwLock::new(app_auth_manager));
     let config_arc = Arc::new(RwLock::new(config.clone()));
 
+    // Build provider registry (with proxy credentials in proxy mode)
+    let provider_registry = if config.is_proxy_only() {
+        let mut proxy_creds = std::collections::HashMap::new();
+        let mut custom_models = std::collections::HashSet::new();
+        if let Some(ref proxy) = config.proxy {
+            if let Some(ref key) = proxy.anthropic_api_key {
+                proxy_creds.insert(
+                    providers::types::ProviderId::Anthropic,
+                    providers::types::ProviderCredentials {
+                        provider: providers::types::ProviderId::Anthropic,
+                        access_token: key.clone(),
+                        base_url: None,
+                        account_label: "proxy".into(),
+                    },
+                );
+            }
+            if let Some(ref key) = proxy.openai_api_key {
+                proxy_creds.insert(
+                    providers::types::ProviderId::OpenAICodex,
+                    providers::types::ProviderCredentials {
+                        provider: providers::types::ProviderId::OpenAICodex,
+                        access_token: key.clone(),
+                        base_url: proxy.openai_base_url.clone(),
+                        account_label: "proxy".into(),
+                    },
+                );
+            }
+            if let Some(ref token) = proxy.copilot_token {
+                proxy_creds.insert(
+                    providers::types::ProviderId::Copilot,
+                    providers::types::ProviderCredentials {
+                        provider: providers::types::ProviderId::Copilot,
+                        access_token: token.clone(),
+                        base_url: proxy.copilot_base_url.clone(),
+                        account_label: "proxy".into(),
+                    },
+                );
+            }
+            if let Some(ref token) = proxy.qwen_token {
+                proxy_creds.insert(
+                    providers::types::ProviderId::Qwen,
+                    providers::types::ProviderCredentials {
+                        provider: providers::types::ProviderId::Qwen,
+                        access_token: token.clone(),
+                        base_url: proxy.qwen_base_url.clone(),
+                        account_label: "proxy".into(),
+                    },
+                );
+            }
+            if let Some(ref url) = proxy.custom_provider_url {
+                proxy_creds.insert(
+                    providers::types::ProviderId::Custom,
+                    providers::types::ProviderCredentials {
+                        provider: providers::types::ProviderId::Custom,
+                        access_token: proxy.custom_provider_key.clone().unwrap_or_default(),
+                        base_url: Some(url.clone()),
+                        account_label: "proxy".into(),
+                    },
+                );
+            }
+            if let Some(ref models) = proxy.custom_provider_models {
+                custom_models = models.split(',').map(|s| s.trim().to_string()).collect();
+            }
+        }
+        if !proxy_creds.is_empty() {
+            let count = proxy_creds.len();
+            tracing::info!(count, "Proxy mode: loaded provider credentials from env");
+        }
+        Arc::new(providers::registry::ProviderRegistry::new_with_proxy(
+            proxy_creds,
+            custom_models,
+        ))
+    } else {
+        Arc::new(providers::registry::ProviderRegistry::new())
+    };
+
     let mut app_state = routes::AppState {
         proxy_api_key_hash,
         model_cache: model_cache.clone(),
@@ -347,7 +423,7 @@ async fn main() -> Result<()> {
         kiro_token_cache: Arc::new(dashmap::DashMap::new()),
         oauth_pending: Arc::new(dashmap::DashMap::new()),
         guardrails_engine: None,
-        provider_registry: Arc::new(providers::registry::ProviderRegistry::new()),
+        provider_registry,
         providers: providers::build_provider_map(
             http_client.clone(),
             Arc::clone(&auth_manager),
