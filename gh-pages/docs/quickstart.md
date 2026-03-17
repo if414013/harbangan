@@ -23,7 +23,7 @@ Get Harbangan running and make your first API call in under 5 minutes using Dock
 
 ## Proxy-Only Mode (Fastest)
 
-A single container with no PostgreSQL or Google SSO. Authenticates via a single `PROXY_API_KEY`.
+A single container with no PostgreSQL or Google SSO. Authenticates via a single `PROXY_API_KEY`. **Supports Kiro (AWS CodeWhisperer) only** — no Copilot or Qwen in this mode.
 
 ### 1. Clone and configure
 
@@ -32,12 +32,16 @@ git clone https://github.com/if414013/harbangan.git
 cd harbangan
 ```
 
-Create `.env.proxy`:
+Create `.env.proxy` (copy from `.env.proxy.example`):
 
 ```bash
+GATEWAY_MODE=proxy
 PROXY_API_KEY=your-secret-api-key
-KIRO_REGION=us-east-1
-# For Identity Center (pro): set your SSO URL
+
+# Optional — defaults to us-east-1:
+# KIRO_REGION=us-east-1
+
+# For Identity Center (pro): set your SSO start URL
 # KIRO_SSO_URL=https://your-org.awsapps.com/start
 # KIRO_SSO_REGION=us-east-1
 ```
@@ -45,7 +49,7 @@ KIRO_REGION=us-east-1
 ### 2. Start the gateway
 
 ```bash
-docker compose -f docker-compose.gateway.yml --env-file .env.proxy up
+docker compose -f docker-compose.gateway.yml --env-file .env.proxy up -d
 ```
 
 On first boot, the container runs a device code flow — check the logs for a URL to open in your browser:
@@ -97,9 +101,6 @@ POSTGRES_PASSWORD=change-me
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
 GOOGLE_CALLBACK_URL=http://localhost:9999/_ui/api/auth/google/callback
-
-# Optional: Qwen Coder (device flow)
-# QWEN_OAUTH_CLIENT_ID=f0304373b74a44d2b584a3fb70ca9e56
 ```
 
 You need a **Google OAuth Client ID** from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) with the redirect URI set to your callback URL above.
@@ -130,7 +131,7 @@ Server listening on http://0.0.0.0:8000
 Open `https://your-domain.com/_ui/` in your browser.
 
 1. Click **Sign in with Google** — the first user gets the Admin role
-2. Connect your **provider credentials** on the Profile page (Kiro via AWS SSO device code flow, optionally GitHub Copilot or Qwen Coder)
+2. Connect your **Kiro credentials** on the Profile page via AWS SSO device code flow
 3. Create a **personal API key** in the API Keys section
 
 ### 5. Verify it works

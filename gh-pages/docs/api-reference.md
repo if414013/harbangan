@@ -597,6 +597,8 @@ Root endpoint. Returns a simple status check. No authentication required.
 
 ## Web UI API Endpoints
 
+> **Full Deployment only.** The `/_ui/api/*` endpoints are not available in Proxy-Only Mode — the Web UI and all session-based routes are disabled when `GATEWAY_MODE=proxy`.
+
 All web UI API endpoints are under `/_ui/api/`. See the [Web Dashboard](web-ui.html) documentation for full details.
 
 ### Public (No Authentication)

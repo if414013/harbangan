@@ -333,6 +333,9 @@ ss -tlnp | grep -E ':(9999|5173)\s'
 
 ## Proxy-Only Mode Issues
 
+{: .note }
+> Proxy-Only Mode (`docker-compose.gateway.yml`) supports **Kiro (AWS CodeWhisperer) only**. Kiro credentials are cached in the `gateway-data` Docker volume at `/data/tokens.json`.
+
 ### "ERROR: PROXY_API_KEY is required"
 
 **Cause:** The `PROXY_API_KEY` environment variable is not set.
@@ -408,9 +411,25 @@ docker compose -f docker-compose.gateway.yml --env-file .env.proxy restart gatew
   docker compose -f docker-compose.gateway.yml --env-file .env.proxy up
   ```
 
+### Permission denied writing to `/data`
+
+**Cause:** The `gateway-data` volume is owned by root but the container runs as `appuser` (non-root).
+
+**Solutions:**
+- This should not occur with a fresh volume — Docker creates the volume with correct ownership.
+- If it does occur (e.g., after manually copying files into the volume), reset the volume:
+  ```bash
+  docker compose -f docker-compose.gateway.yml down
+  docker volume rm harbangan_gateway-data
+  docker compose -f docker-compose.gateway.yml --env-file .env.proxy up
+  ```
+
 ---
 
 ## Provider-Specific Issues
+
+{: .note }
+> Provider-specific issues below apply to **Full Deployment only** (`docker-compose.yml`). Proxy-Only Mode supports Kiro exclusively — there are no Copilot or Qwen providers in proxy mode.
 
 ### GitHub Copilot
 

@@ -29,13 +29,17 @@ Harbangan has two deployment modes with different configuration models:
 
 ## Proxy-Only Mode Environment Variables
 
-Set these in `.env.proxy` and pass via `--env-file .env.proxy` when running `docker compose -f docker-compose.gateway.yml`.
+Set these in `.env.proxy` (copy from `.env.proxy.example`) and pass via `--env-file .env.proxy` when running `docker compose -f docker-compose.gateway.yml`.
+
+Proxy-Only Mode supports **Kiro (AWS CodeWhisperer) only**. No Copilot or Qwen providers are available in this mode.
 
 ### Required
 
 | Variable | Description | Example |
 |:---|:---|:---|
 | `PROXY_API_KEY` | API key that clients use to authenticate all requests. | `my-secret-key` |
+
+> `GATEWAY_MODE=proxy` is set automatically by `docker-compose.gateway.yml` — you do not need to set it in `.env.proxy`.
 
 ### Optional
 
@@ -45,11 +49,9 @@ Set these in `.env.proxy` and pass via `--env-file .env.proxy` when running `doc
 | `KIRO_SSO_URL` | _(omit for Builder ID)_ | Identity Center SSO issuer URL. Omit this to use Builder ID (free). |
 | `KIRO_SSO_REGION` | same as `KIRO_REGION` | AWS region for the SSO OIDC endpoint. Only needed if different from `KIRO_REGION`. |
 | `SERVER_PORT` | `8000` | Port the gateway listens on. |
+| `BIND_ADDRESS` | `127.0.0.1` | Address to bind the gateway port. Set to `0.0.0.0` to allow external access. |
 | `LOG_LEVEL` | `info` | Log verbosity: `debug`, `info`, `warn`, `error`. |
 | `DEBUG_MODE` | `off` | Debug logging: `off`, `errors`, `all`. |
-| `GITHUB_COPILOT_CLIENT_ID` | | GitHub OAuth App Client ID for Copilot provider. |
-| `GITHUB_COPILOT_CLIENT_SECRET` | | GitHub OAuth App Client Secret. |
-| `GITHUB_COPILOT_CALLBACK_URL` | | OAuth callback URL (e.g., `https://{DOMAIN}/_ui/api/copilot/callback`). |
 
 ### Builder ID vs Identity Center
 
@@ -60,15 +62,25 @@ Set these in `.env.proxy` and pass via `--env-file .env.proxy` when running `doc
 
 ```bash
 # Proxy-Only Mode — Harbangan
-PROXY_API_KEY=your-secret-api-key
-KIRO_REGION=us-east-1
+# Usage: docker compose -f docker-compose.gateway.yml --env-file .env.proxy up -d
 
-# Uncomment for Identity Center (pro):
-# KIRO_SSO_URL=https://your-org.awsapps.com/start
-# KIRO_SSO_REGION=us-east-1
+GATEWAY_MODE=proxy
+PROXY_API_KEY=your-api-key-here
 
-# Optional overrides:
+# Optional: Kiro API region (default: us-east-1)
+# KIRO_REGION=us-east-1
+
+# Optional: SSO OIDC region (defaults to KIRO_REGION)
+# KIRO_SSO_REGION=
+
+# Optional: SSO start URL (for Identity Center users)
+# KIRO_SSO_URL=
+
+# Optional: Server bind address and port
+# BIND_ADDRESS=127.0.0.1
 # SERVER_PORT=8000
+
+# Optional: Logging
 # LOG_LEVEL=info
 # DEBUG_MODE=off
 ```
@@ -88,14 +100,13 @@ Set these in your `.env` file before running `docker compose up`. They are read 
 | `GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 Client Secret. | `GOCSPX-abc123` |
 | `GOOGLE_CALLBACK_URL` | OAuth redirect URI. Must match the authorized redirect URI in Google Cloud Console. | `http://localhost:9999/_ui/api/auth/google/callback` |
 
-### Optional Provider Variables
+### Optional Variables
 
 | Variable | Description | Example |
 |:---|:---|:---|
-| `GITHUB_COPILOT_CLIENT_ID` | GitHub OAuth App Client ID for Copilot provider support. | `Iv1.abc123` |
-| `GITHUB_COPILOT_CLIENT_SECRET` | GitHub OAuth App Client Secret. | `secret_abc123` |
-| `GITHUB_COPILOT_CALLBACK_URL` | Copilot OAuth callback URL. | `https://gateway.example.com/_ui/api/copilot/callback` |
-| `QWEN_OAUTH_CLIENT_ID` | Qwen Coder OAuth client ID (device flow, no secret required). Default public ID: `f0304373b74a44d2b584a3fb70ca9e56`. | `f0304373b74a44d2b584a3fb70ca9e56` |
+| `INITIAL_ADMIN_EMAIL` | Seed admin email for headless/automated first-run setup. | `admin@example.com` |
+| `INITIAL_ADMIN_PASSWORD` | Seed admin password (Argon2 hashed on first startup). | `changeme` |
+| `INITIAL_ADMIN_TOTP_SECRET` | Base32 TOTP secret pre-configured for admin 2FA (enables automated E2E auth). | `JBSWY3DPEHPK3PXP` |
 
 ### Auto-managed by docker-compose
 
@@ -104,7 +115,7 @@ These are set automatically in `docker-compose.yml`. Do **not** set them in `.en
 | Variable | Value in Docker | Description |
 |:---|:---|:---|
 | `SERVER_HOST` | `0.0.0.0` | Backend bind address (internal only). |
-| `SERVER_PORT` | `8000` | Backend listen port (internal only). |
+| `SERVER_PORT` | `9999` | Backend listen port (internal only). |
 | `DATABASE_URL` | `postgres://kiro:<POSTGRES_PASSWORD>@db:5432/kiro_gateway` | PostgreSQL connection string. |
 
 ---
@@ -240,13 +251,10 @@ GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
 GOOGLE_CALLBACK_URL=https://gateway.example.com/_ui/api/auth/google/callback
 
-# GitHub Copilot OAuth (optional)
-# GITHUB_COPILOT_CLIENT_ID=
-# GITHUB_COPILOT_CLIENT_SECRET=
-# GITHUB_COPILOT_CALLBACK_URL=https://gateway.example.com/_ui/api/copilot/callback
-
-# Qwen Coder OAuth (optional — device flow, no secret required)
-# QWEN_OAUTH_CLIENT_ID=f0304373b74a44d2b584a3fb70ca9e56
+# Initial admin account (optional — for headless/automated setup)
+# INITIAL_ADMIN_EMAIL=admin@example.com
+# INITIAL_ADMIN_PASSWORD=changeme
+# INITIAL_ADMIN_TOTP_SECRET=your-base32-totp-secret-here
 ```
 
 ---

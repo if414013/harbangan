@@ -11,7 +11,8 @@ RUN apt-get update && apt-get install -y ca-certificates curl jq && rm -rf /var/
 WORKDIR /app
 COPY --from=builder /usr/local/bin/harbangan /app/harbangan
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh \
+    && mkdir -p /data && chown appuser:appuser /data
 USER appuser
 EXPOSE 8000
 CMD ["/app/harbangan"]

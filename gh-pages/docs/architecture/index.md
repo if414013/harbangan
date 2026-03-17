@@ -9,12 +9,12 @@ permalink: /architecture/
 # Architecture Overview
 {: .no_toc }
 
-Kiro Gateway is a multi-provider AI proxy that exposes OpenAI and Anthropic-compatible APIs. It routes requests to multiple backend providers — Kiro (AWS CodeWhisperer), Anthropic, OpenAI, Gemini, GitHub Copilot, and Qwen — with per-user credential management and automatic provider selection. It supports two deployment modes:
+Harbangan is an AI proxy gateway that exposes OpenAI and Anthropic-compatible APIs backed by Kiro (AWS CodeWhisperer). It supports two deployment modes:
 
-- **Proxy-Only Mode** (`docker-compose.gateway.yml`) — A single backend container with no database or web UI. Uses a single `PROXY_API_KEY` for authentication and an AWS SSO device code flow for Kiro credentials. Best for personal use.
-- **Full Deployment** (`docker-compose.yml`) — Three docker-compose services: PostgreSQL database, Rust backend (plain HTTP), and Vite frontend dev server. Supports multi-user with Google SSO and per-user API keys. Best for teams and development. Production targets Kubernetes.
+- **Proxy-Only Mode** (`docker-compose.gateway.yml`) — A single backend container with no database or web UI. **Kiro-only.** Uses a single `PROXY_API_KEY` for authentication and an AWS SSO device code flow for Kiro credentials. Best for personal use.
+- **Full Deployment** (`docker-compose.yml`) — Three docker-compose services: PostgreSQL database, Rust backend (plain HTTP), and Vite frontend dev server. Supports multi-user with Google SSO, per-user API keys, and per-user Kiro credential management. Best for teams and development. Production targets Kubernetes.
 
-Both modes share the same Rust backend binary — the deployment mode determines which features are active.
+Both modes share the same Rust backend binary — `GATEWAY_MODE=proxy` activates the proxy-only path.
 
 ## Table of Contents
 {: .no_toc .text-delta }

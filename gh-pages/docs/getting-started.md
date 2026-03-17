@@ -27,7 +27,7 @@ Key capabilities:
 - Bidirectional format translation (OpenAI/Anthropic to Kiro and back)
 - Streaming responses via Server-Sent Events (SSE)
 - Two deployment modes: **Proxy-Only Mode** (single user) and **Full Deployment** (multi-user)
-- Multi-provider support: Kiro (default), GitHub Copilot, and Qwen Coder — with per-user provider priority
+- Kiro (AWS CodeWhisperer) as the AI backend — in Proxy-Only Mode this is the sole provider
 - Multi-user support with Google SSO and per-user API keys (Full Deployment)
 - Role-based access control (Admin / User)
 - Web dashboard for configuration, monitoring, and log streaming
@@ -56,7 +56,7 @@ Harbangan supports two deployment modes:
 
 ## Proxy-Only Mode
 
-The fastest way to get started. Runs a single backend container with no database, web UI, or TLS.
+The fastest way to get started. Runs a single backend container with no database, web UI, or TLS. **Supports Kiro (AWS CodeWhisperer) only.**
 
 ### Prerequisites
 
@@ -76,12 +76,16 @@ cd harbangan
 
 ### Step 2: Configure environment variables
 
-Create `.env.proxy`:
+Copy `.env.proxy.example` to `.env.proxy` and set your values:
 
 ```bash
+GATEWAY_MODE=proxy
 PROXY_API_KEY=your-secret-api-key
-KIRO_REGION=us-east-1
-# For Identity Center (pro): set your SSO URL
+
+# Optional — defaults to us-east-1:
+# KIRO_REGION=us-east-1
+
+# For Identity Center (pro): set your SSO start URL
 # KIRO_SSO_URL=https://your-org.awsapps.com/start
 # KIRO_SSO_REGION=us-east-1
 ```
@@ -89,7 +93,7 @@ KIRO_REGION=us-east-1
 ### Step 3: Start the gateway
 
 ```bash
-docker compose -f docker-compose.gateway.yml --env-file .env.proxy up
+docker compose -f docker-compose.gateway.yml --env-file .env.proxy up -d
 ```
 
 On first boot, the container runs an AWS SSO device code flow. Check the logs for a URL to open in your browser:
@@ -170,14 +174,6 @@ POSTGRES_PASSWORD=your_secure_password_here
 GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 GOOGLE_CALLBACK_URL=http://localhost:9999/_ui/api/auth/google/callback
-
-# GitHub Copilot OAuth (optional)
-# GITHUB_COPILOT_CLIENT_ID=
-# GITHUB_COPILOT_CLIENT_SECRET=
-# GITHUB_COPILOT_CALLBACK_URL=https://gateway.example.com/_ui/api/copilot/callback
-
-# Qwen Coder OAuth (optional — device flow, no secret required)
-# QWEN_OAUTH_CLIENT_ID=f0304373b74a44d2b584a3fb70ca9e56
 ```
 
 ### Step 3: Start all services
@@ -217,13 +213,7 @@ Click **Sign in with Google** to authenticate via Google SSO. The first user to 
 
 ### Step 3: Add provider credentials
 
-After signing in, navigate to the **Profile** page to connect your AI provider accounts. The gateway supports multiple providers:
-
-- **Kiro (AWS)** — Default provider. Uses an OAuth device code flow to authenticate with AWS SSO and store a refresh token.
-- **GitHub Copilot** (optional) — Connect via GitHub OAuth. Requires `GITHUB_COPILOT_CLIENT_ID`, `GITHUB_COPILOT_CLIENT_SECRET`, and `GITHUB_COPILOT_CALLBACK_URL` in `.env`.
-- **Qwen Coder** (optional) — Connect via device code flow. Requires `QWEN_OAUTH_CLIENT_ID` in `.env` (a default public client ID is provided).
-
-Each user manages their own provider credentials and can set a priority order for provider fallback.
+After signing in, navigate to the **Profile** page to connect your **Kiro (AWS)** credentials. This uses an OAuth device code flow to authenticate with AWS SSO and store a refresh token. The first token refresh runs on-demand when you add your credentials.
 
 ### Step 4: Create an API key
 
@@ -258,7 +248,7 @@ sequenceDiagram
     GW->>DB: Create admin user
     GW-->>User: Session cookie — redirect to dashboard
 
-    User->>GW: Add provider credentials (Kiro, Copilot, Qwen)
+    User->>GW: Add Kiro credentials (AWS SSO device code flow)
     GW->>DB: Save refresh tokens
 
     User->>GW: Create personal API key
@@ -333,7 +323,7 @@ curl -X POST http://localhost:9999/v1/messages \
 
 Open `http://localhost:9999/_ui/` to see:
 
-- Profile page with provider credential management (Kiro, Copilot, Qwen)
+- Profile page with Kiro credential management (AWS SSO device code flow)
 - Configuration management (admin-only)
 - MCP client management (admin-only)
 - Content guardrails configuration (admin-only)

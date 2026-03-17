@@ -37,7 +37,7 @@ Client (localhost) → gateway container (127.0.0.1:8000, plain HTTP)
                          └── Kiro API (AWS CodeWhisperer)
 ```
 
-A single container running the Rust backend. No database or web UI. Authentication uses a single `PROXY_API_KEY` environment variable. Kiro credentials are obtained via an AWS SSO device code flow on first boot and cached to a Docker volume. The port binds to `127.0.0.1` only — not accessible from external networks. The container runs as a non-root user (`appuser`) with a 512MB memory limit.
+A single container running the Rust backend. No database or web UI. **Supports Kiro (AWS CodeWhisperer) only.** Authentication uses a single `PROXY_API_KEY` environment variable. Kiro credentials are obtained via an AWS SSO device code flow on first boot and cached to a Docker volume (`gateway-data:/data/tokens.json`). The port binds to `127.0.0.1` only — not accessible from external networks. The container runs as a non-root user (`appuser`) with a 512MB memory limit.
 
 | Service | Image | Purpose |
 |:---|:---|:---|
@@ -57,12 +57,16 @@ cd harbangan
 
 ### Step 2: Configure Environment Variables
 
-Create `.env.proxy`:
+Copy `.env.proxy.example` to `.env.proxy` and set your values:
 
 ```bash
+GATEWAY_MODE=proxy
 PROXY_API_KEY=your-secret-api-key
-KIRO_REGION=us-east-1
-# For Identity Center (pro): set your SSO URL
+
+# Optional — defaults to us-east-1:
+# KIRO_REGION=us-east-1
+
+# For Identity Center (pro): set your SSO start URL
 # KIRO_SSO_URL=https://your-org.awsapps.com/start
 # KIRO_SSO_REGION=us-east-1
 ```
@@ -211,14 +215,6 @@ POSTGRES_PASSWORD=your_secure_password_here
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
 GOOGLE_CALLBACK_URL=http://localhost:9999/_ui/api/auth/google/callback
-
-# GitHub Copilot OAuth (optional)
-# GITHUB_COPILOT_CLIENT_ID=
-# GITHUB_COPILOT_CLIENT_SECRET=
-# GITHUB_COPILOT_CALLBACK_URL=https://gateway.example.com/_ui/api/copilot/callback
-
-# Qwen Coder OAuth (optional — device flow, no secret required)
-# QWEN_OAUTH_CLIENT_ID=f0304373b74a44d2b584a3fb70ca9e56
 ```
 
 The following are managed automatically by `docker-compose.yml` — do **not** set them in `.env`:
@@ -248,7 +244,7 @@ On first launch, the backend starts in **setup-only mode** — the `/v1/*` proxy
 Open `http://localhost:5173/_ui/` and:
 
 1. **Sign in with Google** — the first user is automatically granted the Admin role
-2. **Add provider credentials** — connect Kiro (AWS SSO device code flow), and optionally GitHub Copilot or Qwen Coder on the Profile page
+2. **Add Kiro credentials** — connect your AWS account via the SSO device code flow on the Profile page (URL appears in the web UI)
 3. **Create an API key** — generate a personal API key for programmatic access
 
 ## Step 5: Verify

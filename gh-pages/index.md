@@ -7,9 +7,10 @@ nav_order: 1
 <div class="hero" markdown="0">
   <h1>Harbangan</h1>
   <p class="tagline">
-    A multi-user, multi-provider Rust proxy gateway. Use OpenAI and Anthropic client libraries
-    with Kiro, GitHub Copilot, and Qwen Coder backends. Per-user auth, content guardrails,
-    MCP tool gateway, and real-time streaming — deployed via Docker Compose.
+    A multi-user Rust proxy gateway. Use OpenAI and Anthropic client libraries with Kiro
+    (and optionally GitHub Copilot and Qwen Coder in Full Deployment). In Proxy-Only Mode,
+    Kiro is the sole backend — a single container, no database required.
+    Per-user auth, content guardrails, MCP tool gateway, and real-time streaming.
   </p>
   <div class="badges">
     <span class="badge badge--infra">Rust</span>
@@ -21,8 +22,6 @@ nav_order: 1
     <span class="badge badge--core">MCP Gateway</span>
     <span class="badge badge--security">Content Guardrails</span>
     <span class="badge badge--provider">Kiro</span>
-    <span class="badge badge--provider">Copilot</span>
-    <span class="badge badge--provider">Qwen Coder</span>
   </div>
 </div>
 
@@ -32,7 +31,7 @@ In Batak Toba culture, the *harbangan* is the gate of the traditional house — 
 
 This gateway embodies the same philosophy:
 
-- **Cosmic boundary** — The *harbangan* separates the three realms of Batak cosmology. This gateway sits at the boundary between your client code and multiple provider backends (Kiro, Copilot, Qwen), translating between OpenAI and Anthropic formats on either side.
+- **Cosmic boundary** — The *harbangan* separates the three realms of Batak cosmology. This gateway sits at the boundary between your client code and provider backends, translating between OpenAI and Anthropic formats on either side. In Proxy-Only Mode, Kiro is the sole backend. In Full Deployment, GitHub Copilot and Qwen Coder can also be connected.
 - **Guardian of social order** — The Batak gate enforces *Dalihan Na Tolu*, the three-pillar kinship system that governs who may enter and how. Harbangan enforces multi-user RBAC: Google SSO, per-user API keys, admin/user roles, and domain allowlisting decide what passes through.
 - **Ritual transition** — Crossing a *harbangan* signals a shift in status. Requests crossing this gateway undergo their own transformation: format conversion, content guardrails (CEL rules + AWS Bedrock), and MCP tool injection before reaching the other side.
 - **Openness as moral virtue** — In Batak ethics, a gate that is always open signals generosity and communal spirit. This one is open source, and in proxy-only mode, a single container is all you need to open the gate.
@@ -61,9 +60,9 @@ flowchart TD
     end
 
     subgraph Providers["Provider Backends"]
-        KIRO["Kiro API\n(CodeWhisperer)"]
-        COPILOT["GitHub Copilot"]
-        QWEN["Qwen Coder"]
+        KIRO["Kiro API\n(CodeWhisperer)\n[all modes]"]
+        COPILOT["GitHub Copilot\n[Full Deployment only]"]
+        QWEN["Qwen Coder\n[Full Deployment only]"]
     end
 
     subgraph Auth["Authentication"]
@@ -101,7 +100,7 @@ flowchart TD
   </div>
   <div class="feature-card" data-cat="provider">
     <h3><span class="fc-icon">&#9670;</span> Multi-Provider</h3>
-    <p>Connect to Kiro (AWS CodeWhisperer), GitHub Copilot, and Qwen Coder backends. Per-user credentials with automatic token refresh.</p>
+    <p>Connect to Kiro (AWS CodeWhisperer), GitHub Copilot, and Qwen Coder backends with per-user credentials and automatic token refresh. <em>Copilot and Qwen require Full Deployment.</em></p>
   </div>
   <div class="feature-card" data-cat="core">
     <h3><span class="fc-icon">&sim;</span> Real-time Streaming</h3>
@@ -129,7 +128,7 @@ flowchart TD
   </div>
   <div class="feature-card" data-cat="feature">
     <h3><span class="fc-icon">&#9654;</span> Proxy-Only Mode</h3>
-    <p>Single-container deployment with no database or SSO required. Device code OAuth flow for quick setup behind any reverse proxy.</p>
+    <p>Single-container, Kiro-only deployment with no database or Web UI. AWS SSO device code flow on first start; credentials cached to a Docker volume for automatic restarts.</p>
   </div>
 </div>
 
@@ -148,11 +147,15 @@ docker compose up -d --build
 
 Then open `https://your-domain.com/_ui/` to complete setup via Google SSO.
 
-For proxy-only mode (no database, single container):
+For proxy-only mode (Kiro-only, single container, no database):
 
 ```bash
+cp .env.proxy.example .env.proxy
+# Edit .env.proxy and set PROXY_API_KEY (min 16 chars)
 docker compose -f docker-compose.gateway.yml --env-file .env.proxy up -d
 ```
+
+On first start, the container prints an AWS device code URL — open it in a browser to authenticate with Kiro. Credentials are cached to a Docker volume for automatic restarts.
 
 ## Documentation
 

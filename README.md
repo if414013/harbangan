@@ -43,10 +43,12 @@ This gateway embodies the same philosophy:
 - MCP Gateway (external tool servers)
 - Content Guardrails (AWS Bedrock)
 - Web dashboard with real-time metrics
-- Proxy-Only Mode (single container, no DB)
+- Proxy-Only Mode (single container, Kiro-only, no DB or Web UI)
 - Optional Datadog APM
 
 ## Quick Start
+
+**Full mode** (multi-user, Web UI, Google SSO + PostgreSQL):
 
 ```bash
 git clone https://github.com/if414013/harbangan.git && cd harbangan
@@ -56,7 +58,16 @@ docker compose up -d  # start all services
 
 Open `https://your-domain/_ui/` to complete setup.
 
-> For proxy-only mode (no DB/SSO), see the [Quickstart guide](https://if414013.github.io/harbangan/docs/quickstart).
+**Proxy-only mode** (single container, Kiro-only, no DB or Web UI):
+
+```bash
+cp .env.proxy.example .env.proxy  # set PROXY_API_KEY (min 16 chars)
+docker compose -f docker-compose.gateway.yml --env-file .env.proxy up -d
+```
+
+On first start, the container prints an AWS device code URL — open it in a browser to authenticate with Kiro. Credentials are cached to a Docker volume so subsequent restarts are automatic.
+
+> Full setup walkthrough: [Getting Started guide](https://if414013.github.io/harbangan/docs/getting-started)
 
 ## Documentation
 

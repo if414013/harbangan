@@ -18,10 +18,73 @@ graph TB
     FULL --> FULL_AUTH["Auth:<br/>Google SSO + Sessions<br/>Password + TOTP 2FA"]
     FULL --> FULL_UI["Web UI:<br/>Multi-user admin interface"]
 
-    PROXY --> PROXY_SERVICES["Services:<br/>• Gateway only<br/>• Datadog (optional)"]
-    PROXY --> PROXY_AUTH["Auth:<br/>Device Code OAuth<br/>AWS SSO OIDC"]
-    PROXY --> PROXY_USE["Use Case:<br/>CLI/CI proxy only"]
+    PROXY --> PROXY_ACTIVATE["Activate:<br/>GATEWAY_MODE=proxy<br/>docker-compose.gateway.yml"]
+    PROXY --> PROXY_SERVICES["Services:<br/>• Gateway only (Kiro-only)<br/>• Datadog (optional)"]
+    PROXY --> PROXY_AUTH["Auth:<br/>AWS SSO OIDC device code flow<br/>Single shared PROXY_API_KEY"]
+    PROXY --> PROXY_DISABLED["Disabled:<br/>No Web UI • No PostgreSQL<br/>No guardrails • No multi-user"]
 ```
+
+### Proxy-Only Mode
+
+Activated by setting `GATEWAY_MODE=proxy`. The gateway infers this automatically when `PROXY_API_KEY` is present.
+
+**Enabled:**
+
+| Capability | Notes |
+|------------|-------|
+| `POST /v1/chat/completions` | OpenAI-compatible |
+| `POST /v1/messages` | Anthropic-compatible |
+| `GET /v1/models` | Model listing |
+| `GET /health` | Health check |
+| Streaming | AWS Event Stream → SSE |
+| Extended thinking | Enabled by default (max 4000 tokens) |
+| Truncation recovery | Enabled by default |
+
+**Disabled:**
+
+| Feature | Reason |
+|---------|--------|
+| Web UI (`/_ui/*`) | Routes not mounted |
+| PostgreSQL | `config_db` is `None`; no DB connection |
+| Guardrails engine | Requires `config_db` |
+| Multi-user / sessions | No user accounts, no Google SSO, no TOTP |
+| Per-user API keys | Single shared `PROXY_API_KEY` |
+| Admin setup wizard | `setup_complete` forced to `true` at startup |
+
+**Configuration variables:**
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PROXY_API_KEY` | Yes | — | Shared API key for clients (min 16 chars) |
+| `GATEWAY_MODE` | Yes | — | Must be `proxy` (set by `docker-compose.gateway.yml`) |
+| `KIRO_REGION` | No | `us-east-1` | Kiro API region |
+| `KIRO_SSO_REGION` | No | same as `KIRO_REGION` | AWS OIDC endpoint region |
+| `KIRO_SSO_URL` | No | Builder ID default | Set to org issuer URL for Identity Center (pro/org) |
+| `KIRO_REFRESH_TOKEN` | No | — | Pre-set to skip device flow (e.g., in CI) |
+| `BIND_ADDRESS` | No | `127.0.0.1` | Set to `0.0.0.0` to expose outside localhost |
+| `SERVER_PORT` | No | `8000` | Listen port |
+| `LOG_LEVEL` | No | `info` | `info`, `debug`, `warn`, `error` |
+| `DEBUG_MODE` | No | `off` | `off`, `errors`, `all` |
+
+**Credential bootstrap (`entrypoint.sh`):**
+
+```mermaid
+flowchart TD
+    START([Container start]) --> CHECK_ENV{KIRO_REFRESH_TOKEN set?}
+    CHECK_ENV -->|Yes| LAUNCH[Launch harbangan binary]
+    CHECK_ENV -->|No| LOAD_CACHE[Read /data/tokens.json]
+    LOAD_CACHE --> VALID{Token valid?}
+    VALID -->|Yes| EXPORT[Export env vars] --> LAUNCH
+    VALID -->|No| DEVICE[Device code flow]
+    DEVICE --> REGISTER[POST /client/register]
+    REGISTER --> AUTHORIZE[POST /device_authorization]
+    AUTHORIZE --> PRINT[Print verification URL to stdout]
+    PRINT --> POLL[Poll /token until approved]
+    POLL --> SAVE[Save tokens to /data/tokens.json]
+    SAVE --> LAUNCH
+```
+
+Tokens are written to `/data/tokens.json` (owner-read-only, `umask 077`) inside the `gateway-data` named Docker volume, which persists across container restarts.
 
 ## High-Level Architecture
 
