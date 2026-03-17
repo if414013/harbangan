@@ -1,0 +1,65 @@
+services:
+  chromadb:
+    image: chromadb/chroma:0.6.3
+    restart: unless-stopped
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      IS_PERSISTENT: "true"
+      ANONYMIZED_TELEMETRY: "false"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  orchestrator:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${ORCHESTRATOR_PORT:-3000}:3000"
+    volumes:
+      - workspace:/workspace
+      - data:/data
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GH_TOKEN: ${GH_TOKEN}
+      ORCHESTRATOR_API_KEY: ${ORCHESTRATOR_API_KEY}
+      REPO_URL: ${REPO_URL:-git@github.com:if414013/harbangan.git}
+      REPO_BRANCH: ${REPO_BRANCH:-main}
+      ORCHESTRATOR_PORT: 3000
+      MAX_CONCURRENT_TASKS: ${MAX_CONCURRENT_TASKS:-3}
+      DEFAULT_BUDGET_USD: ${DEFAULT_BUDGET_USD:-10}
+      DAILY_BUDGET_LIMIT_USD: ${DAILY_BUDGET_LIMIT_USD:-100}
+      MONTHLY_BUDGET_LIMIT_USD: ${MONTHLY_BUDGET_LIMIT_USD:-1000}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-claude-sonnet-4-6}
+      TASK_STORE_BACKEND: ${TASK_STORE_BACKEND:-sqlite}
+      GH_PROJECT_NUMBER: ${GH_PROJECT_NUMBER:-3}
+      GH_OWNER: ${GH_OWNER:-if414013}
+      GH_REPO: ${GH_REPO:-harbangan}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      ASK_USER_TIMEOUT_MS: ${ASK_USER_TIMEOUT_MS:-1800000}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      CHROMA_URL: http://chromadb:8000
+      WORKSPACE_DIR: /workspace
+      DATA_DIR: /data
+    depends_on:
+      chromadb:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+          cpus: "4.0"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:3000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  workspace:
+  data:
+  chroma_data:

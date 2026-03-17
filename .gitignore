@@ -6,6 +6,8 @@
 # Node
 /frontend/node_modules/
 /frontend/dist/
+/orchestrator/node_modules/
+/orchestrator/dist/
 
 # Environment
 .env
