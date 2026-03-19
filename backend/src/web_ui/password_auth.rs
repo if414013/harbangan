@@ -408,16 +408,48 @@ pub async fn setup_2fa_handler(
 
     let db = state.require_config_db()?;
 
-    // Generate TOTP secret
-    let secret = Secret::generate_secret();
-    let secret_base32 = secret.to_encoded().to_string();
+    // Reuse existing pending secret if TOTP is not yet enabled (idempotent setup).
+    // This prevents "back to QR code" or page refresh from invalidating a secret
+    // the user already scanned into their authenticator app.
+    let existing_secret = if !session.totp_enabled {
+        db.get_totp_secret(session.user_id)
+            .await
+            .map_err(ApiError::Internal)?
+    } else {
+        None
+    };
+
+    let secret_base32 = if let Some(ref existing) = existing_secret {
+        existing.clone()
+    } else {
+        let secret = Secret::generate_secret();
+        let encoded = secret.to_encoded().to_string();
+
+        // Store secret without enabling TOTP (committed on verify)
+        db.enable_totp(session.user_id, &encoded)
+            .await
+            .map_err(ApiError::Internal)?;
+        db.disable_totp(session.user_id)
+            .await
+            .map_err(ApiError::Internal)?;
+        sqlx::query("UPDATE users SET totp_secret = $1 WHERE id = $2")
+            .bind(&encoded)
+            .bind(session.user_id)
+            .execute(db.pool())
+            .await
+            .map_err(|e| {
+                ApiError::Internal(anyhow::anyhow!("Failed to store TOTP secret: {}", e))
+            })?;
+
+        encoded
+    };
 
     let totp = TOTP::new(
         Algorithm::SHA1,
         6,
         1,
         30,
-        secret
+        Secret::Encoded(secret_base32.clone())
             .to_bytes()
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Secret conversion error: {}", e)))?,
         Some("KiroGateway".to_string()),
@@ -432,36 +464,18 @@ pub async fn setup_2fa_handler(
 
     let qr_code_data_url = format!("data:image/png;base64,{}", qr_code_data_url);
 
-    // Store secret temporarily (will be committed on verify)
-    // We store it immediately so verify_2fa_handler can find it
-    db.enable_totp(session.user_id, &secret_base32)
-        .await
-        .map_err(ApiError::Internal)?;
-
-    // But mark TOTP as not yet enabled — we only set it above to store the secret.
-    // Re-disable it until verification succeeds.
-    db.disable_totp(session.user_id)
-        .await
-        .map_err(ApiError::Internal)?;
-
-    // Store just the secret without enabling
-    sqlx::query("UPDATE users SET totp_secret = $1 WHERE id = $2")
-        .bind(&secret_base32)
-        .bind(session.user_id)
-        .execute(db.pool())
-        .await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to store TOTP secret: {}", e)))?;
-
-    // Generate recovery codes
-    let recovery_codes = generate_recovery_codes(8);
-    let code_hashes: Vec<String> = recovery_codes
-        .iter()
-        .map(|c| hash_recovery_code(c))
-        .collect();
-
-    db.store_recovery_codes(session.user_id, &code_hashes)
-        .await
-        .map_err(ApiError::Internal)?;
+    // Only generate new recovery codes for fresh secrets
+    let recovery_codes = if existing_secret.is_none() {
+        let codes = generate_recovery_codes(8);
+        let code_hashes: Vec<String> = codes.iter().map(|c| hash_recovery_code(c)).collect();
+        db.store_recovery_codes(session.user_id, &code_hashes)
+            .await
+            .map_err(ApiError::Internal)?;
+        codes
+    } else {
+        // Return empty — user already received them on first setup call
+        vec![]
+    };
 
     Ok(Json(json!({
         "secret": secret_base32,
