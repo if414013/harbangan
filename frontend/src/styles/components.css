@@ -221,6 +221,57 @@
   overflow-y: auto;
 }
 
+/* ---- Page Header ---- */
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.page-header-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.page-header-title {
+  font-family: var(--font-mono);
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--green);
+  text-shadow: var(--glow-sm);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-header-prefix {
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+.page-header-badge {
+  font-size: 0.6875rem;
+  font-weight: 400;
+}
+
+.page-header-desc {
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  max-width: 600px;
+}
+
+.page-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 /* ---- Cards ---- */
 
 .card {
@@ -247,7 +298,7 @@
 }
 
 .card-title {
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -257,8 +308,8 @@
 }
 
 .card-subtitle {
-  font-size: 0.62rem;
-  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-family: var(--font-ui);
   color: var(--text-tertiary);
 }
 
@@ -273,7 +324,7 @@
 
 .section-header {
   font-family: var(--font-mono);
-  font-size: 0.65rem;
+  font-size: 0.6875rem;
   font-weight: 500;
   color: var(--text-tertiary);
   text-transform: uppercase;
@@ -293,14 +344,14 @@
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.78rem;
-  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-family: var(--font-ui);
 }
 
 .data-table th {
   text-align: left;
   padding: 8px 12px;
-  font-size: 0.65rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -312,9 +363,9 @@
 .data-table td {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-subtle);
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
-  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
 }
 
 .data-table tbody tr {
@@ -326,6 +377,73 @@
 .data-table td:first-child {
   color: var(--green);
   font-weight: 500;
+}
+
+/* ---- DataTable Wrapper ---- */
+
+.data-table-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.data-table-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 4px;
+}
+
+.data-table-search {
+  flex: 1;
+  max-width: 280px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  outline: none;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.data-table-search:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.08);
+}
+
+.data-table-search::placeholder {
+  color: var(--text-tertiary);
+}
+
+.data-table-count {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.data-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.data-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.data-table th.sortable:hover {
+  color: var(--green);
+}
+
+.sort-indicator {
+  font-size: 0.55rem;
+  color: var(--green);
 }
 
 /* ---- Config Page ---- */
@@ -378,7 +496,7 @@
   padding: 10px 16px;
   background: var(--bg-raised);
   border-bottom: 1px solid var(--border);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -427,12 +545,12 @@
 
 .config-label {
   min-width: 200px;
-  font-size: 0.74rem;
+  font-size: 0.8125rem;
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: 8px;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
 }
 
 .badge-restart {
@@ -760,10 +878,10 @@ select.config-input {
 }
 
 .auth-card p {
-  font-size: 0.74rem;
+  font-size: 0.8125rem;
   color: var(--text-tertiary);
   margin-bottom: 20px;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
 }
 
 .auth-input {
@@ -1062,6 +1180,151 @@ select.config-input {
 .modal-actions button.modal-confirm:hover {
   background: #3bce74;
   box-shadow: var(--glow-md);
+}
+
+/* ---- Confirm Dialog ---- */
+
+.confirm-dialog {
+  max-width: 400px;
+}
+
+.confirm-dialog-title {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.confirm-dialog-icon {
+  color: var(--red);
+  font-size: 1rem;
+}
+
+.confirm-dialog-message {
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.btn-danger {
+  background: var(--red);
+  color: #fff;
+  border: 1px solid var(--red);
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
+}
+
+.btn-danger:hover {
+  background: #ef5350;
+  box-shadow: 0 0 12px rgba(248, 113, 113, 0.3);
+}
+
+.btn-warning {
+  background: transparent;
+  color: var(--yellow);
+  border: 1px solid var(--yellow);
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
+}
+
+.btn-warning:hover {
+  background: var(--yellow-dim);
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.2);
+}
+
+/* ---- Empty State ---- */
+
+.empty-state-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  text-align: center;
+  gap: 8px;
+}
+
+.empty-state-icon {
+  color: var(--text-tertiary);
+  font-size: 1.5rem;
+  margin-bottom: 4px;
+}
+
+.empty-state-title {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.empty-state-desc {
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  max-width: 300px;
+}
+
+.empty-state-action {
+  margin-top: 8px;
+}
+
+/* ---- Form Field ---- */
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form-field-label {
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.form-field-required {
+  color: var(--red);
+  margin-left: 2px;
+}
+
+.form-field-hint {
+  font-family: var(--font-ui);
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
+.form-field-error-text {
+  font-family: var(--font-ui);
+  font-size: 0.6875rem;
+  color: var(--red);
+  line-height: 1.4;
+}
+
+.form-field-error .form-field-label {
+  color: var(--red);
 }
 
 /* ---- Step Indicator ---- */
@@ -1807,6 +2070,50 @@ select.config-input {
   color: var(--text-tertiary);
 }
 
+/* ---- Provider Summary Cards ---- */
+
+.provider-summary-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.provider-summary-status[data-connected="true"] {
+  color: var(--green);
+}
+
+.provider-summary-status[data-connected="false"] {
+  color: var(--red);
+}
+
+.provider-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.provider-summary-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.provider-summary-accounts {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.provider-summary-email {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-tertiary);
+}
+
 /* ---- Account List (multi-account) ---- */
 
 .account-list {
@@ -1958,6 +2265,23 @@ select.config-input {
   text-transform: lowercase;
 }
 
+/* ---- Auth Enhancements ---- */
+
+.auth-2fa-input {
+  font-size: 1.1rem;
+  letter-spacing: 0.15em;
+  text-align: center;
+  max-width: 200px;
+  margin: 0 auto;
+}
+
+.auth-helper-text {
+  font-family: var(--font-ui);
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
 /* ---- Auth Toggle Link ---- */
 
 .auth-toggle-link {
@@ -1965,9 +2289,11 @@ select.config-input {
   margin-top: 14px;
   background: none;
   border: none;
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
+  color: var(--cyan);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
   cursor: pointer;
   transition: color 0.15s;
   padding: 4px;
@@ -2035,6 +2361,45 @@ select.config-input {
   font-weight: 600;
 }
 
+/* ---- Setup Steps ---- */
+
+.setup-step {
+  margin-bottom: 24px;
+}
+
+.setup-step-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.setup-step-number {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--green-dim);
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.setup-step-title {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.setup-step-content {
+  padding-left: 32px;
+}
+
 /* ---- Recovery Codes ---- */
 
 .recovery-codes {
@@ -2057,9 +2422,37 @@ select.config-input {
   letter-spacing: 0.04em;
 }
 
+.recovery-codes-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+
+.recovery-codes-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 24px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.recovery-codes-warning {
+  font-family: var(--font-ui);
+  font-size: 0.6875rem;
+  color: var(--yellow);
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .recovery-codes-actions {
   display: flex;
   gap: 8px;
+  margin-top: 8px;
   margin-bottom: 12px;
 }
 

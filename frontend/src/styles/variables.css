@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap");
 
 :root {
   --bg: #060609;
@@ -9,24 +10,26 @@
   --border-subtle: #141420;
 
   --green: #4ade80;
-  --green-dim: rgba(74, 222, 128, 0.10);
+  --green-dim: rgba(74, 222, 128, 0.1);
   --green-glow: rgba(74, 222, 128, 0.14);
   --green-glow-strong: rgba(74, 222, 128, 0.28);
   --cyan: #22d3ee;
-  --cyan-dim: rgba(34, 211, 238, 0.10);
+  --cyan-dim: rgba(34, 211, 238, 0.1);
 
   --text: #b8ccb8;
   --text-secondary: #7a8e7a;
   --text-tertiary: #6a7e6a;
+  --text-muted: #8fa08f;
 
   --red: #f87171;
-  --red-dim: rgba(248, 113, 113, 0.10);
+  --red-dim: rgba(248, 113, 113, 0.1);
   --yellow: #fbbf24;
-  --yellow-dim: rgba(251, 191, 36, 0.10);
+  --yellow-dim: rgba(251, 191, 36, 0.1);
   --blue: #60a5fa;
-  --blue-dim: rgba(96, 165, 250, 0.10);
+  --blue-dim: rgba(96, 165, 250, 0.1);
 
-  --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace;
+  --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", monospace;
+  --font-ui: "Inter", "SF Pro Text", system-ui, sans-serif;
 
   --radius: 2px;
   --radius-sm: 1px;
@@ -46,15 +49,16 @@
   --border-subtle: #e0e0da;
 
   --green: #16a34a;
-  --green-dim: rgba(22, 163, 74, 0.10);
+  --green-dim: rgba(22, 163, 74, 0.1);
   --green-glow: rgba(22, 163, 74, 0.12);
   --green-glow-strong: rgba(22, 163, 74, 0.22);
   --cyan: #0891b2;
-  --cyan-dim: rgba(8, 145, 178, 0.10);
+  --cyan-dim: rgba(8, 145, 178, 0.1);
 
   --text: #1a2a1a;
   --text-secondary: #4a5a4a;
   --text-tertiary: #6a7a6a;
+  --text-muted: #5a6a5a;
 
   --red: #dc2626;
   --red-dim: rgba(220, 38, 38, 0.08);
@@ -63,7 +67,9 @@
   --blue: #2563eb;
   --blue-dim: rgba(37, 99, 235, 0.08);
 
+  --font-ui: "Inter", "SF Pro Text", system-ui, sans-serif;
+
   --glow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
   --glow-md: 0 2px 8px rgba(0, 0, 0, 0.08);
-  --glow-lg: 0 4px 16px rgba(0, 0, 0, 0.10);
+  --glow-lg: 0 4px 16px rgba(0, 0, 0, 0.1);
 }

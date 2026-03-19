@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from "react";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { DataTable } from "../components/DataTable";
 import { KiroSetup } from "../components/KiroSetup";
 import { CopilotSetup } from "../components/CopilotSetup";
+import { PageHeader } from "../components/PageHeader";
 import { QwenSetup } from "../components/QwenSetup";
 import { useToast } from "../components/useToast";
 import {
@@ -162,6 +165,11 @@ function ProviderCard({
   const { showToast } = useToast();
   const [connecting, setConnecting] = useState(false);
   const [relayUrl, setRelayUrl] = useState<string | null>(null);
+  const [confirmState, setConfirmState] = useState<{
+    action: () => void;
+    title: string;
+    message: string;
+  } | null>(null);
 
   async function handleConnect() {
     setConnecting(true);
@@ -193,18 +201,23 @@ function ProviderCard({
     }
   }
 
-  async function handleDeleteAccount(label: string) {
-    if (!confirm(`Remove account "${label}" from ${provider}?`)) return;
-    try {
-      await deleteUserProviderAccount(provider, label);
-      showToast(`Account "${label}" removed`, "success");
-      onRefresh();
-    } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : "Failed to remove account",
-        "error",
-      );
-    }
+  function handleDeleteAccount(label: string) {
+    setConfirmState({
+      action: async () => {
+        try {
+          await deleteUserProviderAccount(provider, label);
+          showToast(`Account "${label}" removed`, "success");
+          onRefresh();
+        } catch (err) {
+          showToast(
+            err instanceof Error ? err.message : "Failed to remove account",
+            "error",
+          );
+        }
+      },
+      title: "Remove account",
+      message: `Remove account "${label}" from ${providerDisplayName(provider)}?`,
+    });
   }
 
   function handleConnected() {
@@ -259,10 +272,9 @@ function ProviderCard({
                     )}
                   </div>
                   <button
-                    className="device-code-cancel"
+                    className="btn-danger"
                     type="button"
                     onClick={() => handleDeleteAccount(acct.account_label)}
-                    style={{ color: "var(--red)" }}
                   >
                     remove
                   </button>
@@ -284,7 +296,7 @@ function ProviderCard({
                 {connecting ? "..." : "$ connect another"}
               </button>
               <button
-                className="device-code-cancel"
+                className="btn-danger"
                 type="button"
                 onClick={handleDisconnect}
               >
@@ -311,7 +323,74 @@ function ProviderCard({
           onClose={() => setRelayUrl(null)}
         />
       )}
+      {confirmState && (
+        <ConfirmDialog
+          title={confirmState.title}
+          message={confirmState.message}
+          confirmLabel="Remove"
+          variant="danger"
+          onConfirm={() => {
+            confirmState.action();
+            setConfirmState(null);
+          }}
+          onCancel={() => setConfirmState(null)}
+        />
+      )}
     </>
+  );
+}
+
+interface ProviderSummaryCardProps {
+  provider: string;
+  connected: boolean;
+  email?: string;
+  accountCount: number;
+  onConnect: () => void;
+  onDisconnect: () => void;
+}
+
+function ProviderSummaryCard({
+  provider,
+  connected,
+  email,
+  accountCount,
+  onConnect,
+  onDisconnect,
+}: ProviderSummaryCardProps) {
+  return (
+    <div className="card provider-card">
+      <div className="card-header">
+        <span className="card-title">{providerDisplayName(provider)}</span>
+        <span
+          className="provider-summary-status"
+          data-connected={connected ? "true" : "false"}
+        >
+          <span className="provider-status-dot" />
+          {connected ? "Connected" : "Not connected"}
+        </span>
+      </div>
+      {connected && (
+        <div className="provider-summary-details">
+          {accountCount > 0 && (
+            <span className="provider-summary-accounts">
+              {accountCount} account{accountCount !== 1 ? "s" : ""}
+            </span>
+          )}
+          {email && <span className="provider-summary-email">{email}</span>}
+        </div>
+      )}
+      <div className="kiro-actions">
+        {connected ? (
+          <button className="btn-danger" type="button" onClick={onDisconnect}>
+            $ disconnect
+          </button>
+        ) : (
+          <button className="btn-save" type="button" onClick={onConnect}>
+            $ connect
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -445,24 +524,16 @@ function ProviderSection({
             disable all
           </button>
         </div>
-        <table className="data-table">
-          <caption className="sr-only">Models for {group.providerId}</caption>
-          <thead>
-            <tr>
-              <th scope="col">enabled</th>
-              <th scope="col">prefixed id</th>
-              <th scope="col">display name</th>
-              <th scope="col">context</th>
-              <th scope="col">source</th>
-              <th scope="col">
-                <span className="sr-only">Actions</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {group.models.map((m) => (
-              <tr key={m.id}>
-                <td>
+        <DataTable
+          data={group.models as unknown as Record<string, unknown>[]}
+          columns={[
+            {
+              key: "enabled",
+              label: "enabled",
+              sortable: true,
+              render: (row) => {
+                const m = row as unknown as RegistryModel;
+                return (
                   <button
                     type="button"
                     className="role-badge"
@@ -477,32 +548,64 @@ function ProviderSection({
                   >
                     {m.enabled ? "on" : "off"}
                   </button>
-                </td>
-                <td>{m.prefixed_id}</td>
-                <td style={{ color: "var(--text-secondary)" }}>
-                  {m.display_name}
-                </td>
-                <td style={{ color: "var(--text-tertiary)" }}>
-                  {m.context_length.toLocaleString()}
-                </td>
-                <td>
-                  <span className="source-badge">{m.source}</span>
-                </td>
-                <td>
+                );
+              },
+            },
+            {
+              key: "prefixed_id",
+              label: "prefixed id",
+              sortable: true,
+            },
+            {
+              key: "display_name",
+              label: "display name",
+              sortable: true,
+              render: (row) => (
+                <span style={{ color: "var(--text-secondary)" }}>
+                  {String(row.display_name ?? "")}
+                </span>
+              ),
+            },
+            {
+              key: "context_length",
+              label: "context",
+              sortable: true,
+              render: (row) => (
+                <span style={{ color: "var(--text-tertiary)" }}>
+                  {(row.context_length as number).toLocaleString()}
+                </span>
+              ),
+            },
+            {
+              key: "source",
+              label: "source",
+              render: (row) => (
+                <span className="source-badge">{String(row.source ?? "")}</span>
+              ),
+            },
+            {
+              key: "id",
+              label: "",
+              render: (row) => {
+                const m = row as unknown as RegistryModel;
+                return (
                   <button
-                    className="device-code-cancel"
+                    className="btn-danger"
                     type="button"
                     onClick={() => onDelete(m.id)}
                     aria-label={`Delete ${m.prefixed_id}`}
-                    style={{ color: "var(--red)" }}
                   >
                     delete
                   </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                );
+              },
+            },
+          ]}
+          searchKeys={["display_name", "prefixed_id"]}
+          searchPlaceholder="Search models..."
+          emptyTitle="No models"
+          caption={`Models for ${group.providerId}`}
+        />
       </div>
     </div>
   );
@@ -519,6 +622,44 @@ export function Providers() {
     Record<string, UserProviderAccount[]>
   >({});
   const [rateLimits, setRateLimits] = useState<RateLimitInfo[]>([]);
+  const [confirmState, setConfirmState] = useState<{
+    action: () => void;
+    title: string;
+    message: string;
+  } | null>(null);
+  const [summaryRelayUrl, setSummaryRelayUrl] = useState<string | null>(null);
+  const [summaryRelayProvider, setSummaryRelayProvider] = useState<
+    string | null
+  >(null);
+  const summaryConnectRef = useRef<string>("");
+
+  async function handleSummaryConnect(provider: string) {
+    try {
+      const result = await getProviderConnectUrl(provider);
+      setSummaryRelayProvider(provider);
+      setSummaryRelayUrl(result.relay_script_url);
+    } catch (err) {
+      showToast(
+        "Failed to start connect: " +
+          (err instanceof Error ? err.message : "Unknown error"),
+        "error",
+      );
+    }
+  }
+
+  async function handleSummaryDisconnect(provider: string) {
+    try {
+      await disconnectProvider(provider);
+      showToast(`${provider} disconnected`, "success");
+      refreshAll();
+    } catch (err) {
+      showToast(
+        "Failed to disconnect: " +
+          (err instanceof Error ? err.message : "Unknown error"),
+        "error",
+      );
+    }
+  }
 
   function loadProviders() {
     getProvidersStatus()
@@ -580,18 +721,23 @@ export function Providers() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm("Delete this model from the registry?")) return;
-    try {
-      await deleteRegistryModel(id);
-      showToast("Model deleted", "success");
-      setModels((prev) => prev.filter((m) => m.id !== id));
-    } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : "Failed to delete model",
-        "error",
-      );
-    }
+  function handleDelete(id: string) {
+    setConfirmState({
+      action: async () => {
+        try {
+          await deleteRegistryModel(id);
+          showToast("Model deleted", "success");
+          setModels((prev) => prev.filter((m) => m.id !== id));
+        } catch (err) {
+          showToast(
+            err instanceof Error ? err.message : "Failed to delete model",
+            "error",
+          );
+        }
+      },
+      title: "Delete model",
+      message: "Delete this model from the registry?",
+    });
   }
 
   async function handlePopulate(providerId?: string) {
@@ -614,7 +760,47 @@ export function Providers() {
 
   return (
     <>
-      <h2 className="section-header">PROVIDERS</h2>
+      <PageHeader
+        title="providers"
+        description="Connect provider accounts and manage model access."
+      />
+      <div className="providers-grid" style={{ marginBottom: 24 }}>
+        {PROVIDERS.map((p) => {
+          const info = providerStatus?.providers[p];
+          const isConnected = info?.connected ?? false;
+          const accounts = providerAccounts[p] ?? [];
+          return (
+            <ProviderSummaryCard
+              key={p}
+              provider={p}
+              connected={isConnected}
+              email={info?.email}
+              accountCount={accounts.length}
+              onConnect={() => {
+                summaryConnectRef.current = p;
+                handleSummaryConnect(p);
+              }}
+              onDisconnect={() => handleSummaryDisconnect(p)}
+            />
+          );
+        })}
+      </div>
+      {summaryRelayProvider && summaryRelayUrl && (
+        <RelayModal
+          provider={summaryRelayProvider}
+          relayScriptUrl={summaryRelayUrl}
+          onConnected={() => {
+            setSummaryRelayUrl(null);
+            setSummaryRelayProvider(null);
+            showToast(`${summaryConnectRef.current} connected`, "success");
+            refreshAll();
+          }}
+          onClose={() => {
+            setSummaryRelayUrl(null);
+            setSummaryRelayProvider(null);
+          }}
+        />
+      )}
       <div className="provider-tree">
         <TreeNode label="Kiro">
           <KiroSetup />
@@ -698,6 +884,19 @@ export function Providers() {
             </div>
           )}
         </>
+      )}
+      {confirmState && (
+        <ConfirmDialog
+          title={confirmState.title}
+          message={confirmState.message}
+          confirmLabel="Delete"
+          variant="danger"
+          onConfirm={() => {
+            confirmState.action();
+            setConfirmState(null);
+          }}
+          onCancel={() => setConfirmState(null)}
+        />
       )}
     </>
   );

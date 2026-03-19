@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, type FormEvent } from "react";
+import { useState, useEffect, useRef, useMemo, type FormEvent } from "react";
+import { PageHeader } from "../components/PageHeader";
 import { apiFetch, apiPut } from "../lib/api";
 import { useToast } from "../components/useToast";
 
@@ -321,7 +322,21 @@ export function Config() {
   const [revealPassword, setRevealPassword] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dirty, setDirty] = useState(false);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [savedValues, setSavedValues] = useState<Record<string, unknown>>({});
   const savedSnapshot = useRef<string>("");
+
+  function toggleGroup(name: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  }
 
   function loadHistory() {
     apiFetch<{ history: HistoryEntry[] }>("/config/history")
@@ -335,6 +350,7 @@ export function Config() {
     )
       .then((data) => {
         setValues(data.config);
+        setSavedValues(data.config);
         savedSnapshot.current = JSON.stringify(data.config);
         setLoading(false);
       })
@@ -367,6 +383,28 @@ export function Config() {
     }
   }
 
+  const changedKeysSet = useMemo(() => {
+    return new Set(
+      Object.keys(values).filter(
+        (k) => JSON.stringify(values[k]) !== JSON.stringify(savedValues[k]),
+      ),
+    );
+  }, [values, savedValues]);
+
+  function getGroupSummary(fields: ConfigField[]): string {
+    const total = fields.length;
+    const modified = fields.filter((f) => changedKeysSet.has(f.key)).length;
+    if (modified > 0) {
+      return `${total} fields, ${modified} modified`;
+    }
+    return `${total} fields`;
+  }
+
+  function handleReset() {
+    setValues(savedValues);
+    setDirty(false);
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const changed = getChangedKeys();
@@ -376,6 +414,7 @@ export function Config() {
     apiPut("/config", payload)
       .then(() => {
         savedSnapshot.current = JSON.stringify(values);
+        setSavedValues(values);
         setDirty(false);
         if (needsRestart) {
           showToast(
@@ -404,140 +443,194 @@ export function Config() {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div className="config-layout">
-        <div className="config-form-area">
-          {CONFIG_GROUPS.map((group) => (
-            <div key={group.title} className="config-group">
-              <h3 className="config-group-header">
-                {ICONS[group.icon]}
-                {group.title}
-              </h3>
-              <div className="config-group-body">
-                {group.fields.map((field) => (
-                  <div key={field.key} className="config-row">
-                    <label className="config-label" htmlFor={field.key}>
-                      {field.label}
-                      {field.restart ? (
-                        <span className="badge-restart">restart</span>
-                      ) : (
-                        <span
-                          style={{
-                            fontSize: "0.58rem",
-                            fontFamily: "var(--font-mono)",
-                            padding: "1px 6px",
-                            borderRadius: 20,
-                            background: "var(--green-dim)",
-                            color: "var(--green)",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          live
-                        </span>
-                      )}
-                    </label>
-                    {field.type === "select" ? (
-                      <select
-                        id={field.key}
-                        className="config-input"
-                        value={String(values[field.key] ?? "")}
-                        onChange={(e) =>
-                          handleChange(field.key, e.target.value)
-                        }
-                      >
-                        {field.options?.map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
-                      </select>
-                    ) : field.type === "checkbox" ? (
-                      <input
-                        id={field.key}
-                        type="checkbox"
-                        className="config-input"
-                        checked={!!values[field.key]}
-                        onChange={(e) =>
-                          handleChange(field.key, e.target.checked)
-                        }
-                      />
-                    ) : field.type === "password" ? (
-                      <>
-                        <input
+    <>
+      <PageHeader
+        title="configuration"
+        description="Runtime configuration for the gateway. Changes marked 'live' take effect immediately; 'restart' changes require a service restart."
+      />
+      <form onSubmit={handleSubmit}>
+        <div className="config-layout">
+          <div className="config-form-area">
+            {CONFIG_GROUPS.map((group) => (
+              <div
+                key={group.title}
+                className={`config-group${collapsed.has(group.title) ? " collapsed" : ""}`}
+              >
+                <h3
+                  className="config-group-header"
+                  onClick={() => toggleGroup(group.title)}
+                >
+                  {ICONS[group.icon]}
+                  {group.title}
+                  <span
+                    style={{
+                      marginLeft: "auto",
+                      fontSize: "0.6rem",
+                      color: "var(--text-tertiary)",
+                      fontWeight: 400,
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    {getGroupSummary(group.fields)}
+                  </span>
+                </h3>
+                <div className="config-group-body">
+                  {group.fields.map((field) => (
+                    <div key={field.key} className="config-row">
+                      <label className="config-label" htmlFor={field.key}>
+                        {field.label}
+                        {field.restart ? (
+                          <span className="badge-restart">restart</span>
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: "0.58rem",
+                              fontFamily: "var(--font-mono)",
+                              padding: "1px 6px",
+                              borderRadius: 20,
+                              background: "var(--green-dim)",
+                              color: "var(--green)",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            live
+                          </span>
+                        )}
+                      </label>
+                      {field.type === "select" ? (
+                        <select
                           id={field.key}
-                          type={revealPassword ? "text" : "password"}
                           className="config-input"
                           value={String(values[field.key] ?? "")}
                           onChange={(e) =>
                             handleChange(field.key, e.target.value)
                           }
-                        />
-                        <button
-                          type="button"
-                          className="btn-reveal"
-                          aria-label={
-                            revealPassword ? "Hide password" : "Reveal password"
-                          }
-                          aria-pressed={revealPassword}
-                          onClick={() => setRevealPassword((v) => !v)}
                         >
-                          {revealPassword ? "hide" : "reveal"}
-                        </button>
-                      </>
-                    ) : (
-                      <input
-                        id={field.key}
-                        type={field.type}
-                        className="config-input"
-                        value={String(values[field.key] ?? "")}
-                        onChange={(e) =>
-                          handleChange(
-                            field.key,
-                            field.type === "number"
-                              ? Number(e.target.value)
-                              : e.target.value,
-                          )
-                        }
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-          <div className="btn-save-wrap">
-            <button type="submit" className="btn-save">
-              Save Configuration
-            </button>
-            {dirty && <span className="unsaved-dot" title="Unsaved changes" />}
-          </div>
-        </div>
-
-        <div className="history-panel">
-          <div className="history-panel-header">Change History</div>
-          <div className="history-list">
-            {history.length === 0 ? (
-              <div className="empty-state">No changes recorded</div>
-            ) : (
-              history.map((h, i) => (
-                <div key={i} className="history-item">
-                  <div className="history-item-time">
-                    {h.changed_at || h.timestamp || ""}
-                  </div>
-                  <div className="history-item-field">
-                    {h.key || h.field || ""}
-                  </div>
-                  <div className="history-item-diff">
-                    <span className="old-val">{String(h.old_value ?? "")}</span>
-                    {" \u2192 "}
-                    <span className="new-val">{String(h.new_value ?? "")}</span>
-                  </div>
+                          {field.options?.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      ) : field.type === "checkbox" ? (
+                        <input
+                          id={field.key}
+                          type="checkbox"
+                          className="config-input"
+                          checked={!!values[field.key]}
+                          onChange={(e) =>
+                            handleChange(field.key, e.target.checked)
+                          }
+                        />
+                      ) : field.type === "password" ? (
+                        <>
+                          <input
+                            id={field.key}
+                            type={revealPassword ? "text" : "password"}
+                            className="config-input"
+                            value={String(values[field.key] ?? "")}
+                            onChange={(e) =>
+                              handleChange(field.key, e.target.value)
+                            }
+                          />
+                          <button
+                            type="button"
+                            className="btn-reveal"
+                            aria-label={
+                              revealPassword
+                                ? "Hide password"
+                                : "Reveal password"
+                            }
+                            aria-pressed={revealPassword}
+                            onClick={() => setRevealPassword((v) => !v)}
+                          >
+                            {revealPassword ? "hide" : "reveal"}
+                          </button>
+                        </>
+                      ) : (
+                        <input
+                          id={field.key}
+                          type={field.type}
+                          className="config-input"
+                          value={String(values[field.key] ?? "")}
+                          onChange={(e) =>
+                            handleChange(
+                              field.key,
+                              field.type === "number"
+                                ? Number(e.target.value)
+                                : e.target.value,
+                            )
+                          }
+                        />
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))
+              </div>
+            ))}
+            {dirty && (
+              <div className="config-save-bar">
+                <button type="submit" className="btn-save">
+                  Save Configuration
+                </button>
+                <button
+                  type="button"
+                  className="btn-reveal"
+                  onClick={handleReset}
+                >
+                  Reset
+                </button>
+                <span
+                  style={{
+                    fontSize: "0.7rem",
+                    color: "var(--yellow)",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
+                  {changedKeysSet.size} unsaved{" "}
+                  {changedKeysSet.size === 1 ? "change" : "changes"}
+                </span>
+              </div>
+            )}
+            {!dirty && (
+              <div className="btn-save-wrap">
+                <button type="submit" className="btn-save" disabled>
+                  Save Configuration
+                </button>
+              </div>
             )}
           </div>
+
+          <div className="history-panel">
+            <div className="history-panel-header">Change History</div>
+            <div className="history-list">
+              {history.length === 0 ? (
+                <div className="empty-state">No changes recorded</div>
+              ) : (
+                history.map((h, i) => (
+                  <div key={i} className="history-item">
+                    <div className="history-item-time">
+                      {h.changed_at || h.timestamp || ""}
+                    </div>
+                    <div className="history-item-field">
+                      {h.key || h.field || ""}
+                    </div>
+                    <div className="history-item-diff">
+                      <span className="old-val">
+                        {String(h.old_value ?? "")}
+                      </span>
+                      {" \u2192 "}
+                      <span className="new-val">
+                        {String(h.new_value ?? "")}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
-      </div>
-    </form>
+      </form>
+    </>
   );
 }

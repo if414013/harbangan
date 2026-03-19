@@ -1,4 +1,10 @@
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
 body {
   background: var(--bg);
@@ -11,15 +17,15 @@ body {
 
 /* Scanline overlay */
 body::before {
-  content: '';
+  content: "";
   position: fixed;
   inset: 0;
   background: repeating-linear-gradient(
     0deg,
     transparent 0px,
     transparent 2px,
-    rgba(0, 0, 0, 0.08) 2px,
-    rgba(0, 0, 0, 0.08) 4px
+    rgba(0, 0, 0, 0.04) 2px,
+    rgba(0, 0, 0, 0.04) 4px
   );
   pointer-events: none;
   z-index: 9999;
@@ -27,20 +33,30 @@ body::before {
 
 /* Vignette + dot-grid */
 body::after {
-  content: '';
+  content: "";
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse at 50% 50%, transparent 60%, rgba(0, 0, 0, 0.5) 100%),
-    radial-gradient(circle 1px at center, rgba(74, 222, 128, 0.03) 0%, transparent 100%);
-  background-size: 100% 100%, 20px 20px;
+    radial-gradient(
+      ellipse at 50% 50%,
+      transparent 60%,
+      rgba(0, 0, 0, 0.3) 100%
+    ),
+    radial-gradient(
+      circle 1px at center,
+      rgba(74, 222, 128, 0.015) 0%,
+      transparent 100%
+    );
+  background-size:
+    100% 100%,
+    20px 20px;
   pointer-events: none;
   z-index: 0;
 }
 
 /* Blinking cursor class */
 .cursor::after {
-  content: '\2588';
+  content: "\2588";
   animation: blink 1s step-end infinite;
   color: var(--green);
   margin-left: 2px;
@@ -48,8 +64,13 @@ body::after {
 }
 
 @keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 
 /* Glow hover */
@@ -58,10 +79,19 @@ body::after {
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 3px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 0; }
-::-webkit-scrollbar-thumb:hover { background: var(--green-dim); }
+::-webkit-scrollbar {
+  width: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--green-dim);
+}
 
 /* Selection */
 ::selection {
@@ -90,7 +120,9 @@ body::after {
 
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -111,4 +143,9 @@ body::after {
 [data-theme="light"] ::selection {
   background: rgba(22, 163, 74, 0.15);
   color: var(--green);
+}
+
+/* Dense mode: disable scanlines for data-heavy pages */
+body[data-dense="true"]::before {
+  display: none;
 }

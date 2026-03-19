@@ -132,7 +132,10 @@ impl std::fmt::Debug for Config {
             .field("google_client_secret", &"[REDACTED]")
             .field("google_callback_url", &self.google_callback_url)
             .field("initial_admin_email", &self.initial_admin_email)
-            .field("initial_admin_password", &self.initial_admin_password.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "initial_admin_password",
+                &self.initial_admin_password.as_ref().map(|_| "[REDACTED]"),
+            )
             .finish()
     }
 }
@@ -274,8 +277,12 @@ impl Config {
         config.google_callback_url = std::env::var("GOOGLE_CALLBACK_URL").unwrap_or_default();
 
         // Initial admin seeding
-        config.initial_admin_email = std::env::var("INITIAL_ADMIN_EMAIL").ok().filter(|s| !s.is_empty());
-        config.initial_admin_password = std::env::var("INITIAL_ADMIN_PASSWORD").ok().filter(|s| !s.is_empty());
+        config.initial_admin_email = std::env::var("INITIAL_ADMIN_EMAIL")
+            .ok()
+            .filter(|s| !s.is_empty());
+        config.initial_admin_password = std::env::var("INITIAL_ADMIN_PASSWORD")
+            .ok()
+            .filter(|s| !s.is_empty());
 
         Ok(config)
     }
@@ -295,8 +302,8 @@ impl Config {
             }
         }
 
-        let has_password_auth = self.initial_admin_email.is_some()
-            && self.initial_admin_password.is_some();
+        let has_password_auth =
+            self.initial_admin_email.is_some() && self.initial_admin_password.is_some();
         let has_google_sso = !self.google_client_id.is_empty();
 
         // At least one auth method must be configured
