@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiKeyManager } from "../components/ApiKeyManager";
+import { PageHeader } from "../components/PageHeader";
 import { useSession } from "../components/SessionGate";
 import { getStatus } from "../lib/api";
 
@@ -21,7 +22,10 @@ export function Profile() {
 
   return (
     <>
-      <h2 className="section-header">PROFILE</h2>
+      <PageHeader
+        title="profile"
+        description="Manage your account, API keys, and security settings."
+      />
       <div className="card mb-24">
         <div className="card-header">
           <span className="card-title">{"> "}Account</span>

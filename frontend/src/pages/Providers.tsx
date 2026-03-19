@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { KiroSetup } from "../components/KiroSetup";
 import { CopilotSetup } from "../components/CopilotSetup";
+import { PageHeader } from "../components/PageHeader";
 import { QwenSetup } from "../components/QwenSetup";
 import { useToast } from "../components/useToast";
 import {
@@ -162,6 +164,11 @@ function ProviderCard({
   const { showToast } = useToast();
   const [connecting, setConnecting] = useState(false);
   const [relayUrl, setRelayUrl] = useState<string | null>(null);
+  const [confirmState, setConfirmState] = useState<{
+    action: () => void;
+    title: string;
+    message: string;
+  } | null>(null);
 
   async function handleConnect() {
     setConnecting(true);
@@ -193,18 +200,23 @@ function ProviderCard({
     }
   }
 
-  async function handleDeleteAccount(label: string) {
-    if (!confirm(`Remove account "${label}" from ${provider}?`)) return;
-    try {
-      await deleteUserProviderAccount(provider, label);
-      showToast(`Account "${label}" removed`, "success");
-      onRefresh();
-    } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : "Failed to remove account",
-        "error",
-      );
-    }
+  function handleDeleteAccount(label: string) {
+    setConfirmState({
+      action: async () => {
+        try {
+          await deleteUserProviderAccount(provider, label);
+          showToast(`Account "${label}" removed`, "success");
+          onRefresh();
+        } catch (err) {
+          showToast(
+            err instanceof Error ? err.message : "Failed to remove account",
+            "error",
+          );
+        }
+      },
+      title: "Remove account",
+      message: `Remove account "${label}" from ${providerDisplayName(provider)}?`,
+    });
   }
 
   function handleConnected() {
@@ -309,6 +321,19 @@ function ProviderCard({
           relayScriptUrl={relayUrl}
           onConnected={handleConnected}
           onClose={() => setRelayUrl(null)}
+        />
+      )}
+      {confirmState && (
+        <ConfirmDialog
+          title={confirmState.title}
+          message={confirmState.message}
+          confirmLabel="Remove"
+          variant="danger"
+          onConfirm={() => {
+            confirmState.action();
+            setConfirmState(null);
+          }}
+          onCancel={() => setConfirmState(null)}
         />
       )}
     </>
@@ -519,6 +544,11 @@ export function Providers() {
     Record<string, UserProviderAccount[]>
   >({});
   const [rateLimits, setRateLimits] = useState<RateLimitInfo[]>([]);
+  const [confirmState, setConfirmState] = useState<{
+    action: () => void;
+    title: string;
+    message: string;
+  } | null>(null);
 
   function loadProviders() {
     getProvidersStatus()
@@ -580,18 +610,23 @@ export function Providers() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm("Delete this model from the registry?")) return;
-    try {
-      await deleteRegistryModel(id);
-      showToast("Model deleted", "success");
-      setModels((prev) => prev.filter((m) => m.id !== id));
-    } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : "Failed to delete model",
-        "error",
-      );
-    }
+  function handleDelete(id: string) {
+    setConfirmState({
+      action: async () => {
+        try {
+          await deleteRegistryModel(id);
+          showToast("Model deleted", "success");
+          setModels((prev) => prev.filter((m) => m.id !== id));
+        } catch (err) {
+          showToast(
+            err instanceof Error ? err.message : "Failed to delete model",
+            "error",
+          );
+        }
+      },
+      title: "Delete model",
+      message: "Delete this model from the registry?",
+    });
   }
 
   async function handlePopulate(providerId?: string) {
@@ -614,7 +649,10 @@ export function Providers() {
 
   return (
     <>
-      <h2 className="section-header">PROVIDERS</h2>
+      <PageHeader
+        title="providers"
+        description="Connect provider accounts and manage model access."
+      />
       <div className="provider-tree">
         <TreeNode label="Kiro">
           <KiroSetup />
@@ -698,6 +736,19 @@ export function Providers() {
             </div>
           )}
         </>
+      )}
+      {confirmState && (
+        <ConfirmDialog
+          title={confirmState.title}
+          message={confirmState.message}
+          confirmLabel="Delete"
+          variant="danger"
+          onConfirm={() => {
+            confirmState.action();
+            setConfirmState(null);
+          }}
+          onCancel={() => setConfirmState(null)}
+        />
       )}
     </>
   );

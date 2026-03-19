@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { UserTable } from "../components/UserTable";
 import { DomainManager } from "../components/DomainManager";
+import { PageHeader } from "../components/PageHeader";
 import { useSession } from "../components/SessionGate";
 import { useToast } from "../components/useToast";
 import {
@@ -30,6 +32,11 @@ function ProviderPool() {
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [adding, setAdding] = useState(false);
+  const [confirmState, setConfirmState] = useState<{
+    action: () => void;
+    title: string;
+    message: string;
+  } | null>(null);
 
   function load() {
     getAdminPoolAccounts()
@@ -86,18 +93,23 @@ function ProviderPool() {
     }
   }
 
-  async function handleDelete(id: string, accountLabel: string) {
-    if (!confirm(`Delete pool account "${accountLabel}"?`)) return;
-    try {
-      await deleteAdminPoolAccount(id);
-      showToast(`Pool account "${accountLabel}" deleted`, "success");
-      setAccounts((prev) => prev.filter((a) => a.id !== id));
-    } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : "Failed to delete account",
-        "error",
-      );
-    }
+  function handleDelete(id: string, accountLabel: string) {
+    setConfirmState({
+      action: async () => {
+        try {
+          await deleteAdminPoolAccount(id);
+          showToast(`Pool account "${accountLabel}" deleted`, "success");
+          setAccounts((prev) => prev.filter((a) => a.id !== id));
+        } catch (err) {
+          showToast(
+            err instanceof Error ? err.message : "Failed to delete account",
+            "error",
+          );
+        }
+      },
+      title: "Delete pool account",
+      message: `Delete pool account "${accountLabel}"?`,
+    });
   }
 
   if (loading) {
@@ -223,6 +235,19 @@ function ProviderPool() {
           </tbody>
         </table>
       )}
+      {confirmState && (
+        <ConfirmDialog
+          title={confirmState.title}
+          message={confirmState.message}
+          confirmLabel="Delete"
+          variant="danger"
+          onConfirm={() => {
+            confirmState.action();
+            setConfirmState(null);
+          }}
+          onCancel={() => setConfirmState(null)}
+        />
+      )}
     </>
   );
 }
@@ -261,6 +286,10 @@ export function Admin() {
 
   return (
     <>
+      <PageHeader
+        title="administration"
+        description="Manage users, provider pool accounts, and domain access."
+      />
       {!setupComplete && (
         <div className="setup-banner">
           <div className="setup-banner-icon">!</div>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { PageHeader } from "../components/PageHeader";
 import { useSession } from "../components/SessionGate";
 import { useToast } from "../components/useToast";
 import {
@@ -153,7 +154,10 @@ export function Usage() {
 
   return (
     <>
-      <h2 className="section-header">USAGE</h2>
+      <PageHeader
+        title="usage"
+        description="Request volume and token consumption across your API keys."
+      />
 
       {isAdmin && (
         <div
