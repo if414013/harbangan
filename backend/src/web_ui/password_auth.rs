@@ -24,27 +24,13 @@ const MAX_LOGIN_ATTEMPTS: u32 = 5;
 /// Lockout window in seconds (15 minutes).
 const LOCKOUT_WINDOW_SECS: u64 = 900;
 
-/// Build an Argon2id hasher with tuned parameters.
-/// OWASP first recommendation: m=19456,t=2,p=1 (argon2 crate default).
-/// We use m=12288,t=3,p=1 (OWASP second recommendation) for faster hashing
-/// while maintaining security — brute force is already rate-limited (5 attempts / 15min).
-fn argon2_hasher() -> Argon2<'static> {
-    let params =
-        argon2::Params::new(12_288, 3, 1, None).expect("valid Argon2 params");
-    Argon2::new(
-        argon2::Algorithm::Argon2id,
-        argon2::Version::V0x13,
-        params,
-    )
-}
-
 /// Hash a plaintext password using Argon2id (CPU-intensive, runs on blocking threadpool).
 pub async fn hash_password(password: &str) -> anyhow::Result<String> {
     let password = password.to_string();
     tokio::task::spawn_blocking(move || {
         use argon2::password_hash::{rand_core::OsRng, SaltString};
         let salt = SaltString::generate(&mut OsRng);
-        let argon2 = argon2_hasher();
+        let argon2 = Argon2::default();
         let hash = argon2
             .hash_password(password.as_bytes(), &salt)
             .map_err(|e| anyhow::anyhow!("Failed to hash password: {}", e))?;
@@ -55,15 +41,13 @@ pub async fn hash_password(password: &str) -> anyhow::Result<String> {
 }
 
 /// Verify a plaintext password against an Argon2id hash (CPU-intensive, runs on blocking threadpool).
-/// Note: Argon2 reads params from the stored hash, so passwords hashed with different
-/// params (e.g. old defaults) will still verify correctly.
 pub async fn verify_password(password: &str, hash: &str) -> anyhow::Result<bool> {
     let password = password.to_string();
     let hash = hash.to_string();
     tokio::task::spawn_blocking(move || {
         let parsed = PasswordHash::new(&hash)
             .map_err(|e| anyhow::anyhow!("Invalid password hash: {}", e))?;
-        Ok(argon2_hasher()
+        Ok(Argon2::default()
             .verify_password(password.as_bytes(), &parsed)
             .is_ok())
     })
