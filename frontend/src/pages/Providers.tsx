@@ -340,6 +340,60 @@ function ProviderCard({
   );
 }
 
+interface ProviderSummaryCardProps {
+  provider: string;
+  connected: boolean;
+  email?: string;
+  accountCount: number;
+  onConnect: () => void;
+  onDisconnect: () => void;
+}
+
+function ProviderSummaryCard({
+  provider,
+  connected,
+  email,
+  accountCount,
+  onConnect,
+  onDisconnect,
+}: ProviderSummaryCardProps) {
+  return (
+    <div className="card provider-card">
+      <div className="card-header">
+        <span className="card-title">{providerDisplayName(provider)}</span>
+        <span
+          className="provider-summary-status"
+          data-connected={connected ? "true" : "false"}
+        >
+          <span className="provider-status-dot" />
+          {connected ? "Connected" : "Not connected"}
+        </span>
+      </div>
+      {connected && (
+        <div className="provider-summary-details">
+          {accountCount > 0 && (
+            <span className="provider-summary-accounts">
+              {accountCount} account{accountCount !== 1 ? "s" : ""}
+            </span>
+          )}
+          {email && <span className="provider-summary-email">{email}</span>}
+        </div>
+      )}
+      <div className="kiro-actions">
+        {connected ? (
+          <button className="btn-danger" type="button" onClick={onDisconnect}>
+            $ disconnect
+          </button>
+        ) : (
+          <button className="btn-save" type="button" onClick={onConnect}>
+            $ connect
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface TreeNodeProps {
   label: string;
   last?: boolean;
@@ -573,6 +627,39 @@ export function Providers() {
     title: string;
     message: string;
   } | null>(null);
+  const [summaryRelayUrl, setSummaryRelayUrl] = useState<string | null>(null);
+  const [summaryRelayProvider, setSummaryRelayProvider] = useState<
+    string | null
+  >(null);
+  const summaryConnectRef = useRef<string>("");
+
+  async function handleSummaryConnect(provider: string) {
+    try {
+      const result = await getProviderConnectUrl(provider);
+      setSummaryRelayProvider(provider);
+      setSummaryRelayUrl(result.relay_script_url);
+    } catch (err) {
+      showToast(
+        "Failed to start connect: " +
+          (err instanceof Error ? err.message : "Unknown error"),
+        "error",
+      );
+    }
+  }
+
+  async function handleSummaryDisconnect(provider: string) {
+    try {
+      await disconnectProvider(provider);
+      showToast(`${provider} disconnected`, "success");
+      refreshAll();
+    } catch (err) {
+      showToast(
+        "Failed to disconnect: " +
+          (err instanceof Error ? err.message : "Unknown error"),
+        "error",
+      );
+    }
+  }
 
   function loadProviders() {
     getProvidersStatus()
@@ -677,6 +764,43 @@ export function Providers() {
         title="providers"
         description="Connect provider accounts and manage model access."
       />
+      <div className="providers-grid" style={{ marginBottom: 24 }}>
+        {PROVIDERS.map((p) => {
+          const info = providerStatus?.providers[p];
+          const isConnected = info?.connected ?? false;
+          const accounts = providerAccounts[p] ?? [];
+          return (
+            <ProviderSummaryCard
+              key={p}
+              provider={p}
+              connected={isConnected}
+              email={info?.email}
+              accountCount={accounts.length}
+              onConnect={() => {
+                summaryConnectRef.current = p;
+                handleSummaryConnect(p);
+              }}
+              onDisconnect={() => handleSummaryDisconnect(p)}
+            />
+          );
+        })}
+      </div>
+      {summaryRelayProvider && summaryRelayUrl && (
+        <RelayModal
+          provider={summaryRelayProvider}
+          relayScriptUrl={summaryRelayUrl}
+          onConnected={() => {
+            setSummaryRelayUrl(null);
+            setSummaryRelayProvider(null);
+            showToast(`${summaryConnectRef.current} connected`, "success");
+            refreshAll();
+          }}
+          onClose={() => {
+            setSummaryRelayUrl(null);
+            setSummaryRelayProvider(null);
+          }}
+        />
+      )}
       <div className="provider-tree">
         <TreeNode label="Kiro">
           <KiroSetup />

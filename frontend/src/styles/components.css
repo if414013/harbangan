@@ -2070,6 +2070,50 @@ select.config-input {
   color: var(--text-tertiary);
 }
 
+/* ---- Provider Summary Cards ---- */
+
+.provider-summary-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.provider-summary-status[data-connected="true"] {
+  color: var(--green);
+}
+
+.provider-summary-status[data-connected="false"] {
+  color: var(--red);
+}
+
+.provider-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.provider-summary-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.provider-summary-accounts {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.provider-summary-email {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-tertiary);
+}
+
 /* ---- Account List (multi-account) ---- */
 
 .account-list {
@@ -2221,6 +2265,23 @@ select.config-input {
   text-transform: lowercase;
 }
 
+/* ---- Auth Enhancements ---- */
+
+.auth-2fa-input {
+  font-size: 1.1rem;
+  letter-spacing: 0.15em;
+  text-align: center;
+  max-width: 200px;
+  margin: 0 auto;
+}
+
+.auth-helper-text {
+  font-family: var(--font-ui);
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
 /* ---- Auth Toggle Link ---- */
 
 .auth-toggle-link {
@@ -2228,9 +2289,11 @@ select.config-input {
   margin-top: 14px;
   background: none;
   border: none;
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
+  color: var(--cyan);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
   cursor: pointer;
   transition: color 0.15s;
   padding: 4px;
@@ -2298,6 +2361,45 @@ select.config-input {
   font-weight: 600;
 }
 
+/* ---- Setup Steps ---- */
+
+.setup-step {
+  margin-bottom: 24px;
+}
+
+.setup-step-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.setup-step-number {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--green-dim);
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.setup-step-title {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.setup-step-content {
+  padding-left: 32px;
+}
+
 /* ---- Recovery Codes ---- */
 
 .recovery-codes {
@@ -2320,9 +2422,37 @@ select.config-input {
   letter-spacing: 0.04em;
 }
 
+.recovery-codes-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+
+.recovery-codes-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 24px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.recovery-codes-warning {
+  font-family: var(--font-ui);
+  font-size: 0.6875rem;
+  color: var(--yellow);
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .recovery-codes-actions {
   display: flex;
   gap: 8px;
+  margin-top: 8px;
   margin-bottom: 12px;
 }
 
