@@ -146,6 +146,6 @@ body::after {
 }
 
 /* Dense mode: disable scanlines for data-heavy pages */
-[data-dense="true"] body::before {
+body[data-dense="true"]::before {
   display: none;
 }
