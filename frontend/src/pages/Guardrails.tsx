@@ -200,11 +200,10 @@ function GuardrailProfiles() {
                     edit
                   </button>
                   <button
-                    className="device-code-cancel"
+                    className="btn-danger"
                     type="button"
                     onClick={() => handleDelete(p.id)}
                     aria-label={`Delete profile ${p.name}`}
-                    style={{ color: "var(--red)" }}
                   >
                     delete
                   </button>
@@ -557,11 +556,10 @@ function GuardrailRules() {
                     edit
                   </button>
                   <button
-                    className="device-code-cancel"
+                    className="btn-danger"
                     type="button"
                     onClick={() => handleDelete(r.id)}
                     aria-label={`Delete rule ${r.name}`}
-                    style={{ color: "var(--red)" }}
                   >
                     delete
                   </button>

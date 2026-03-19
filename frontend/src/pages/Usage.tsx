@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { DataTable } from "../components/DataTable";
 import { PageHeader } from "../components/PageHeader";
 import { useSession } from "../components/SessionGate";
 import { useToast } from "../components/useToast";
@@ -303,83 +304,92 @@ export function Usage() {
             Loading...
           </div>
         ) : adminTab === "users" ? (
-          userRecords.length === 0 ? (
-            <div
-              style={{
-                padding: 24,
-                textAlign: "center",
-                color: "var(--text-tertiary)",
-                fontFamily: "var(--font-mono)",
-                fontSize: "0.74rem",
-              }}
-            >
-              No usage data found for the selected date range.
-            </div>
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>User</th>
-                  <th>Input Tokens</th>
-                  <th>Output Tokens</th>
-                  <th>Total Cost</th>
-                  <th>Requests</th>
-                </tr>
-              </thead>
-              <tbody>
-                {userRecords.map((record) => (
-                  <tr key={record.user_id}>
-                    <td>{record.email}</td>
-                    <td>{formatTokens(record.total_input_tokens)}</td>
-                    <td>{formatTokens(record.total_output_tokens)}</td>
-                    <td>{formatCost(record.total_cost)}</td>
-                    <td>{formatTokens(record.request_count)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )
-        ) : currentRecords.length === 0 ? (
-          <div
-            style={{
-              padding: 24,
-              textAlign: "center",
-              color: "var(--text-tertiary)",
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.74rem",
-            }}
-          >
-            No usage data found for the selected date range.
-          </div>
+          <DataTable
+            data={userRecords as unknown as Record<string, unknown>[]}
+            columns={[
+              {
+                key: "email",
+                label: "User",
+                sortable: true,
+              },
+              {
+                key: "total_input_tokens",
+                label: "Input Tokens",
+                sortable: true,
+                render: (row) => formatTokens(row.total_input_tokens as number),
+              },
+              {
+                key: "total_output_tokens",
+                label: "Output Tokens",
+                sortable: true,
+                render: (row) =>
+                  formatTokens(row.total_output_tokens as number),
+              },
+              {
+                key: "total_cost",
+                label: "Total Cost",
+                sortable: true,
+                render: (row) => formatCost(row.total_cost as number),
+              },
+              {
+                key: "request_count",
+                label: "Requests",
+                sortable: true,
+                render: (row) => formatTokens(row.request_count as number),
+              },
+            ]}
+            searchKeys={["email"]}
+            searchPlaceholder="Search users..."
+            emptyTitle="No usage data"
+            emptyDescription="No usage data found for the selected date range."
+            caption="User usage breakdown"
+          />
         ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>
-                  {groupBy === "day"
+          <DataTable
+            data={currentRecords as unknown as Record<string, unknown>[]}
+            columns={[
+              {
+                key: "group_key",
+                label:
+                  groupBy === "day"
                     ? "Date"
                     : groupBy === "model"
                       ? "Model"
-                      : "Provider"}
-                </th>
-                <th>Input Tokens</th>
-                <th>Output Tokens</th>
-                <th>Total Cost</th>
-                <th>Requests</th>
-              </tr>
-            </thead>
-            <tbody>
-              {currentRecords.map((record, idx) => (
-                <tr key={`${record.group_key}-${idx}`}>
-                  <td>{record.group_key}</td>
-                  <td>{formatTokens(record.total_input_tokens)}</td>
-                  <td>{formatTokens(record.total_output_tokens)}</td>
-                  <td>{formatCost(record.total_cost)}</td>
-                  <td>{formatTokens(record.request_count)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      : "Provider",
+                sortable: true,
+              },
+              {
+                key: "total_input_tokens",
+                label: "Input Tokens",
+                sortable: true,
+                render: (row) => formatTokens(row.total_input_tokens as number),
+              },
+              {
+                key: "total_output_tokens",
+                label: "Output Tokens",
+                sortable: true,
+                render: (row) =>
+                  formatTokens(row.total_output_tokens as number),
+              },
+              {
+                key: "total_cost",
+                label: "Total Cost",
+                sortable: true,
+                render: (row) => formatCost(row.total_cost as number),
+              },
+              {
+                key: "request_count",
+                label: "Requests",
+                sortable: true,
+                render: (row) => formatTokens(row.request_count as number),
+              },
+            ]}
+            searchKeys={["group_key"]}
+            searchPlaceholder="Search..."
+            emptyTitle="No usage data"
+            emptyDescription="No usage data found for the selected date range."
+            caption="Usage breakdown"
+          />
         )}
       </div>
     </>

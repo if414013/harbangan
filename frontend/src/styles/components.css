@@ -379,6 +379,73 @@
   font-weight: 500;
 }
 
+/* ---- DataTable Wrapper ---- */
+
+.data-table-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.data-table-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 4px;
+}
+
+.data-table-search {
+  flex: 1;
+  max-width: 280px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  outline: none;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.data-table-search:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.08);
+}
+
+.data-table-search::placeholder {
+  color: var(--text-tertiary);
+}
+
+.data-table-count {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.data-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.data-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.data-table th.sortable:hover {
+  color: var(--green);
+}
+
+.sort-indicator {
+  font-size: 0.55rem;
+  color: var(--green);
+}
+
 /* ---- Config Page ---- */
 
 .config-layout {

@@ -222,10 +222,9 @@ function ProviderPool() {
                 </td>
                 <td>
                   <button
-                    className="device-code-cancel"
+                    className="btn-danger"
                     type="button"
                     onClick={() => handleDelete(a.id, a.account_label)}
-                    style={{ color: "var(--red)" }}
                   >
                     delete
                   </button>

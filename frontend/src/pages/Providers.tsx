@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { DataTable } from "../components/DataTable";
 import { KiroSetup } from "../components/KiroSetup";
 import { CopilotSetup } from "../components/CopilotSetup";
 import { PageHeader } from "../components/PageHeader";
@@ -271,10 +272,9 @@ function ProviderCard({
                     )}
                   </div>
                   <button
-                    className="device-code-cancel"
+                    className="btn-danger"
                     type="button"
                     onClick={() => handleDeleteAccount(acct.account_label)}
-                    style={{ color: "var(--red)" }}
                   >
                     remove
                   </button>
@@ -296,7 +296,7 @@ function ProviderCard({
                 {connecting ? "..." : "$ connect another"}
               </button>
               <button
-                className="device-code-cancel"
+                className="btn-danger"
                 type="button"
                 onClick={handleDisconnect}
               >
@@ -470,24 +470,16 @@ function ProviderSection({
             disable all
           </button>
         </div>
-        <table className="data-table">
-          <caption className="sr-only">Models for {group.providerId}</caption>
-          <thead>
-            <tr>
-              <th scope="col">enabled</th>
-              <th scope="col">prefixed id</th>
-              <th scope="col">display name</th>
-              <th scope="col">context</th>
-              <th scope="col">source</th>
-              <th scope="col">
-                <span className="sr-only">Actions</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {group.models.map((m) => (
-              <tr key={m.id}>
-                <td>
+        <DataTable
+          data={group.models as unknown as Record<string, unknown>[]}
+          columns={[
+            {
+              key: "enabled",
+              label: "enabled",
+              sortable: true,
+              render: (row) => {
+                const m = row as unknown as RegistryModel;
+                return (
                   <button
                     type="button"
                     className="role-badge"
@@ -502,32 +494,64 @@ function ProviderSection({
                   >
                     {m.enabled ? "on" : "off"}
                   </button>
-                </td>
-                <td>{m.prefixed_id}</td>
-                <td style={{ color: "var(--text-secondary)" }}>
-                  {m.display_name}
-                </td>
-                <td style={{ color: "var(--text-tertiary)" }}>
-                  {m.context_length.toLocaleString()}
-                </td>
-                <td>
-                  <span className="source-badge">{m.source}</span>
-                </td>
-                <td>
+                );
+              },
+            },
+            {
+              key: "prefixed_id",
+              label: "prefixed id",
+              sortable: true,
+            },
+            {
+              key: "display_name",
+              label: "display name",
+              sortable: true,
+              render: (row) => (
+                <span style={{ color: "var(--text-secondary)" }}>
+                  {String(row.display_name ?? "")}
+                </span>
+              ),
+            },
+            {
+              key: "context_length",
+              label: "context",
+              sortable: true,
+              render: (row) => (
+                <span style={{ color: "var(--text-tertiary)" }}>
+                  {(row.context_length as number).toLocaleString()}
+                </span>
+              ),
+            },
+            {
+              key: "source",
+              label: "source",
+              render: (row) => (
+                <span className="source-badge">{String(row.source ?? "")}</span>
+              ),
+            },
+            {
+              key: "id",
+              label: "",
+              render: (row) => {
+                const m = row as unknown as RegistryModel;
+                return (
                   <button
-                    className="device-code-cancel"
+                    className="btn-danger"
                     type="button"
                     onClick={() => onDelete(m.id)}
                     aria-label={`Delete ${m.prefixed_id}`}
-                    style={{ color: "var(--red)" }}
                   >
                     delete
                   </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                );
+              },
+            },
+          ]}
+          searchKeys={["display_name", "prefixed_id"]}
+          searchPlaceholder="Search models..."
+          emptyTitle="No models"
+          caption={`Models for ${group.providerId}`}
+        />
       </div>
     </div>
   );
