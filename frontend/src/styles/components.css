@@ -247,7 +247,7 @@
 }
 
 .card-title {
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -257,8 +257,8 @@
 }
 
 .card-subtitle {
-  font-size: 0.62rem;
-  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-family: var(--font-ui);
   color: var(--text-tertiary);
 }
 
@@ -273,7 +273,7 @@
 
 .section-header {
   font-family: var(--font-mono);
-  font-size: 0.65rem;
+  font-size: 0.6875rem;
   font-weight: 500;
   color: var(--text-tertiary);
   text-transform: uppercase;
@@ -293,14 +293,14 @@
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.78rem;
-  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-family: var(--font-ui);
 }
 
 .data-table th {
   text-align: left;
   padding: 8px 12px;
-  font-size: 0.65rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -312,9 +312,9 @@
 .data-table td {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-subtle);
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
-  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
 }
 
 .data-table tbody tr {
@@ -378,7 +378,7 @@
   padding: 10px 16px;
   background: var(--bg-raised);
   border-bottom: 1px solid var(--border);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -427,12 +427,12 @@
 
 .config-label {
   min-width: 200px;
-  font-size: 0.74rem;
+  font-size: 0.8125rem;
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: 8px;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
 }
 
 .badge-restart {
@@ -760,10 +760,10 @@ select.config-input {
 }
 
 .auth-card p {
-  font-size: 0.74rem;
+  font-size: 0.8125rem;
   color: var(--text-tertiary);
   margin-bottom: 20px;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
 }
 
 .auth-input {

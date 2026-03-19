@@ -120,7 +120,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           <span
             style={{
               color: "var(--text-tertiary)",
-              fontSize: "0.62rem",
+              fontSize: "0.6875rem",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
