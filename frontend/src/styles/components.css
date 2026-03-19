@@ -2525,3 +2525,176 @@ select.config-input {
     flex-direction: column;
   }
 }
+
+/* ---- Tab Bar ---- */
+
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.tab-bar-item {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+}
+
+.tab-bar-item:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+
+.tab-bar-item-active {
+  color: var(--green);
+  border-bottom-color: var(--green);
+  text-shadow: var(--glow-sm);
+}
+
+.tab-bar-icon {
+  display: flex;
+  align-items: center;
+  opacity: 0.7;
+}
+
+.tab-bar-item-active .tab-bar-icon {
+  opacity: 1;
+}
+
+/* ---- Health Cards ---- */
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.health-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--green-dim);
+  border-radius: var(--radius);
+  padding: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font-mono);
+}
+
+.health-card:hover {
+  border-color: var(--green-dim);
+  box-shadow: var(--glow-sm);
+}
+
+.health-card[data-connected="false"] {
+  border-left-color: var(--border);
+  opacity: 0.7;
+}
+
+.health-card[data-connected="false"]:hover {
+  opacity: 1;
+}
+
+.health-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.health-card-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--green);
+  text-shadow: var(--glow-sm);
+}
+
+.health-card-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.health-card[data-connected="true"] .health-card-dot {
+  color: var(--green);
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.4);
+}
+
+.health-card[data-connected="false"] .health-card-dot {
+  color: var(--text-tertiary);
+}
+
+.health-card-status {
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+}
+
+.health-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.62rem;
+  color: var(--text-tertiary);
+}
+
+.health-card-warn {
+  color: var(--yellow);
+}
+
+/* ---- Summary Bar ---- */
+
+.summary-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-tertiary);
+}
+
+.summary-bar-stat {
+  color: var(--text-muted);
+}
+
+.summary-bar-stat strong {
+  color: var(--green);
+  font-weight: 600;
+}
+
+/* ---- Provider Sections (Connections Tab) ---- */
+
+.provider-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+@media (max-width: 600px) {
+  .health-grid {
+    grid-template-columns: 1fr;
+  }
+}
