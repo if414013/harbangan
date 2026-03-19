@@ -153,27 +153,6 @@ const CONFIG_GROUPS: { title: string; icon: string; fields: ConfigField[] }[] =
         },
       ],
     },
-    {
-      title: "Provider OAuth",
-      icon: "key",
-      fields: [
-        {
-          key: "qwen_oauth_client_id",
-          label: "Qwen OAuth Client ID",
-          type: "text",
-        },
-        {
-          key: "anthropic_oauth_client_id",
-          label: "Anthropic OAuth Client ID",
-          type: "text",
-        },
-        {
-          key: "openai_oauth_client_id",
-          label: "OpenAI OAuth Client ID",
-          type: "text",
-        },
-      ],
-    },
   ];
 
 const RESTART_KEYS = new Set(
