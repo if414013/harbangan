@@ -1,0 +1,112 @@
+name: Deploy to Production
+
+on:
+  workflow_run:
+    workflows: ["Push Docker Images"]
+    types: [completed]
+    branches: [main]
+
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (e.g. v1.0.8)"
+        required: false
+        default: "latest"
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ghcr.io/if414013/harbangan-backend
+  FRONTEND_IMAGE: ghcr.io/if414013/harbangan-frontend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    # Only run if triggered manually OR if the upstream workflow succeeded on a tag
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
+
+    steps:
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          else
+            TAG="${{ github.event.workflow_run.head_branch }}"
+          fi
+          echo "image_tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Deploying tag: ${TAG}"
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Sparse checkout compose file
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: docker-compose.prod.yml
+          sparse-checkout-cone-mode: false
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Copy compose file to VPS
+        run: |
+          scp -i ~/.ssh/deploy_key \
+            docker-compose.prod.yml \
+            ubuntu@${{ secrets.DEPLOY_HOST }}:~/harbangan/docker-compose.prod.yml
+
+      - name: Deploy on VPS
+        run: |
+          ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.DEPLOY_HOST }} bash -s << 'DEPLOY_SCRIPT'
+            set -euo pipefail
+            cd ~/harbangan
+
+            # Login to ghcr.io
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull new images
+            docker pull ${{ env.BACKEND_IMAGE }}:${{ steps.tag.outputs.image_tag }}
+            docker pull ${{ env.FRONTEND_IMAGE }}:${{ steps.tag.outputs.image_tag }}
+
+            # Deploy
+            IMAGE_TAG=${{ steps.tag.outputs.image_tag }} \
+              docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+            # Wait for services to stabilize
+            echo "Waiting 30s for services to start..."
+            sleep 30
+
+            # Health checks
+            echo "Checking backend health..."
+            curl -fs http://localhost:9999/health || { echo "Backend health check failed"; exit 1; }
+
+            echo "Checking frontend health..."
+            curl -fs http://localhost/nginx-health || { echo "Frontend health check failed"; exit 1; }
+
+            echo "Deployment successful!"
+
+            # Prune old images (older than 7 days)
+            docker image prune -f --filter 'until=168h'
+
+            # Logout
+            docker logout ghcr.io
+          DEPLOY_SCRIPT
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
