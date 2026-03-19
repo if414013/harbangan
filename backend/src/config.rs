@@ -274,8 +274,12 @@ impl Config {
         config.google_callback_url = std::env::var("GOOGLE_CALLBACK_URL").unwrap_or_default();
 
         // Initial admin seeding
-        config.initial_admin_email = std::env::var("INITIAL_ADMIN_EMAIL").ok().filter(|s| !s.is_empty());
-        config.initial_admin_password = std::env::var("INITIAL_ADMIN_PASSWORD").ok().filter(|s| !s.is_empty());
+        config.initial_admin_email = std::env::var("INITIAL_ADMIN_EMAIL")
+            .ok()
+            .filter(|s| !s.is_empty());
+        config.initial_admin_password = std::env::var("INITIAL_ADMIN_PASSWORD")
+            .ok()
+            .filter(|s| !s.is_empty());
 
         Ok(config)
     }

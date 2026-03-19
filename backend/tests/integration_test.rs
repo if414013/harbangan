@@ -91,6 +91,8 @@ fn create_test_app_state() -> AppState {
         google_client_id: String::new(),
         google_client_secret: String::new(),
         google_callback_url: String::new(),
+        initial_admin_email: None,
+        initial_admin_password: None,
     };
 
     let config_arc = Arc::new(RwLock::new(config));
