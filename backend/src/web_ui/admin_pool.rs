@@ -4,7 +4,10 @@ use axum::{Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use std::str::FromStr;
+
 use crate::error::ApiError;
+use crate::providers::types::ProviderId;
 use crate::routes::{AppState, SessionInfo};
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -92,13 +95,13 @@ async fn add_pool_account(
         .as_ref()
         .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("No database configured")))?;
 
-    // Validate provider_id
-    let valid_providers = ["kiro", "anthropic", "openai_codex", "copilot", "qwen"];
-    if !valid_providers.contains(&payload.provider_id.as_str()) {
+    // Validate provider_id via enum
+    let pid =
+        ProviderId::from_str(&payload.provider_id).map_err(|e| ApiError::ValidationError(e))?;
+    if !pid.supports_pool() {
         return Err(ApiError::ValidationError(format!(
-            "Invalid provider_id: {}. Must be one of: {}",
-            payload.provider_id,
-            valid_providers.join(", ")
+            "Provider '{}' does not support pool accounts",
+            payload.provider_id
         )));
     }
 
