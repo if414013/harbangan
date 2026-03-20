@@ -11,23 +11,19 @@ import {
   addAdminPoolAccount,
   deleteAdminPoolAccount,
   toggleAdminPoolAccount,
+  getProviderRegistry,
 } from "../lib/api";
-import type { AdminPoolAccount } from "../lib/api";
-
-const POOL_PROVIDERS = [
-  "anthropic",
-  "openai_codex",
-  "kiro",
-  "copilot",
-  "qwen",
-] as const;
+import type { AdminPoolAccount, ProviderRegistryEntry } from "../lib/api";
 
 function ProviderPool() {
   const { showToast } = useToast();
   const [accounts, setAccounts] = useState<AdminPoolAccount[]>([]);
   const [loading, setLoading] = useState(true);
+  const [poolProviders, setPoolProviders] = useState<ProviderRegistryEntry[]>(
+    [],
+  );
 
-  const [provider, setProvider] = useState("anthropic");
+  const [provider, setProvider] = useState("");
   const [label, setLabel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -50,6 +46,15 @@ function ProviderPool() {
   }
 
   useEffect(() => {
+    getProviderRegistry()
+      .then((data) => {
+        const eligible = data.providers.filter((p) => p.supports_pool);
+        setPoolProviders(eligible);
+        if (eligible.length > 0) {
+          setProvider(eligible[0].id);
+        }
+      })
+      .catch(() => {});
     load();
   }, []);
 
@@ -133,9 +138,9 @@ function ProviderPool() {
                 value={provider}
                 onChange={(e) => setProvider(e.target.value)}
               >
-                {POOL_PROVIDERS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
+                {poolProviders.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.display_name}
                   </option>
                 ))}
               </select>

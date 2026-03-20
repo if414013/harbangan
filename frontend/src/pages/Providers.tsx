@@ -8,6 +8,7 @@ import {
   getRegistryModels,
   getUserProviderAccounts,
   getProviderRateLimits,
+  getProviderRegistry,
   updateModelEnabled,
   deleteRegistryModel,
   populateModels,
@@ -17,6 +18,7 @@ import {
 } from "../lib/api";
 import type {
   ProvidersStatusResponse,
+  ProviderRegistryEntry,
   RegistryModel,
   UserProviderAccount,
   RateLimitInfo,
@@ -25,8 +27,6 @@ import type {
 import { StatusTab } from "./providers/StatusTab";
 import { ConnectionsTab } from "./providers/ConnectionsTab";
 import { ModelsTab } from "./providers/ModelsTab";
-
-const MULTI_ACCOUNT_PROVIDERS = ["anthropic", "openai_codex"] as const;
 
 const TABS = [
   { id: "status", label: "status" },
@@ -40,6 +40,8 @@ export function Providers() {
   const isAdmin = user.role === "admin";
 
   const [activeTab, setActiveTab] = useState("status");
+  const [registry, setRegistry] = useState<ProviderRegistryEntry[]>([]);
+  const [registryLoaded, setRegistryLoaded] = useState(false);
   const [providerStatus, setProviderStatus] =
     useState<ProvidersStatusResponse | null>(null);
   const [models, setModels] = useState<RegistryModel[]>([]);
@@ -57,6 +59,32 @@ export function Providers() {
     title: string;
     message: string;
   } | null>(null);
+
+  const allProviders = registry.map((p) => p.id);
+  const multiAccountProviders = registry
+    .filter((p) => p.category === "oauth_relay")
+    .map((p) => p.id);
+  const deviceCodeProviders = registry
+    .filter((p) => p.category === "device_code")
+    .map((p) => p.id);
+
+  // Phase 1: fetch registry (mount-only)
+  useEffect(() => {
+    getProviderRegistry()
+      .then((data) => {
+        setRegistry(data.providers);
+        setRegistryLoaded(true);
+      })
+      .catch((err) => {
+        showToast(
+          err instanceof Error
+            ? err.message
+            : "Failed to load provider registry",
+          "error",
+        );
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function loadProviders() {
     getProvidersStatus()
@@ -76,7 +104,7 @@ export function Providers() {
   }
 
   function loadAccounts() {
-    for (const p of MULTI_ACCOUNT_PROVIDERS) {
+    for (const p of multiAccountProviders) {
       getUserProviderAccounts(p)
         .then((data) => {
           setProviderAccounts((prev) => ({ ...prev, [p]: data.accounts }));
@@ -110,13 +138,16 @@ export function Providers() {
     loadDeviceCodeStatuses();
   }
 
+  // Phase 2: when registry is loaded, fetch all dependent data
   useEffect(() => {
+    if (!registryLoaded) return;
     loadProviders();
     loadModels();
     loadAccounts();
     loadRateLimits();
     loadDeviceCodeStatuses();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registryLoaded]);
 
   async function handleToggle(id: string, enabled: boolean) {
     try {
@@ -171,6 +202,22 @@ export function Providers() {
     setActiveTab("connections");
   }
 
+  if (!registryLoaded) {
+    return (
+      <>
+        <PageHeader
+          title="providers"
+          description="Connect provider accounts and manage model access."
+        />
+        <div
+          className="skeleton skeleton-block"
+          role="status"
+          aria-label="Loading provider registry"
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader
@@ -188,6 +235,8 @@ export function Providers() {
           copilotConnected={copilotConnected}
           qwenConnected={qwenConnected}
           onNavigate={handleNavigateToConnections}
+          allProviders={allProviders}
+          registry={registry}
         />
       )}
       {activeTab === "connections" && (
@@ -197,6 +246,8 @@ export function Providers() {
           rateLimits={rateLimits}
           isAdmin={isAdmin}
           onRefresh={refreshAll}
+          multiAccountProviders={multiAccountProviders}
+          deviceCodeProviders={deviceCodeProviders}
         />
       )}
       {activeTab === "models" && (

@@ -303,6 +303,21 @@ export function validateCelExpression(expression: string) {
   });
 }
 
+// --- Provider Registry Types ---
+
+export interface ProviderRegistryEntry {
+  id: string;
+  display_name: string;
+  category: "device_code" | "oauth_relay" | "custom";
+  supports_pool: boolean;
+}
+
+export function getProviderRegistry() {
+  return apiFetch<{ providers: ProviderRegistryEntry[] }>(
+    "/providers/registry",
+  );
+}
+
 // --- Provider OAuth Types ---
 
 export interface ProviderStatus {
