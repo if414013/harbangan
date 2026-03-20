@@ -12,7 +12,7 @@ import { adminLogin } from '../../helpers/auth.js'
  * Runs in ui-admin project (workers: 1, serial).
  */
 
-const BASE_UI_URL = process.env.BASE_UI_URL || 'http://localhost:5173/_ui'
+const BASE_UI_URL = (process.env.BASE_UI_URL || 'http://localhost:5173/_ui').replace(/\/?$/, '/')
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:9999'
 
 test.describe('Logout redirect', () => {

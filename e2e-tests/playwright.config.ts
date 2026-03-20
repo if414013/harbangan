@@ -22,6 +22,18 @@ export default defineConfig({
     {
       name: 'api',
       testDir: './specs/api',
+      testIgnore: [
+        'api-keys.spec.ts',
+        'config.spec.ts',
+        'logout.spec.ts',
+        'domain-allowlist.spec.ts',
+        'multi-account.spec.ts',
+        'user-management.spec.ts',
+        'guardrails.spec.ts',
+        'model-registry.spec.ts',
+        'provider-status.spec.ts',
+        'password-auth.spec.ts',
+      ],
       use: {
         baseURL: GATEWAY_URL,
         extraHTTPHeaders: {
@@ -52,12 +64,15 @@ export default defineConfig({
       testDir: './specs/api',
       testMatch: [
         'api-keys.spec.ts',
+        'config.spec.ts',
         'logout.spec.ts',
         'domain-allowlist.spec.ts',
+        'multi-account.spec.ts',
         'user-management.spec.ts',
         'guardrails.spec.ts',
         'model-registry.spec.ts',
         'provider-status.spec.ts',
+        'password-auth.spec.ts',
       ],
       fullyParallel: false,
       use: {

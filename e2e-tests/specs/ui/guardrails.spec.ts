@@ -70,7 +70,7 @@ const MOCK_PROFILE = {
 
 async function mockGuardrailsAPIs(page: Page) {
   // Mock profiles list
-  await page.route('**/_ui/api/guardrails/profiles', route => {
+  await page.route('**/_ui/api/admin/guardrails/profiles', route => {
     if (route.request().method() === 'GET') {
       route.fulfill({
         status: 200,
@@ -89,7 +89,7 @@ async function mockGuardrailsAPIs(page: Page) {
   })
 
   // Mock rules list
-  await page.route('**/_ui/api/guardrails/rules', route => {
+  await page.route('**/_ui/api/admin/guardrails/rules', route => {
     if (route.request().method() === 'GET') {
       route.fulfill({
         status: 200,
@@ -108,7 +108,7 @@ async function mockGuardrailsAPIs(page: Page) {
   })
 
   // Mock CEL validation
-  await page.route('**/_ui/api/guardrails/validate-cel', route =>
+  await page.route('**/_ui/api/admin/guardrails/cel/validate', route =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -117,7 +117,7 @@ async function mockGuardrailsAPIs(page: Page) {
   )
 
   // Mock test endpoint
-  await page.route('**/_ui/api/guardrails/profiles/*/test', route =>
+  await page.route('**/_ui/api/admin/guardrails/test', route =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',

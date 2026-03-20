@@ -112,9 +112,9 @@ test.describe('Config page — Authentication group', () => {
     await input.clear()
     await input.fill(originalValue + '0')
 
-    // Unsaved dot indicator should appear
-    const unsavedDot = page.locator('span.unsaved-dot')
-    await expect(unsavedDot).toBeVisible()
+    // Unsaved changes indicator should appear
+    const unsavedText = page.locator('div.config-save-bar')
+    await expect(unsavedText).toBeVisible()
 
     // Revert by reloading (don't save)
     await navigateTo(page, '/config')
