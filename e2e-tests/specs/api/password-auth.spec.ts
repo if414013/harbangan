@@ -193,10 +193,7 @@ test.describe('Admin user management API', () => {
     expect(body.role).toBe('user');
   });
 
-  // BUG: admin_reset_password_handler deadlocks the server.
-  // evict_user_caches() calls session_cache.retain() which conflicts with
-  // session_middleware holding a DashMap Ref guard across .await boundaries.
-  test.fixme('admin resets user password', async ({ request }) => {
+  test('admin resets user password', async ({ request }) => {
     const { csrfToken } = await adminLogin(request);
     const testEmail = `resetuser-${Date.now()}@example.com`;
 
@@ -292,12 +289,9 @@ test.describe('Admin user management API', () => {
 });
 
 // ── Password Change ─────────────────────────────────────────────────
-// BUG: change_password_handler calls session_cache.iter_mut() which deadlocks
-// when session_middleware holds a DashMap Ref guard across .await boundaries.
-// Same root cause as admin_reset_password_handler deadlock.
 
 test.describe('Password change API', () => {
-  test.fixme('change password with wrong current password returns 401', async ({ request }) => {
+  test('change password with wrong current password returns 401', async ({ request }) => {
     const { csrfToken } = await adminLogin(request);
 
     const response = await request.post('/_ui/api/auth/password/change', {
@@ -307,7 +301,7 @@ test.describe('Password change API', () => {
     expect(response.status()).toBe(401);
   });
 
-  test.fixme('change password with valid current password succeeds then revert', async ({ request }) => {
+  test('change password with valid current password succeeds then revert', async ({ request }) => {
     const { csrfToken } = await adminLogin(request);
     const newPassword = 'TempNewPassword123!';
 

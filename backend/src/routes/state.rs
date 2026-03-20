@@ -116,10 +116,32 @@ impl AppState {
 
     /// Evict all cached data for a user (sessions, API keys, Kiro tokens).
     /// Call after role change or user deletion.
+    ///
+    /// Uses collect-then-remove to avoid holding DashMap write locks across
+    /// all shards (which `retain()` does), preventing potential deadlocks with
+    /// concurrent read guards held by session middleware.
     #[allow(dead_code)]
     pub fn evict_user_caches(&self, user_id: Uuid) {
-        self.session_cache.retain(|_, info| info.user_id != user_id);
-        self.api_key_cache.retain(|_, (uid, _)| *uid != user_id);
+        let session_keys: Vec<_> = self
+            .session_cache
+            .iter()
+            .filter(|entry| entry.value().user_id == user_id)
+            .map(|entry| *entry.key())
+            .collect();
+        for key in session_keys {
+            self.session_cache.remove(&key);
+        }
+
+        let api_key_keys: Vec<_> = self
+            .api_key_cache
+            .iter()
+            .filter(|entry| entry.value().0 == user_id)
+            .map(|entry| entry.key().clone())
+            .collect();
+        for key in api_key_keys {
+            self.api_key_cache.remove(&key);
+        }
+
         self.kiro_token_cache.remove(&user_id);
     }
 }

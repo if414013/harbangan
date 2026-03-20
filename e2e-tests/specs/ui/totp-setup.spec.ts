@@ -93,13 +93,13 @@ test.describe('TOTP setup flow', () => {
     await page.waitForLoadState('networkidle')
 
     // Step indicator should show scan step
-    await expect(page.locator('.step-active')).toContainText('scan')
+    await expect(page.locator('.setup-step-title')).toContainText('Scan QR code')
 
     // Instructions text about scanning QR code with authenticator app
-    await expect(page.getByText('scan this QR code with your authenticator app')).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByText('Scan this QR code with your authenticator app')).toBeVisible({ timeout: 5_000 })
 
-    // "or enter this key manually" fallback text
-    await expect(page.getByText('or enter this key manually')).toBeVisible()
+    // "Or enter this key manually" fallback text
+    await expect(page.getByText('Or enter this key manually')).toBeVisible()
   })
 
   test('entering valid TOTP code completes setup', async ({ page }) => {
@@ -116,7 +116,7 @@ test.describe('TOTP setup flow', () => {
     await page.locator('button.auth-submit').filter({ hasText: '$ next' }).click()
 
     // Verify step should be active
-    await expect(page.locator('.step-active')).toContainText('verify')
+    await expect(page.locator('.setup-step-title')).toContainText('Enter verification code')
     await expect(page.locator('input.auth-input.totp-input')).toBeVisible()
 
     // Generate and enter a valid TOTP code
@@ -132,7 +132,7 @@ test.describe('TOTP setup flow', () => {
     await page.locator('button.auth-submit').filter({ hasText: /verify/ }).click()
 
     // Should transition to recovery codes step
-    await expect(page.getByText('RECOVERY CODES')).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByRole('heading', { name: 'RECOVERY CODES' })).toBeVisible({ timeout: 5_000 })
   })
 
   test('entering invalid TOTP code shows error', async ({ page }) => {
@@ -177,15 +177,15 @@ test.describe('TOTP setup flow', () => {
     await page.locator('button.auth-submit').filter({ hasText: /verify/ }).click()
 
     // Recovery codes screen
-    await expect(page.getByText('RECOVERY CODES')).toBeVisible({ timeout: 5_000 })
-    await expect(page.getByText('save these codes in a secure location')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'RECOVERY CODES' })).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByText('Save these codes in a safe place')).toBeVisible()
 
     // Each recovery code should be listed
-    const codeItems = page.locator('.recovery-codes-item')
+    const codeItems = page.locator('.recovery-codes-list > span')
     await expect(codeItems).toHaveCount(fakeRecoveryCodes.length)
 
     for (const code of fakeRecoveryCodes) {
-      await expect(page.locator('.recovery-codes-item').filter({ hasText: code })).toBeVisible()
+      await expect(page.locator('.recovery-codes-list > span').filter({ hasText: code })).toBeVisible()
     }
   })
 
@@ -203,13 +203,13 @@ test.describe('TOTP setup flow', () => {
     await page.locator('button.auth-submit').filter({ hasText: '$ next' }).click()
     await page.locator('input.auth-input.totp-input').fill('123456')
     await page.locator('button.auth-submit').filter({ hasText: /verify/ }).click()
-    await expect(page.getByText('RECOVERY CODES')).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByRole('heading', { name: 'RECOVERY CODES' })).toBeVisible({ timeout: 5_000 })
 
     // Copy button should exist
-    await expect(page.locator('button.auth-submit').filter({ hasText: '$ copy codes' })).toBeVisible()
+    await expect(page.locator('button.auth-submit').filter({ hasText: '$ copy all' })).toBeVisible()
 
     // Download button should exist
-    await expect(page.locator('button.auth-submit.auth-submit-secondary').filter({ hasText: '$ download codes' })).toBeVisible()
+    await expect(page.locator('button.auth-submit.auth-submit-secondary').filter({ hasText: '$ download' })).toBeVisible()
   })
 
   test('acknowledging recovery codes completes setup flow', async ({ page }) => {
@@ -226,7 +226,7 @@ test.describe('TOTP setup flow', () => {
     await page.locator('button.auth-submit').filter({ hasText: '$ next' }).click()
     await page.locator('input.auth-input.totp-input').fill('123456')
     await page.locator('button.auth-submit').filter({ hasText: /verify/ }).click()
-    await expect(page.getByText('RECOVERY CODES')).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByRole('heading', { name: 'RECOVERY CODES' })).toBeVisible({ timeout: 5_000 })
 
     // Click "I've saved my codes" to complete
     await page.locator('button.auth-submit').filter({ hasText: /saved my codes/ }).click()

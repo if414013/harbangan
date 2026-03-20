@@ -5,6 +5,7 @@ import { createOpenAIClient, createAnthropicClient, DEFAULT_MODEL, GATEWAY_URL }
 
 test.describe('SDK Error Handling', () => {
   // No retries — error tests should fail deterministically
+  test.skip(!process.env.API_KEY, 'Requires API_KEY environment variable');
 
   test('invalid API key throws AuthenticationError (OpenAI)', async () => {
     const badClient = new OpenAI({

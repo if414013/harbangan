@@ -2,50 +2,36 @@ import { test, expect } from '@playwright/test'
 import { Card } from '../../helpers/selectors.js'
 import { navigateTo } from '../../helpers/navigation.js'
 
-test.describe('Dashboard page', () => {
-  test('renders section headers', async ({ page }) => {
-    await navigateTo(page, '/')
-
-    const headers = page.locator('h2.section-header')
-    await expect(headers.first()).toBeVisible()
-
-    // Dashboard has 5 section headers: SYSTEM (or YOUR USAGE), TRAFFIC, MODELS, ERRORS, LOGS
-    const headerTexts = await headers.allTextContents()
-    expect(headerTexts.length).toBeGreaterThanOrEqual(5)
-    expect(headerTexts.some(t => t.includes('TRAFFIC'))).toBe(true)
-    expect(headerTexts.some(t => t.includes('MODELS'))).toBe(true)
-    expect(headerTexts.some(t => t.includes('LOGS'))).toBe(true)
+test.describe('Index redirect', () => {
+  test('index redirects to profile page', async ({ page }) => {
+    await page.goto('./')
+    await page.waitForURL(/\/profile/, { timeout: 10_000 })
+    expect(page.url()).toContain('/profile')
   })
 
-  test('metrics grid shows metric cards', async ({ page }) => {
-    await navigateTo(page, '/')
+  test('profile page renders after index redirect', async ({ page }) => {
+    await page.goto('./')
+    await page.waitForURL(/\/profile/, { timeout: 10_000 })
 
-    const metricsGrid = page.locator('div.metrics-grid')
-    await expect(metricsGrid).toBeVisible()
-
-    // MetricCard uses 'metric-card' class, not 'card'
-    const cards = metricsGrid.locator('div.metric-card')
-    await expect(cards).toHaveCount(3)
+    await expect(page.locator('span.page-title')).toContainText('profile')
+    const accountTitle = page.locator(Card.title, { hasText: 'Account' })
+    await expect(accountTitle).toBeVisible()
   })
 
-  test('models section is visible', async ({ page }) => {
-    await navigateTo(page, '/')
+  test('API keys section visible after redirect', async ({ page }) => {
+    await page.goto('./')
+    await page.waitForURL(/\/profile/, { timeout: 10_000 })
 
-    const modelsHeader = page.locator('h2.section-header', { hasText: 'MODELS' })
-    await expect(modelsHeader).toBeVisible()
-
-    // Model stats card follows the MODELS header
-    const modelCard = page.locator(Card.title, { hasText: 'model stats' })
-    await expect(modelCard).toBeVisible()
+    const apiKeysHeader = page.locator('h2.section-header', { hasText: 'API KEYS' })
+    await expect(apiKeysHeader).toBeVisible()
   })
 
-  test('logs section is visible', async ({ page }) => {
-    await navigateTo(page, '/')
+  test('sidebar is accessible after redirect', async ({ page }) => {
+    await page.goto('./')
+    await page.waitForURL(/\/profile/, { timeout: 10_000 })
 
-    const logsHeader = page.locator('h2.section-header', { hasText: 'LOGS' })
-    await expect(logsHeader).toBeVisible()
-
-    const logCard = page.locator(Card.title, { hasText: 'live logs' })
-    await expect(logCard).toBeVisible()
+    await expect(page.locator('nav.sidebar')).toBeAttached()
+    const profileLink = page.locator('a.nav-link', { hasText: 'profile' })
+    await expect(profileLink).toHaveClass(/active/)
   })
 })

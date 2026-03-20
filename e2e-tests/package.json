@@ -9,6 +9,7 @@
     "test:ui:public": "npx playwright test --project=ui-public",
     "test:ui:auth": "npx playwright test --project=ui-authenticated",
     "test:ui:admin": "npx playwright test --project=ui-admin",
+    "test:setup-mode": "npx playwright test --config playwright.setup-mode.config.ts",
     "test:setup": "npx playwright codegen --ignore-https-errors --save-storage=.auth/session.json https://localhost/_ui/"
   },
   "dependencies": {

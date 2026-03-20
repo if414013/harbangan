@@ -4,7 +4,7 @@ import { navigateTo } from '../../helpers/navigation.js'
 
 test.describe('Navigation and layout', () => {
   test('layout renders sidebar, top-bar, and main content', async ({ page }) => {
-    await navigateTo(page, '/')
+    await navigateTo(page, '/profile')
 
     await expect(page.locator('nav.sidebar')).toBeAttached()
     await expect(page.locator('header.top-bar')).toBeVisible()
@@ -12,22 +12,22 @@ test.describe('Navigation and layout', () => {
   })
 
   test('sidebar nav links navigate and show active state', async ({ page }) => {
-    await navigateTo(page, '/')
+    await navigateTo(page, '/profile')
 
-    // Dashboard link should be active on index
-    const dashboardLink = page.locator(Nav.link, { hasText: 'dashboard' })
-    await expect(dashboardLink).toHaveClass(/active/)
-
-    // Click profile link
+    // Profile link should be active
     const profileLink = page.locator(Nav.link, { hasText: 'profile' })
-    await profileLink.click()
-    await page.waitForLoadState('networkidle')
     await expect(profileLink).toHaveClass(/active/)
-    expect(page.url()).toContain('/profile')
+
+    // Click providers link
+    const providersLink = page.locator(Nav.link, { hasText: 'providers' })
+    await providersLink.click()
+    await page.waitForLoadState('networkidle')
+    await expect(providersLink).toHaveClass(/active/)
+    expect(page.url()).toContain('/providers')
   })
 
   test('admin links are visible for admin user', async ({ page }) => {
-    await navigateTo(page, '/')
+    await navigateTo(page, '/profile')
 
     await expect(page.locator(Nav.link, { hasText: 'config' })).toBeVisible()
     await expect(page.locator(Nav.link, { hasText: 'guardrails' })).toBeVisible()
@@ -35,9 +35,6 @@ test.describe('Navigation and layout', () => {
   })
 
   test('page title updates per route', async ({ page }) => {
-    await navigateTo(page, '/')
-    await expect(page.locator('span.page-title')).toContainText('dashboard')
-
     await navigateTo(page, '/profile')
     await expect(page.locator('span.page-title')).toContainText('profile')
 
@@ -49,12 +46,16 @@ test.describe('Navigation and layout', () => {
 
     await navigateTo(page, '/guardrails')
     await expect(page.locator('span.page-title')).toContainText('guardrails')
+
+    await navigateTo(page, '/providers')
+    await expect(page.locator('span.page-title')).toContainText('providers')
   })
 
-  test('logout button is visible and clickable', async ({ page }) => {
-    await navigateTo(page, '/')
+  test('logout button exists and is clickable', async ({ page }) => {
+    await navigateTo(page, '/profile')
 
-    const logoutBtn = page.locator(Nav.logout)
+    const logoutBtn = page.locator('button.btn-logout', { hasText: '$ logout' })
+    await logoutBtn.scrollIntoViewIfNeeded()
     await expect(logoutBtn).toBeVisible()
     await expect(logoutBtn).toBeEnabled()
   })

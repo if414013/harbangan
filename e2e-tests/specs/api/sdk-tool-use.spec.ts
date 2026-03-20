@@ -30,6 +30,7 @@ const anthropicWeatherTool = {
 
 test.describe('Tool Use Acceptance', () => {
   test.describe.configure({ retries: 3 });
+  test.skip(!process.env.API_KEY, 'Requires API_KEY environment variable');
 
   test('accepts tools array (OpenAI SDK)', async () => {
     const client = createOpenAIClient();

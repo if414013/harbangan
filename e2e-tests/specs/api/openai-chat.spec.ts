@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('OpenAI chat completions (non-streaming)', () => {
+  test.skip(!process.env.API_KEY, 'Requires API_KEY environment variable');
+
   test('POST /v1/chat/completions returns valid response', async ({ request }) => {
     const response = await request.post('/v1/chat/completions', {
       data: {

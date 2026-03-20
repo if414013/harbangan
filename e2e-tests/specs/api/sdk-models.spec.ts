@@ -3,6 +3,7 @@ import { createOpenAIClient } from '../../helpers/sdk-clients';
 
 test.describe('Models via SDK + Alias Resolution', () => {
   test.describe.configure({ retries: 3 });
+  test.skip(!process.env.API_KEY, 'Requires API_KEY environment variable');
 
   const client = createOpenAIClient();
 

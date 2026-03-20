@@ -4,6 +4,7 @@ import { createOpenAIClient, createAnthropicClient, DEFAULT_MODEL } from '../../
 
 test.describe('Thinking/Reasoning Parameter Acceptance', () => {
   test.describe.configure({ retries: 3 });
+  test.skip(!process.env.API_KEY, 'Requires API_KEY environment variable');
 
   test('accepts reasoning_effort parameter (OpenAI)', async () => {
     const client = createOpenAIClient();

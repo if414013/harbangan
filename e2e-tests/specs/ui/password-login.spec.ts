@@ -80,7 +80,7 @@ test.describe('Password login page', () => {
     await expect(page.locator('input.auth-input.totp-input')).toHaveAttribute('placeholder', '000000')
 
     // Verify the recovery code toggle exists
-    await expect(page.locator('.auth-toggle-link')).toHaveText('use recovery code')
+    await expect(page.locator('.auth-toggle-link')).toHaveText('use recovery code instead')
 
     // Enter valid TOTP code and verify redirect
     const code = generateTotpCode(totpSecret, email)

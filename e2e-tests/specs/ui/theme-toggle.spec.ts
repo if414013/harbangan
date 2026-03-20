@@ -258,7 +258,7 @@ test.describe('Theme toggle – Light/Dark mode', () => {
     expect(lightVars.text).toBe('#1a2a1a')
     expect(lightVars.green).toBe('#16a34a')
     expect(lightVars.surface).toBe('#f0f0ec')
-    expect(lightVars.bgRaised).toBe('#ffffff')
+    expect(lightVars.bgRaised).toBe('#fff')
     expect(lightVars.border).toBe('#d5d5cf')
     expect(lightVars.cyan).toBe('#0891b2')
     expect(lightVars.red).toBe('#dc2626')

@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Anthropic messages (streaming)', () => {
+  test.skip(!process.env.API_KEY, 'Requires API_KEY environment variable');
+
   test('POST /v1/messages with stream:true returns SSE events', async ({ request }) => {
     const response = await request.post('/v1/messages', {
       headers: {

@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Models endpoint', () => {
+  test.skip(!process.env.API_KEY, 'Requires API_KEY environment variable');
+
   test('GET /v1/models returns model list', async ({ request }) => {
     const response = await request.get('/v1/models');
     expect(response.status()).toBe(200);

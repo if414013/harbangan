@@ -676,7 +676,9 @@ pub async fn session_middleware(
     // Try in-memory cache first
     if let Some(entry) = state.session_cache.get(&session_id) {
         if entry.expires_at > Utc::now() {
-            request.extensions_mut().insert(entry.value().clone());
+            let session_info = entry.value().clone();
+            drop(entry); // Release DashMap Ref before running handler to prevent deadlock with evict_user_caches
+            request.extensions_mut().insert(session_info);
             return Ok(next.run(request).await);
         } else {
             // Expired — evict

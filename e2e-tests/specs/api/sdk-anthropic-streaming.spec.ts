@@ -4,6 +4,7 @@ import { createAnthropicClient, DEFAULT_MODEL } from '../../helpers/sdk-clients'
 
 test.describe('Anthropic SDK Streaming', () => {
   test.describe.configure({ retries: 3 });
+  test.skip(!process.env.API_KEY, 'Requires API_KEY environment variable');
 
   const client = createAnthropicClient();
 

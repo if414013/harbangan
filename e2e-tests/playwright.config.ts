@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 require('dotenv').config({ path: '../.env' });
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:9999';
-const BASE_UI_URL = process.env.BASE_UI_URL || 'http://localhost:5173/_ui';
+const BASE_UI_URL = (process.env.BASE_UI_URL || 'http://localhost:5173/_ui').replace(/\/?$/, '/');
 const API_KEY = process.env.API_KEY || '';
 
 export default defineConfig({
@@ -45,11 +45,37 @@ export default defineConfig({
       },
     },
 
-    // ── UI: authenticated pages ──
+    // ── API: mutating endpoints (serial — one file, one test at a time) ──
+    {
+      name: 'api-mutating',
+      dependencies: ['api', 'ui-public', 'ui-authenticated'],
+      testDir: './specs/api',
+      testMatch: [
+        'api-keys.spec.ts',
+        'logout.spec.ts',
+        'domain-allowlist.spec.ts',
+        'user-management.spec.ts',
+        'guardrails.spec.ts',
+        'model-registry.spec.ts',
+        'provider-status.spec.ts',
+      ],
+      fullyParallel: false,
+      use: {
+        baseURL: GATEWAY_URL,
+        storageState: '.auth/session.json',
+      },
+    },
+
+    // ── UI: authenticated pages (read-only rendering, parallel) ──
     {
       name: 'ui-authenticated',
       testDir: './specs/ui',
-      testMatch: ['dashboard.spec.ts', 'profile.spec.ts', 'navigation.spec.ts', 'provider-oauth.spec.ts', 'copilot-setup.spec.ts', 'qwen-setup.spec.ts', 'totp-setup.spec.ts', 'password-change.spec.ts'],
+      testMatch: [
+        'dashboard.spec.ts', 'profile.spec.ts', 'navigation.spec.ts',
+        'provider-oauth.spec.ts', 'copilot-setup.spec.ts', 'qwen-setup.spec.ts',
+        'totp-setup.spec.ts', 'password-change.spec.ts',
+        'usage.spec.ts',
+      ],
       use: {
         baseURL: BASE_UI_URL,
         ignoreHTTPSErrors: true,
@@ -60,11 +86,17 @@ export default defineConfig({
       },
     },
 
-    // ── UI: admin pages ──
+    // ── UI: admin pages (serial — mutations on shared state) ──
     {
       name: 'ui-admin',
+      dependencies: ['api-mutating'],
       testDir: './specs/ui',
-      testMatch: ['config.spec.ts', 'admin.spec.ts', 'admin-users.spec.ts', 'guardrails.spec.ts', 'multi-account.spec.ts'],
+      testMatch: [
+        'config.spec.ts', 'admin.spec.ts', 'admin-users.spec.ts',
+        'guardrails.spec.ts', 'multi-account.spec.ts',
+        'user-detail.spec.ts', 'logout-redirect.spec.ts', 'profile-actions.spec.ts',
+      ],
+      fullyParallel: false,
       use: {
         baseURL: BASE_UI_URL,
         ignoreHTTPSErrors: true,

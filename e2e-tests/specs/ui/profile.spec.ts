@@ -1,82 +1,50 @@
 import { test, expect } from '@playwright/test'
-import { Card, Status } from '../../helpers/selectors.js'
+import { Card } from '../../helpers/selectors.js'
 import { navigateTo } from '../../helpers/navigation.js'
 
 test.describe('Profile page', () => {
-  test('renders user info with name and email', async ({ page }) => {
+  test('renders Account card with user info', async ({ page }) => {
     await navigateTo(page, '/profile')
 
-    // Account card header
-    const accountTitle = page.locator(Card.title, { hasText: 'account' })
+    const accountTitle = page.locator(Card.title, { hasText: 'Account' })
     await expect(accountTitle).toBeVisible()
-
-    // Profile section header
-    const profileHeader = page.locator('h2.section-header', { hasText: 'PROFILE' })
-    await expect(profileHeader).toBeVisible()
   })
 
-  test('kiro connection card renders with status badge', async ({ page }) => {
+  test('displays user role badge', async ({ page }) => {
     await navigateTo(page, '/profile')
 
-    // Kiro token section header
-    const kiroHeader = page.locator('h2.section-header', { hasText: 'KIRO TOKEN' })
-    await expect(kiroHeader).toBeVisible()
-
-    // Kiro connection card
-    const kiroTitle = page.locator(Card.title, { hasText: 'kiro connection' })
-    await expect(kiroTitle).toBeVisible()
-
-    // Status badge should be one of: tag-ok (CONNECTED), tag-warn (EXPIRED), tag-err (NOT CONNECTED)
-    const statusBadge = page.locator(`${Status.ok}, ${Status.warn}, ${Status.err}`).first()
-    await expect(statusBadge).toBeVisible()
+    // Role badge next to account title (admin or user)
+    const card = page.locator('div.card').first()
+    const roleBadge = card.locator('.card-header span').last()
+    await expect(roleBadge).toBeVisible()
   })
 
   test('API keys section renders', async ({ page }) => {
     await navigateTo(page, '/profile')
 
-    // API Keys section header
     const apiKeysHeader = page.locator('h2.section-header', { hasText: 'API KEYS' })
     await expect(apiKeysHeader).toBeVisible()
-
-    // API keys card
-    const apiKeysTitle = page.locator(Card.title, { hasText: 'api keys' })
-    await expect(apiKeysTitle).toBeVisible()
   })
 
-  test('GITHUB COPILOT section renders with status badge', async ({ page }) => {
+  test('SECURITY section renders when auth is enabled', async ({ page }) => {
     await navigateTo(page, '/profile')
 
-    const copilotHeader = page.locator('h2.section-header', { hasText: 'GITHUB COPILOT' })
-    await expect(copilotHeader).toBeVisible()
-
-    const copilotTitle = page.locator(Card.title, { hasText: 'github copilot' })
-    await expect(copilotTitle).toBeVisible()
-
-    // Status badge should be one of: tag-ok (CONNECTED), tag-warn (EXPIRED), tag-err (NOT CONNECTED)
-    const copilotSection = copilotHeader.locator('~ div').first()
-    const statusBadge = copilotSection.locator(`${Status.ok}, ${Status.warn}, ${Status.err}`).first()
-    await expect(statusBadge).toBeVisible()
+    // SECURITY section is conditional on auth methods being enabled
+    // In test env, password auth is enabled so SECURITY should show
+    const securityHeader = page.locator('h2.section-header', { hasText: 'SECURITY' })
+    await expect(securityHeader).toBeVisible({ timeout: 10_000 })
   })
 
-  test('QWEN CODER section renders with status badge', async ({ page }) => {
+  test('page title shows profile', async ({ page }) => {
     await navigateTo(page, '/profile')
 
-    const qwenHeader = page.locator('h2.section-header', { hasText: 'QWEN CODER' })
-    await expect(qwenHeader).toBeVisible()
-
-    const qwenTitle = page.locator(Card.title, { hasText: 'qwen coder' })
-    await expect(qwenTitle).toBeVisible()
-
-    // Status badge should be one of: tag-ok (CONNECTED), tag-warn (EXPIRED), tag-err (NOT CONNECTED)
-    const qwenSection = qwenHeader.locator('~ div').first()
-    const statusBadge = qwenSection.locator(`${Status.ok}, ${Status.warn}, ${Status.err}`).first()
-    await expect(statusBadge).toBeVisible()
+    await expect(page.locator('span.page-title')).toContainText('profile')
   })
 
-  test('PROVIDERS section renders', async ({ page }) => {
+  test('sidebar profile link is active', async ({ page }) => {
     await navigateTo(page, '/profile')
 
-    const providersHeader = page.locator('h2.section-header', { hasText: 'PROVIDERS' })
-    await expect(providersHeader).toBeVisible()
+    const profileLink = page.locator('a.nav-link', { hasText: 'profile' })
+    await expect(profileLink).toHaveClass(/active/)
   })
 })

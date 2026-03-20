@@ -11,5 +11,5 @@
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["specs/**/*.ts", "helpers/**/*.ts", "global-setup.ts", "playwright.config.ts"]
+  "include": ["specs/**/*.ts", "helpers/**/*.ts", "global-setup.ts", "playwright.config.ts", "playwright.setup-mode.config.ts"]
 }
