@@ -548,9 +548,7 @@ pub async fn populate_provider(
             }
         }
         "openai_codex" => {
-            if let Some((api_key, base_url)) =
-                get_admin_pool_credential(db, "openai_codex").await
-            {
+            if let Some((api_key, base_url)) = get_admin_pool_credential(db, "openai_codex").await {
                 let base = base_url.as_deref().unwrap_or("https://api.openai.com");
                 fetch_openai_compatible_models(http_client, "openai_codex", base, &api_key)
                     .await
@@ -613,7 +611,9 @@ pub async fn populate_provider_with_key(
     http_client: &crate::http_client::KiroHttpClient,
 ) -> Result<usize> {
     let api_models = match provider_id {
-        "anthropic" => fetch_anthropic_models(http_client, api_key, None).await.ok(),
+        "anthropic" => fetch_anthropic_models(http_client, api_key, None)
+            .await
+            .ok(),
         "openai_codex" => fetch_openai_compatible_models(
             http_client,
             "openai_codex",
