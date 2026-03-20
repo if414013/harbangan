@@ -17,7 +17,7 @@
     "test:e2e:report": "cd ../e2e-tests && npx playwright show-report"
   },
   "dependencies": {
-    "@datadog/browser-rum": "^6.28.1",
+    "@datadog/browser-rum": "^6.31.0",
     "@datadog/browser-rum-react": "^6.28.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
