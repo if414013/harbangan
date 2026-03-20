@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -5,262 +6,12 @@ use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::providers::types::ProviderId;
 use crate::web_ui::config_db::{ConfigDb, RegistryModel};
-
-/// A static model definition before it gets a UUID and timestamps.
-struct StaticModel {
-    model_id: &'static str,
-    display_name: &'static str,
-    context_length: i32,
-    max_output_tokens: i32,
-    capabilities: serde_json::Value,
-}
 
 /// Generate a prefixed ID from provider and model: `{provider}/{model_id}`.
 pub fn generate_prefixed_id(provider_id: &str, model_id: &str) -> String {
     format!("{provider_id}/{model_id}")
-}
-
-/// Convert static definitions into `RegistryModel` instances for a given provider.
-fn static_to_registry(provider_id: &str, models: Vec<StaticModel>) -> Vec<RegistryModel> {
-    let now = Utc::now();
-    models
-        .into_iter()
-        .map(|m| RegistryModel {
-            id: Uuid::new_v4(),
-            provider_id: provider_id.to_string(),
-            model_id: m.model_id.to_string(),
-            display_name: m.display_name.to_string(),
-            prefixed_id: generate_prefixed_id(provider_id, m.model_id),
-            context_length: m.context_length,
-            max_output_tokens: m.max_output_tokens,
-            capabilities: m.capabilities,
-            enabled: false,
-            source: "static".to_string(),
-            upstream_meta: None,
-            created_at: now,
-            updated_at: now,
-        })
-        .collect()
-}
-
-/// Static Anthropic (Claude) model definitions.
-pub fn anthropic_static_models() -> Vec<RegistryModel> {
-    static_to_registry(
-        "anthropic",
-        vec![
-            StaticModel {
-                model_id: "claude-opus-4-6",
-                display_name: "Claude 4.6 Opus",
-                context_length: 1_000_000,
-                max_output_tokens: 128_000,
-                capabilities: json!({"thinking": true, "vision": true}),
-            },
-            StaticModel {
-                model_id: "claude-sonnet-4-6",
-                display_name: "Claude 4.6 Sonnet",
-                context_length: 200_000,
-                max_output_tokens: 64_000,
-                capabilities: json!({"thinking": true, "vision": true}),
-            },
-            StaticModel {
-                model_id: "claude-haiku-4-5-20251001",
-                display_name: "Claude 4.5 Haiku",
-                context_length: 200_000,
-                max_output_tokens: 64_000,
-                capabilities: json!({"thinking": true, "vision": true}),
-            },
-            StaticModel {
-                model_id: "claude-sonnet-4-5-20250929",
-                display_name: "Claude 4.5 Sonnet",
-                context_length: 200_000,
-                max_output_tokens: 64_000,
-                capabilities: json!({"thinking": true, "vision": true}),
-            },
-            StaticModel {
-                model_id: "claude-opus-4-5-20251101",
-                display_name: "Claude 4.5 Opus",
-                context_length: 200_000,
-                max_output_tokens: 64_000,
-                capabilities: json!({"thinking": true, "vision": true}),
-            },
-            StaticModel {
-                model_id: "claude-opus-4-1-20250805",
-                display_name: "Claude 4.1 Opus",
-                context_length: 200_000,
-                max_output_tokens: 32_000,
-                capabilities: json!({"thinking": true, "vision": true}),
-            },
-            StaticModel {
-                model_id: "claude-opus-4-20250514",
-                display_name: "Claude 4 Opus",
-                context_length: 200_000,
-                max_output_tokens: 32_000,
-                capabilities: json!({"thinking": true, "vision": true}),
-            },
-            StaticModel {
-                model_id: "claude-sonnet-4-20250514",
-                display_name: "Claude 4 Sonnet",
-                context_length: 200_000,
-                max_output_tokens: 64_000,
-                capabilities: json!({"thinking": true, "vision": true}),
-            },
-            StaticModel {
-                model_id: "claude-3-7-sonnet-20250219",
-                display_name: "Claude 3.7 Sonnet",
-                context_length: 128_000,
-                max_output_tokens: 8_192,
-                capabilities: json!({"thinking": true, "vision": true}),
-            },
-            StaticModel {
-                model_id: "claude-3-5-haiku-20241022",
-                display_name: "Claude 3.5 Haiku",
-                context_length: 128_000,
-                max_output_tokens: 8_192,
-                capabilities: json!({"vision": true}),
-            },
-        ],
-    )
-}
-
-/// Static OpenAI Codex model definitions.
-pub fn openai_codex_static_models() -> Vec<RegistryModel> {
-    static_to_registry(
-        "openai_codex",
-        vec![
-            StaticModel {
-                model_id: "gpt-5.4",
-                display_name: "GPT 5.4",
-                context_length: 1_050_000,
-                max_output_tokens: 128_000,
-                capabilities: json!({"thinking": true, "tools": true}),
-            },
-            StaticModel {
-                model_id: "gpt-5.3-codex",
-                display_name: "GPT 5.3 Codex",
-                context_length: 400_000,
-                max_output_tokens: 128_000,
-                capabilities: json!({"thinking": true, "tools": true}),
-            },
-            StaticModel {
-                model_id: "gpt-5.3-codex-spark",
-                display_name: "GPT 5.3 Codex Spark",
-                context_length: 128_000,
-                max_output_tokens: 128_000,
-                capabilities: json!({"thinking": true, "tools": true}),
-            },
-            StaticModel {
-                model_id: "gpt-5.2",
-                display_name: "GPT 5.2",
-                context_length: 400_000,
-                max_output_tokens: 128_000,
-                capabilities: json!({"thinking": true, "tools": true}),
-            },
-            StaticModel {
-                model_id: "gpt-5.2-codex",
-                display_name: "GPT 5.2 Codex",
-                context_length: 400_000,
-                max_output_tokens: 128_000,
-                capabilities: json!({"thinking": true, "tools": true}),
-            },
-            StaticModel {
-                model_id: "gpt-5.1",
-                display_name: "GPT 5.1",
-                context_length: 400_000,
-                max_output_tokens: 128_000,
-                capabilities: json!({"thinking": true, "tools": true}),
-            },
-            StaticModel {
-                model_id: "gpt-5.1-codex",
-                display_name: "GPT 5.1 Codex",
-                context_length: 400_000,
-                max_output_tokens: 128_000,
-                capabilities: json!({"thinking": true, "tools": true}),
-            },
-            StaticModel {
-                model_id: "gpt-5.1-codex-mini",
-                display_name: "GPT 5.1 Codex Mini",
-                context_length: 400_000,
-                max_output_tokens: 128_000,
-                capabilities: json!({"thinking": true, "tools": true}),
-            },
-            StaticModel {
-                model_id: "gpt-5.1-codex-max",
-                display_name: "GPT 5.1 Codex Max",
-                context_length: 400_000,
-                max_output_tokens: 128_000,
-                capabilities: json!({"thinking": true, "tools": true}),
-            },
-            StaticModel {
-                model_id: "gpt-5",
-                display_name: "GPT 5",
-                context_length: 400_000,
-                max_output_tokens: 128_000,
-                capabilities: json!({"thinking": true, "tools": true}),
-            },
-            StaticModel {
-                model_id: "gpt-5-codex",
-                display_name: "GPT 5 Codex",
-                context_length: 400_000,
-                max_output_tokens: 128_000,
-                capabilities: json!({"thinking": true, "tools": true}),
-            },
-            StaticModel {
-                model_id: "gpt-5-codex-mini",
-                display_name: "GPT 5 Codex Mini",
-                context_length: 400_000,
-                max_output_tokens: 128_000,
-                capabilities: json!({"thinking": true, "tools": true}),
-            },
-        ],
-    )
-}
-
-/// Static Qwen model definitions.
-pub fn qwen_static_models() -> Vec<RegistryModel> {
-    static_to_registry(
-        "qwen",
-        vec![
-            StaticModel {
-                model_id: "coder-model",
-                display_name: "Qwen 3.5 Plus",
-                context_length: 1_048_576,
-                max_output_tokens: 65_536,
-                capabilities: json!({}),
-            },
-            StaticModel {
-                model_id: "qwen3-coder-plus",
-                display_name: "Qwen3 Coder Plus",
-                context_length: 32_768,
-                max_output_tokens: 8_192,
-                capabilities: json!({}),
-            },
-            StaticModel {
-                model_id: "qwen3-coder-flash",
-                display_name: "Qwen3 Coder Flash",
-                context_length: 8_192,
-                max_output_tokens: 2_048,
-                capabilities: json!({}),
-            },
-            StaticModel {
-                model_id: "vision-model",
-                display_name: "Qwen3 Vision Model",
-                context_length: 32_768,
-                max_output_tokens: 2_048,
-                capabilities: json!({"vision": true}),
-            },
-        ],
-    )
-}
-
-/// Get all static models across all providers.
-#[allow(dead_code)]
-pub fn all_static_models() -> Vec<RegistryModel> {
-    let mut models = Vec::new();
-    models.extend(anthropic_static_models());
-    models.extend(openai_codex_static_models());
-    models.extend(qwen_static_models());
-    models
 }
 
 // ── Dynamic Model Fetching ───────────────────────────────────
@@ -529,16 +280,20 @@ pub async fn populate_provider(
     http_client: &crate::http_client::KiroHttpClient,
     auth_manager: Option<&crate::auth::AuthManager>,
 ) -> Result<usize> {
-    let api_models = match provider_id {
-        "kiro" => {
+    let pid = ProviderId::from_str(provider_id)
+        .map_err(|e| anyhow::anyhow!(e))
+        .context("Invalid provider_id")?;
+
+    let api_models = match pid {
+        ProviderId::Kiro => {
             if let Some(am) = auth_manager {
                 fetch_kiro_models(http_client, am).await.ok()
             } else {
                 None
             }
         }
-        "copilot" => fetch_copilot_models(http_client, db).await.ok(),
-        "anthropic" => {
+        ProviderId::Copilot => fetch_copilot_models(http_client, db).await.ok(),
+        ProviderId::Anthropic => {
             if let Some((api_key, base_url)) = get_admin_pool_credential(db, "anthropic").await {
                 fetch_anthropic_models(http_client, &api_key, base_url.as_deref())
                     .await
@@ -547,9 +302,12 @@ pub async fn populate_provider(
                 None
             }
         }
-        "openai_codex" => {
+        ProviderId::OpenAICodex => {
             if let Some((api_key, base_url)) = get_admin_pool_credential(db, "openai_codex").await {
-                let base = base_url.as_deref().unwrap_or("https://api.openai.com");
+                let base = base_url
+                    .as_deref()
+                    .or(pid.default_base_url())
+                    .unwrap_or("https://api.openai.com");
                 fetch_openai_compatible_models(http_client, "openai_codex", base, &api_key)
                     .await
                     .ok()
@@ -557,9 +315,12 @@ pub async fn populate_provider(
                 None
             }
         }
-        "qwen" => {
+        ProviderId::Qwen => {
             if let Some((api_key, base_url)) = get_admin_pool_credential(db, "qwen").await {
-                let base = base_url.as_deref().unwrap_or("https://chat.qwen.ai/api");
+                let base = base_url
+                    .as_deref()
+                    .or(pid.default_base_url())
+                    .unwrap_or("https://dashscope-intl.aliyuncs.com/compatible-mode");
                 fetch_openai_compatible_models(http_client, "qwen", base, &api_key)
                     .await
                     .ok()
@@ -567,36 +328,23 @@ pub async fn populate_provider(
                 None
             }
         }
-        _ => None,
+        ProviderId::Custom => None,
     };
 
-    let models = if let Some(api) = api_models {
-        if api.is_empty() {
-            tracing::debug!(
-                provider = provider_id,
-                "API returned no models, using static fallback"
-            );
-            get_static_for_provider(provider_id)
-        } else {
-            tracing::info!(
-                provider = provider_id,
-                count = api.len(),
-                "Fetched models from API"
-            );
-            api
-        }
-    } else {
-        tracing::debug!(
+    // Keep-last-successful: if API returns empty or fails, preserve existing registry rows
+    let Some(models) = api_models.filter(|m| !m.is_empty()) else {
+        tracing::warn!(
             provider = provider_id,
-            "No API available, using static models"
+            "API returned no models, keeping existing registry"
         );
-        get_static_for_provider(provider_id)
+        return Ok(0);
     };
 
-    if models.is_empty() {
-        return Ok(0);
-    }
-
+    tracing::info!(
+        provider = provider_id,
+        count = models.len(),
+        "Fetched models from API"
+    );
     let count = db.bulk_upsert_registry_models(&models).await?;
     tracing::info!(provider = provider_id, count, "Populated model registry");
     Ok(count)
@@ -610,52 +358,39 @@ pub async fn populate_provider_with_key(
     db: &Arc<ConfigDb>,
     http_client: &crate::http_client::KiroHttpClient,
 ) -> Result<usize> {
-    let api_models = match provider_id {
-        "anthropic" => fetch_anthropic_models(http_client, api_key, None)
+    let pid = ProviderId::from_str(provider_id)
+        .map_err(|e| anyhow::anyhow!(e))
+        .context("Invalid provider_id")?;
+
+    let api_models = match pid {
+        ProviderId::Anthropic => fetch_anthropic_models(http_client, api_key, None)
             .await
             .ok(),
-        "openai_codex" => fetch_openai_compatible_models(
-            http_client,
-            "openai_codex",
-            "https://api.openai.com",
-            api_key,
-        )
-        .await
-        .ok(),
+        ProviderId::OpenAICodex => {
+            let base = pid.default_base_url().unwrap_or("https://api.openai.com");
+            fetch_openai_compatible_models(http_client, "openai_codex", base, api_key)
+                .await
+                .ok()
+        }
         _ => None,
     };
 
-    let models = if let Some(api) = api_models {
-        if api.is_empty() {
-            get_static_for_provider(provider_id)
-        } else {
-            tracing::info!(
-                provider = provider_id,
-                count = api.len(),
-                "Fetched models from API with key"
-            );
-            api
-        }
-    } else {
-        get_static_for_provider(provider_id)
+    // Keep-last-successful: don't overwrite registry on failure/empty
+    let Some(models) = api_models.filter(|m| !m.is_empty()) else {
+        tracing::warn!(
+            provider = provider_id,
+            "API returned no models with key, keeping existing registry"
+        );
+        return Ok(0);
     };
 
-    if models.is_empty() {
-        return Ok(0);
-    }
-
+    tracing::info!(
+        provider = provider_id,
+        count = models.len(),
+        "Fetched models from API with key"
+    );
     let count = db.bulk_upsert_registry_models(&models).await?;
     Ok(count)
-}
-
-/// Get static models for a specific provider.
-fn get_static_for_provider(provider_id: &str) -> Vec<RegistryModel> {
-    match provider_id {
-        "anthropic" => anthropic_static_models(),
-        "openai_codex" => openai_codex_static_models(),
-        "qwen" => qwen_static_models(),
-        _ => Vec::new(), // kiro, copilot have no static fallback
-    }
 }
 
 #[cfg(test)]
@@ -672,57 +407,6 @@ mod tests {
             generate_prefixed_id("openai_codex", "gpt-5.4"),
             "openai_codex/gpt-5.4"
         );
-    }
-
-    #[test]
-    fn test_anthropic_static_models_not_empty() {
-        let models = anthropic_static_models();
-        assert!(!models.is_empty());
-        assert!(models.len() >= 10);
-        for m in &models {
-            assert_eq!(m.provider_id, "anthropic");
-            assert_eq!(m.source, "static");
-            assert!(!m.enabled);
-            assert!(m.prefixed_id.starts_with("anthropic/"));
-        }
-    }
-
-    #[test]
-    fn test_openai_codex_static_models_not_empty() {
-        let models = openai_codex_static_models();
-        assert!(!models.is_empty());
-        for m in &models {
-            assert_eq!(m.provider_id, "openai_codex");
-            assert!(m.prefixed_id.starts_with("openai_codex/"));
-        }
-    }
-
-    #[test]
-    fn test_qwen_static_models_not_empty() {
-        let models = qwen_static_models();
-        assert!(!models.is_empty());
-        for m in &models {
-            assert_eq!(m.provider_id, "qwen");
-            assert!(m.prefixed_id.starts_with("qwen/"));
-        }
-    }
-
-    #[test]
-    fn test_all_static_models_aggregates() {
-        let all = all_static_models();
-        let anthropic_count = anthropic_static_models().len();
-        let openai_count = openai_codex_static_models().len();
-        let qwen_count = qwen_static_models().len();
-        assert_eq!(all.len(), anthropic_count + openai_count + qwen_count);
-    }
-
-    #[test]
-    fn test_prefixed_ids_unique() {
-        let all = all_static_models();
-        let mut ids: Vec<&str> = all.iter().map(|m| m.prefixed_id.as_str()).collect();
-        ids.sort();
-        ids.dedup();
-        assert_eq!(ids.len(), all.len(), "prefixed_ids must be unique");
     }
 
     #[test]
@@ -768,60 +452,6 @@ mod tests {
         });
         let models = parse_openai_models_response("openai_codex", &json);
         assert_eq!(models.len(), 2);
-    }
-
-    #[test]
-    fn test_get_static_for_provider_known() {
-        assert!(!get_static_for_provider("anthropic").is_empty());
-        assert!(!get_static_for_provider("openai_codex").is_empty());
-        assert!(!get_static_for_provider("qwen").is_empty());
-    }
-
-    #[test]
-    fn test_get_static_for_provider_unknown() {
-        assert!(get_static_for_provider("kiro").is_empty());
-        assert!(get_static_for_provider("copilot").is_empty());
-        assert!(get_static_for_provider("gemini").is_empty());
-        assert!(get_static_for_provider("nonexistent").is_empty());
-    }
-
-    #[test]
-    fn test_static_models_have_valid_context_lengths() {
-        for m in all_static_models() {
-            assert!(
-                m.context_length > 0,
-                "{}/{} has zero context_length",
-                m.provider_id,
-                m.model_id
-            );
-            assert!(
-                m.max_output_tokens > 0,
-                "{}/{} has zero max_output_tokens",
-                m.provider_id,
-                m.model_id
-            );
-        }
-    }
-
-    #[test]
-    fn test_static_models_model_ids_match_known_patterns() {
-        let anthropic = anthropic_static_models();
-        for m in &anthropic {
-            assert!(
-                m.model_id.starts_with("claude-"),
-                "Anthropic model_id should start with claude-: {}",
-                m.model_id
-            );
-        }
-
-        let openai = openai_codex_static_models();
-        for m in &openai {
-            assert!(
-                m.model_id.starts_with("gpt-"),
-                "OpenAI model_id should start with gpt-: {}",
-                m.model_id
-            );
-        }
     }
 
     #[test]

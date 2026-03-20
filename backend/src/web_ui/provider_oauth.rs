@@ -125,7 +125,7 @@ fn get_provider_config(
 
 /// Validate that a provider path param is a known oauth_relay provider.
 fn validate_provider(provider: &str) -> Result<(), ApiError> {
-    let pid = ProviderId::from_str(provider).map_err(|e| ApiError::ValidationError(e))?;
+    let pid = ProviderId::from_str(provider).map_err(ApiError::ValidationError)?;
     if pid.category() != "oauth_relay" {
         return Err(ApiError::ValidationError(format!(
             "Provider '{}' does not support OAuth relay connection",

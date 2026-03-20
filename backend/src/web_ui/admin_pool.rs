@@ -96,8 +96,7 @@ async fn add_pool_account(
         .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("No database configured")))?;
 
     // Validate provider_id via enum
-    let pid =
-        ProviderId::from_str(&payload.provider_id).map_err(|e| ApiError::ValidationError(e))?;
+    let pid = ProviderId::from_str(&payload.provider_id).map_err(ApiError::ValidationError)?;
     if !pid.supports_pool() {
         return Err(ApiError::ValidationError(format!(
             "Provider '{}' does not support pool accounts",
