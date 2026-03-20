@@ -2,10 +2,8 @@
 ///
 /// Forwards requests to a configurable base_url. Auth is optional (Bearer token
 /// only sent when access_token is non-empty). Useful for Ollama, vLLM, LiteLLM, etc.
-use std::pin::Pin;
-
 use async_trait::async_trait;
-use futures::stream::{Stream, StreamExt};
+use futures::stream::StreamExt;
 use serde_json::{json, Value};
 
 use crate::providers::anthropic_to_openai_body;
@@ -15,7 +13,9 @@ use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::ChatCompletionRequest;
 use crate::providers::openai_codex::openai_response_to_anthropic;
 use crate::providers::traits::Provider;
-use crate::providers::types::{ProviderContext, ProviderId, ProviderResponse, ProviderStreamItem};
+use crate::providers::types::{
+    ProviderContext, ProviderId, ProviderResponse, ProviderStreamResponse,
+};
 use crate::streaming::sse::parse_sse_stream;
 
 pub struct CustomProvider {
@@ -72,11 +72,13 @@ impl CustomProvider {
 
         let status = response.status().as_u16();
         if !response.status().is_success() {
+            let resp_headers = response.headers().clone();
             let error_text = response.text().await.unwrap_or_default();
             return Err(ApiError::ProviderApiError {
                 provider: "custom".to_string(),
                 status,
                 message: error_text,
+                headers: Some(resp_headers),
             });
         }
 
@@ -127,14 +129,18 @@ impl Provider for CustomProvider {
         &self,
         ctx: &ProviderContext<'_>,
         req: &ChatCompletionRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>, ApiError> {
+    ) -> Result<ProviderStreamResponse, ApiError> {
         let body = serde_json::to_value(req)
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Serialization failed: {}", e)))?;
         let response = self.send_request(ctx, body, true).await?;
+        let headers = response.headers().clone();
         let stream = response.bytes_stream().map(|chunk| {
             chunk.map_err(|e| ApiError::Internal(anyhow::anyhow!("Stream error: {}", e)))
         });
-        Ok(Box::pin(stream))
+        Ok(ProviderStreamResponse {
+            headers,
+            stream: Box::pin(stream),
+        })
     }
 
     async fn execute_anthropic(
@@ -163,12 +169,15 @@ impl Provider for CustomProvider {
         &self,
         ctx: &ProviderContext<'_>,
         req: &AnthropicMessagesRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>, ApiError> {
+    ) -> Result<ProviderStreamResponse, ApiError> {
         let body = anthropic_to_openai_body(req);
         let response = self.send_request(ctx, body, true).await?;
+        let headers = response.headers().clone();
         let byte_stream = response.bytes_stream();
         let sse_values = parse_sse_stream(byte_stream);
-        Ok(crate::streaming::cross_format::wrap_openai_stream_as_anthropic(sse_values, &req.model))
+        let stream =
+            crate::streaming::cross_format::wrap_openai_stream_as_anthropic(sse_values, &req.model);
+        Ok(ProviderStreamResponse { headers, stream })
     }
 
     fn normalize_response_for_anthropic(&self, model: &str, body: Value) -> Value {
@@ -545,6 +554,7 @@ mod tests {
                 provider,
                 status,
                 message,
+                ..
             } => {
                 assert_eq!(provider, "custom");
                 assert_eq!(status, 401);

@@ -13,7 +13,7 @@ use crate::providers::types::{ProviderContext, ProviderId};
 
 use super::pipeline::{
     build_kiro_credentials, build_request_context_anthropic, extract_assistant_content_anthropic,
-    extract_last_user_message_anthropic, read_config, resolve_provider_routing,
+    extract_last_user_message_anthropic, parse_retry_after, read_config, resolve_provider_routing,
     run_input_guardrail_check, run_output_guardrail_check, update_rate_limits,
 };
 use super::state::{AppState, UserKiroCreds};
@@ -79,7 +79,7 @@ pub(crate) async fn anthropic_messages_handler(
         request.model = model_id.clone();
     }
 
-    let provider = state.providers.get(&routing.provider_id).ok_or_else(|| {
+    let mut provider = state.providers.get(&routing.provider_id).ok_or_else(|| {
         ApiError::Internal(anyhow::anyhow!(
             "Provider {:?} not registered",
             routing.provider_id
@@ -139,9 +139,18 @@ pub(crate) async fn anthropic_messages_handler(
             };
 
             match provider.stream_anthropic(&ctx, &request).await {
-                Ok(stream) => {
-                    let byte_stream =
-                        stream.map(|r| r.map_err(|e| std::io::Error::other(e.to_string())));
+                Ok(stream_resp) => {
+                    // Update rate limits from streaming response headers
+                    update_rate_limits(
+                        &state.rate_tracker,
+                        &routing.account_id,
+                        &routing.provider_id,
+                        &stream_resp.headers,
+                    );
+
+                    let byte_stream = stream_resp
+                        .stream
+                        .map(|r| r.map_err(|e| std::io::Error::other(e.to_string())));
 
                     let response = Response::builder()
                         .status(200)
@@ -156,16 +165,20 @@ pub(crate) async fn anthropic_messages_handler(
                     DEBUG_LOGGER.discard_buffers().await;
                     return Ok(response);
                 }
-                Err(ApiError::ProviderApiError { status: 429, .. })
-                    if attempt < MAX_ATTEMPTS - 1 =>
-                {
+                Err(ApiError::ProviderApiError {
+                    status: 429,
+                    ref headers,
+                    ..
+                }) if attempt < MAX_ATTEMPTS - 1 => {
+                    let retry_after = headers.as_ref().and_then(parse_retry_after);
                     if let Some(ref aid) = routing.account_id {
                         tracing::info!(
                             attempt,
                             account_label = %aid.account_label,
+                            retry_after_secs = ?retry_after.map(|d| d.as_secs()),
                             "Rate limited, retrying with different account"
                         );
-                        state.rate_tracker.mark_limited(aid, None);
+                        state.rate_tracker.mark_limited(aid, retry_after);
                     }
                     routing =
                         resolve_provider_routing(&state, user_creds.as_ref(), &request.model).await;
@@ -174,6 +187,12 @@ pub(crate) async fn anthropic_messages_handler(
                     } else {
                         break;
                     }
+                    provider = state.providers.get(&routing.provider_id).ok_or_else(|| {
+                        ApiError::Internal(anyhow::anyhow!(
+                            "Provider {:?} not registered",
+                            routing.provider_id
+                        ))
+                    })?;
                 }
                 Err(e) => {
                     last_error = Some(e);
@@ -251,16 +270,20 @@ pub(crate) async fn anthropic_messages_handler(
                     DEBUG_LOGGER.discard_buffers().await;
                     return Ok(Json(body).into_response());
                 }
-                Err(ApiError::ProviderApiError { status: 429, .. })
-                    if attempt < MAX_ATTEMPTS - 1 =>
-                {
+                Err(ApiError::ProviderApiError {
+                    status: 429,
+                    ref headers,
+                    ..
+                }) if attempt < MAX_ATTEMPTS - 1 => {
+                    let retry_after = headers.as_ref().and_then(parse_retry_after);
                     if let Some(ref aid) = routing.account_id {
                         tracing::info!(
                             attempt,
                             account_label = %aid.account_label,
+                            retry_after_secs = ?retry_after.map(|d| d.as_secs()),
                             "Rate limited, retrying with different account"
                         );
-                        state.rate_tracker.mark_limited(aid, None);
+                        state.rate_tracker.mark_limited(aid, retry_after);
                     }
                     routing =
                         resolve_provider_routing(&state, user_creds.as_ref(), &request.model).await;
@@ -269,6 +292,12 @@ pub(crate) async fn anthropic_messages_handler(
                     } else {
                         break;
                     }
+                    provider = state.providers.get(&routing.provider_id).ok_or_else(|| {
+                        ApiError::Internal(anyhow::anyhow!(
+                            "Provider {:?} not registered",
+                            routing.provider_id
+                        ))
+                    })?;
                 }
                 Err(e) => {
                     last_error = Some(e);

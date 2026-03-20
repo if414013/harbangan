@@ -2,10 +2,8 @@
 ///
 /// Handles both OpenAI-format requests (pass-through) and Anthropic-format requests
 /// (converted to OpenAI format before forwarding).
-use std::pin::Pin;
-
 use async_trait::async_trait;
-use futures::stream::{Stream, StreamExt};
+use futures::stream::StreamExt;
 use serde_json::{json, Value};
 
 use crate::error::ApiError;
@@ -13,7 +11,9 @@ use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::ChatCompletionRequest;
 use crate::providers::anthropic_to_openai_body;
 use crate::providers::traits::Provider;
-use crate::providers::types::{ProviderContext, ProviderId, ProviderResponse, ProviderStreamItem};
+use crate::providers::types::{
+    ProviderContext, ProviderId, ProviderResponse, ProviderStreamResponse,
+};
 use crate::streaming::sse::parse_sse_stream;
 
 const OPENAI_API_BASE: &str = "https://api.openai.com";
@@ -64,11 +64,13 @@ impl OpenAICodexProvider {
 
         let status = response.status().as_u16();
         if !response.status().is_success() {
+            let resp_headers = response.headers().clone();
             let error_text = response.text().await.unwrap_or_default();
             return Err(ApiError::ProviderApiError {
                 provider: "openai_codex".to_string(),
                 status,
                 message: error_text,
+                headers: Some(resp_headers),
             });
         }
 
@@ -116,15 +118,18 @@ impl Provider for OpenAICodexProvider {
         &self,
         ctx: &ProviderContext<'_>,
         req: &ChatCompletionRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>, ApiError> {
+    ) -> Result<ProviderStreamResponse, ApiError> {
         let body = serde_json::to_value(req)
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Serialization failed: {}", e)))?;
         let response = self.send_request(ctx, body, true).await?;
-        // Pass raw SSE bytes from OpenAI directly to the client
+        let headers = response.headers().clone();
         let stream = response.bytes_stream().map(|chunk| {
             chunk.map_err(|e| ApiError::Internal(anyhow::anyhow!("Stream error: {}", e)))
         });
-        Ok(Box::pin(stream))
+        Ok(ProviderStreamResponse {
+            headers,
+            stream: Box::pin(stream),
+        })
     }
 
     async fn execute_anthropic(
@@ -150,12 +155,15 @@ impl Provider for OpenAICodexProvider {
         &self,
         ctx: &ProviderContext<'_>,
         req: &AnthropicMessagesRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>, ApiError> {
+    ) -> Result<ProviderStreamResponse, ApiError> {
         let body = anthropic_to_openai_body(req);
         let response = self.send_request(ctx, body, true).await?;
+        let headers = response.headers().clone();
         let byte_stream = response.bytes_stream();
         let sse_values = parse_sse_stream(byte_stream);
-        Ok(crate::streaming::cross_format::wrap_openai_stream_as_anthropic(sse_values, &req.model))
+        let stream =
+            crate::streaming::cross_format::wrap_openai_stream_as_anthropic(sse_values, &req.model);
+        Ok(ProviderStreamResponse { headers, stream })
     }
 
     /// OpenAI responses need conversion when served through the Anthropic endpoint.

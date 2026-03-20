@@ -1,14 +1,14 @@
 use std::any::Any;
-use std::pin::Pin;
 
 use async_trait::async_trait;
-use futures::stream::Stream;
 use serde_json::Value;
 
 use crate::error::ApiError;
 use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::ChatCompletionRequest;
-use crate::providers::types::{ProviderContext, ProviderId, ProviderResponse, ProviderStreamItem};
+use crate::providers::types::{
+    ProviderContext, ProviderId, ProviderResponse, ProviderStreamResponse,
+};
 
 /// Trait implemented by each AI provider backend.
 ///
@@ -30,11 +30,14 @@ pub trait Provider: Send + Sync {
     ) -> Result<ProviderResponse, ApiError>;
 
     /// Execute a streaming OpenAI-format request.
+    ///
+    /// Returns a `ProviderStreamResponse` containing the initial response headers
+    /// and the streaming body, allowing callers to extract rate-limit signals.
     async fn stream_openai(
         &self,
         ctx: &ProviderContext<'_>,
         req: &ChatCompletionRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>, ApiError>;
+    ) -> Result<ProviderStreamResponse, ApiError>;
 
     /// Execute a non-streaming Anthropic-format request.
     async fn execute_anthropic(
@@ -44,11 +47,14 @@ pub trait Provider: Send + Sync {
     ) -> Result<ProviderResponse, ApiError>;
 
     /// Execute a streaming Anthropic-format request.
+    ///
+    /// Returns a `ProviderStreamResponse` containing the initial response headers
+    /// and the streaming body, allowing callers to extract rate-limit signals.
     async fn stream_anthropic(
         &self,
         ctx: &ProviderContext<'_>,
         req: &AnthropicMessagesRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>, ApiError>;
+    ) -> Result<ProviderStreamResponse, ApiError>;
 
     /// Normalize a non-streaming response for the OpenAI endpoint.
     ///

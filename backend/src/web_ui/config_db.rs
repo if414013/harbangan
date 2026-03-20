@@ -3723,7 +3723,7 @@ impl ConfigDb {
             "SELECT id, provider_id, account_label, api_key, key_prefix, base_url,
                     enabled, created_at, updated_at
              FROM admin_provider_pool
-             WHERE provider_id = $1
+             WHERE provider_id = $1 AND enabled = true
              ORDER BY account_label",
         )
         .bind(provider_id)
@@ -3737,6 +3737,33 @@ impl ConfigDb {
     /// Get all admin pool accounts across all providers.
     #[allow(dead_code, clippy::type_complexity)]
     pub async fn get_all_admin_pool_accounts(&self) -> Result<Vec<AdminPoolRow>> {
+        let rows: Vec<(
+            Uuid,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            bool,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        )> = sqlx::query_as(
+            "SELECT id, provider_id, account_label, api_key, key_prefix, base_url,
+                    enabled, created_at, updated_at
+             FROM admin_provider_pool
+             WHERE enabled = true
+             ORDER BY provider_id, account_label",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get all admin pool accounts")?;
+
+        Ok(rows.into_iter().map(Self::row_to_admin_pool).collect())
+    }
+
+    /// Get all admin pool accounts including disabled (for admin UI management).
+    #[allow(dead_code, clippy::type_complexity)]
+    pub async fn get_all_admin_pool_accounts_include_disabled(&self) -> Result<Vec<AdminPoolRow>> {
         let rows: Vec<(
             Uuid,
             String,

@@ -96,7 +96,6 @@ pub(crate) async fn resolve_provider_routing(
 }
 
 /// Parse the Retry-After header value as seconds.
-#[allow(dead_code)]
 pub(crate) fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
     headers
         .get("retry-after")
@@ -350,5 +349,25 @@ mod tests {
     fn test_resolve_user_id_non_proxy_no_creds() {
         // Non-proxy mode without creds → None
         assert_eq!(resolve_user_id(None, false), None);
+    }
+
+    #[test]
+    fn test_parse_retry_after_valid() {
+        let mut headers = HeaderMap::new();
+        headers.insert("retry-after", "30".parse().unwrap());
+        assert_eq!(parse_retry_after(&headers), Some(Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn test_parse_retry_after_missing() {
+        let headers = HeaderMap::new();
+        assert_eq!(parse_retry_after(&headers), None);
+    }
+
+    #[test]
+    fn test_parse_retry_after_non_numeric() {
+        let mut headers = HeaderMap::new();
+        headers.insert("retry-after", "abc".parse().unwrap());
+        assert_eq!(parse_retry_after(&headers), None);
     }
 }

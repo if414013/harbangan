@@ -2,12 +2,11 @@
 ///
 /// This is the default provider when no matching user provider key exists.
 /// It preserves all existing behavior: converter → Kiro API → AWS Event Stream.
-use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::stream::{Stream, StreamExt};
+use futures::stream::StreamExt;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -19,7 +18,9 @@ use crate::error::ApiError;
 use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::ChatCompletionRequest;
 use crate::providers::traits::Provider;
-use crate::providers::types::{ProviderContext, ProviderId, ProviderResponse, ProviderStreamItem};
+use crate::providers::types::{
+    ProviderContext, ProviderId, ProviderResponse, ProviderStreamResponse,
+};
 use crate::tokenizer::{count_anthropic_message_tokens, count_message_tokens, count_tools_tokens};
 
 pub struct KiroProvider {
@@ -137,7 +138,7 @@ impl Provider for KiroProvider {
         &self,
         ctx: &ProviderContext<'_>,
         req: &ChatCompletionRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>, ApiError> {
+    ) -> Result<ProviderStreamResponse, ApiError> {
         let (conversation_id, profile_arn, config) = self.pipeline_context().await?;
 
         let kiro_result = build_kiro_payload(req, &conversation_id, &profile_arn, &config)
@@ -168,7 +169,10 @@ impl Provider for KiroProvider {
 
         // Convert String stream to Bytes stream
         let byte_stream = sse_stream.map(|r| r.map(Bytes::from));
-        Ok(Box::pin(byte_stream))
+        Ok(ProviderStreamResponse {
+            headers: axum::http::HeaderMap::new(),
+            stream: Box::pin(byte_stream),
+        })
     }
 
     async fn execute_anthropic(
@@ -207,7 +211,7 @@ impl Provider for KiroProvider {
         &self,
         ctx: &ProviderContext<'_>,
         req: &AnthropicMessagesRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>, ApiError> {
+    ) -> Result<ProviderStreamResponse, ApiError> {
         let (conversation_id, profile_arn, config) = self.pipeline_context().await?;
 
         let kiro_result =
@@ -230,7 +234,10 @@ impl Provider for KiroProvider {
         .await?;
 
         let byte_stream = sse_stream.map(|r| r.map(Bytes::from));
-        Ok(Box::pin(byte_stream))
+        Ok(ProviderStreamResponse {
+            headers: axum::http::HeaderMap::new(),
+            stream: Box::pin(byte_stream),
+        })
     }
 }
 

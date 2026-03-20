@@ -75,7 +75,7 @@ async fn list_pool_accounts(
         .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("No database configured")))?;
 
     let accounts = db
-        .get_all_admin_pool_accounts()
+        .get_all_admin_pool_accounts_include_disabled()
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list pool accounts: {}", e)))?;
 

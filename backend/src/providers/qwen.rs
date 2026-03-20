@@ -7,12 +7,11 @@
 /// Qwen3 streaming workaround: injects a dummy tool definition when streaming
 /// without tools to work around a known Qwen3 streaming bug.
 use std::collections::VecDeque;
-use std::pin::Pin;
 use std::time::Instant;
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use futures::stream::{Stream, StreamExt};
+use futures::stream::StreamExt;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -23,7 +22,9 @@ use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::ChatCompletionRequest;
 use crate::providers::anthropic_to_openai_body;
 use crate::providers::traits::Provider;
-use crate::providers::types::{ProviderContext, ProviderId, ProviderResponse, ProviderStreamItem};
+use crate::providers::types::{
+    ProviderContext, ProviderId, ProviderResponse, ProviderStreamResponse,
+};
 use crate::web_ui::qwen_auth::QwenDevicePendingMap;
 
 /// Default Qwen API base URL.
@@ -148,7 +149,11 @@ impl QwenProvider {
     }
 
     /// Check if a 403 response body contains a quota error, and map it to 429.
-    fn check_quota_error(status: u16, error_text: &str) -> ApiError {
+    fn check_quota_error(
+        status: u16,
+        error_text: &str,
+        headers: Option<axum::http::HeaderMap>,
+    ) -> ApiError {
         if status == 403 {
             // Try to parse as JSON and check for quota error codes
             if let Ok(body) = serde_json::from_str::<Value>(error_text) {
@@ -171,6 +176,7 @@ impl QwenProvider {
             provider: "qwen".to_string(),
             status,
             message: error_text.to_string(),
+            headers,
         }
     }
 
@@ -221,8 +227,13 @@ impl QwenProvider {
 
         let status = response.status().as_u16();
         if !response.status().is_success() {
+            let resp_headers = response.headers().clone();
             let error_text = response.text().await.unwrap_or_default();
-            return Err(Self::check_quota_error(status, &error_text));
+            return Err(Self::check_quota_error(
+                status,
+                &error_text,
+                Some(resp_headers),
+            ));
         }
 
         Ok(response)
@@ -269,14 +280,18 @@ impl Provider for QwenProvider {
         &self,
         ctx: &ProviderContext<'_>,
         req: &ChatCompletionRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>, ApiError> {
+    ) -> Result<ProviderStreamResponse, ApiError> {
         let body = serde_json::to_value(req)
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Serialization failed: {}", e)))?;
         let response = self.send_request(ctx, body, true).await?;
+        let headers = response.headers().clone();
         let stream = response.bytes_stream().map(|chunk| {
             chunk.map_err(|e| ApiError::Internal(anyhow::anyhow!("Stream error: {}", e)))
         });
-        Ok(Box::pin(stream))
+        Ok(ProviderStreamResponse {
+            headers,
+            stream: Box::pin(stream),
+        })
     }
 
     async fn execute_anthropic(
@@ -302,12 +317,15 @@ impl Provider for QwenProvider {
         &self,
         ctx: &ProviderContext<'_>,
         req: &AnthropicMessagesRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>, ApiError> {
+    ) -> Result<ProviderStreamResponse, ApiError> {
         let body = anthropic_to_openai_body(req);
         let response = self.send_request(ctx, body, true).await?;
+        let headers = response.headers().clone();
         let byte_stream = response.bytes_stream();
         let sse_values = crate::streaming::sse::parse_sse_stream(byte_stream);
-        Ok(crate::streaming::cross_format::wrap_openai_stream_as_anthropic(sse_values, &req.model))
+        let stream =
+            crate::streaming::cross_format::wrap_openai_stream_as_anthropic(sse_values, &req.model);
+        Ok(ProviderStreamResponse { headers, stream })
     }
 
     /// Qwen (OpenAI-compatible) responses need conversion for the Anthropic endpoint.
@@ -592,7 +610,7 @@ mod tests {
     fn test_quota_error_insufficient_quota() {
         let body =
             r#"{"error":{"code":"insufficient_quota","message":"You have exceeded your quota"}}"#;
-        let err = QwenProvider::check_quota_error(403, body);
+        let err = QwenProvider::check_quota_error(403, body, None);
         match err {
             ApiError::RateLimited {
                 provider,
@@ -608,7 +626,7 @@ mod tests {
     #[test]
     fn test_quota_error_quota_exceeded() {
         let body = r#"{"error_code":"quota_exceeded"}"#;
-        let err = QwenProvider::check_quota_error(403, body);
+        let err = QwenProvider::check_quota_error(403, body, None);
         match err {
             ApiError::RateLimited { provider, .. } => assert_eq!(provider, "qwen"),
             other => panic!("Expected RateLimited, got: {:?}", other),
@@ -618,7 +636,7 @@ mod tests {
     #[test]
     fn test_quota_error_top_level_code() {
         let body = r#"{"code":"insufficient_quota"}"#;
-        let err = QwenProvider::check_quota_error(403, body);
+        let err = QwenProvider::check_quota_error(403, body, None);
         match err {
             ApiError::RateLimited { provider, .. } => assert_eq!(provider, "qwen"),
             other => panic!("Expected RateLimited, got: {:?}", other),
@@ -628,12 +646,13 @@ mod tests {
     #[test]
     fn test_quota_error_403_other_code_passthrough() {
         let body = r#"{"error":{"code":"access_denied","message":"Forbidden"}}"#;
-        let err = QwenProvider::check_quota_error(403, body);
+        let err = QwenProvider::check_quota_error(403, body, None);
         match err {
             ApiError::ProviderApiError {
                 provider,
                 status,
                 message,
+                ..
             } => {
                 assert_eq!(provider, "qwen");
                 assert_eq!(status, 403);
@@ -647,7 +666,7 @@ mod tests {
     fn test_quota_error_non_403_passthrough() {
         let body = r#"{"error":{"code":"insufficient_quota"}}"#;
         // Non-403 status should NOT be mapped to RateLimited
-        let err = QwenProvider::check_quota_error(500, body);
+        let err = QwenProvider::check_quota_error(500, body, None);
         match err {
             ApiError::ProviderApiError { status, .. } => assert_eq!(status, 500),
             other => panic!("Expected ProviderApiError, got: {:?}", other),
@@ -657,7 +676,7 @@ mod tests {
     #[test]
     fn test_quota_error_invalid_json_passthrough() {
         let body = "not json at all";
-        let err = QwenProvider::check_quota_error(403, body);
+        let err = QwenProvider::check_quota_error(403, body, None);
         match err {
             ApiError::ProviderApiError {
                 provider, status, ..
@@ -1066,7 +1085,7 @@ mod tests {
 
     #[test]
     fn test_quota_error_empty_body() {
-        let err = QwenProvider::check_quota_error(403, "");
+        let err = QwenProvider::check_quota_error(403, "", None);
         match err {
             ApiError::ProviderApiError { status, .. } => assert_eq!(status, 403),
             other => panic!("Expected ProviderApiError, got: {:?}", other),
@@ -1075,7 +1094,7 @@ mod tests {
 
     #[test]
     fn test_quota_error_empty_json_object() {
-        let err = QwenProvider::check_quota_error(403, "{}");
+        let err = QwenProvider::check_quota_error(403, "{}", None);
         match err {
             ApiError::ProviderApiError { status, .. } => assert_eq!(status, 403),
             other => panic!("Expected ProviderApiError, got: {:?}", other),
@@ -1085,7 +1104,7 @@ mod tests {
     #[test]
     fn test_check_quota_error_preserves_message() {
         let body = r#"{"error":{"code":"server_error","message":"Internal failure"}}"#;
-        let err = QwenProvider::check_quota_error(500, body);
+        let err = QwenProvider::check_quota_error(500, body, None);
         match err {
             ApiError::ProviderApiError { message, .. } => {
                 assert!(message.contains("server_error"));

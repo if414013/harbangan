@@ -91,6 +91,9 @@ pub enum ApiError {
         provider: String,
         status: u16,
         message: String,
+        /// Response headers from the provider (for extracting Retry-After on 429).
+        #[allow(dead_code)]
+        headers: Option<axum::http::HeaderMap>,
     },
 
     /// User has not configured a key for the required provider
@@ -214,6 +217,7 @@ impl IntoResponse for ApiError {
                 provider,
                 status,
                 message,
+                ..
             } => {
                 let status_code =
                     StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);

@@ -442,9 +442,20 @@ impl ProviderRegistry {
 
         let provider_str = native.as_str();
 
-        // Load all user accounts for this provider
-        let mut candidates: Vec<(AccountId, ProviderCredentials)> = Vec::new();
+        // Load user priorities once for all provider decisions
+        let priority = db
+            .get_user_provider_priority(uid)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<HashMap<String, i32>>();
+        let native_pri = priority.get(provider_str).copied().unwrap_or(0);
+        let copilot_pri = priority.get("copilot").copied().unwrap_or(1);
 
+        // Candidates: (AccountId, ProviderCredentials, priority)
+        let mut candidates: Vec<(AccountId, ProviderCredentials, i32)> = Vec::new();
+
+        // Load all user accounts for this provider
         if let Ok(rows) = db.get_all_user_provider_tokens(uid, provider_str).await {
             for row in rows {
                 let now = chrono::Utc::now();
@@ -465,7 +476,7 @@ impl ProviderRegistry {
                         base_url,
                         account_label: row.account_label.clone(),
                     };
-                    candidates.push((account_id, creds));
+                    candidates.push((account_id, creds, native_pri));
                 }
             }
         }
@@ -477,16 +488,6 @@ impl ProviderRegistry {
             {
                 let now = chrono::Utc::now();
                 if expires_at > now {
-                    // Load user priority to decide if Copilot should be included
-                    let priority = db
-                        .get_user_provider_priority(uid)
-                        .await
-                        .unwrap_or_default()
-                        .into_iter()
-                        .collect::<HashMap<String, i32>>();
-                    let native_pri = priority.get(provider_str).copied().unwrap_or(0);
-                    let copilot_pri = priority.get("copilot").copied().unwrap_or(1);
-
                     // Include Copilot if it has equal or better priority, or if no native accounts
                     if candidates.is_empty() || copilot_pri <= native_pri {
                         let account_id = AccountId {
@@ -500,13 +501,14 @@ impl ProviderRegistry {
                             base_url: Some(base_url),
                             account_label: "default".to_string(),
                         };
-                        candidates.push((account_id, creds));
+                        candidates.push((account_id, creds, copilot_pri));
                     }
                 }
             }
         }
 
-        // Load admin pool accounts as fallback
+        // Load admin pool accounts as fallback (default priority 100)
+        const ADMIN_POOL_PRIORITY: i32 = 100;
         if let Ok(pool_rows) = db.get_admin_pool_accounts(provider_str).await {
             for row in pool_rows {
                 let account_id = AccountId {
@@ -520,7 +522,7 @@ impl ProviderRegistry {
                     base_url: row.base_url.clone(),
                     account_label: row.account_label.clone(),
                 };
-                candidates.push((account_id, creds));
+                candidates.push((account_id, creds, ADMIN_POOL_PRIORITY));
             }
         }
 
@@ -530,11 +532,14 @@ impl ProviderRegistry {
             return (pid, creds, None);
         }
 
-        // Use rate tracker to pick the best account
-        let account_ids: Vec<AccountId> = candidates.iter().map(|(aid, _)| aid.clone()).collect();
-        if let Some(best) = rate_tracker.best_account(&account_ids) {
+        // Use priority-aware rate tracker to pick the best account
+        let prioritized: Vec<(AccountId, i32)> = candidates
+            .iter()
+            .map(|(aid, _, pri)| (aid.clone(), *pri))
+            .collect();
+        if let Some(best) = rate_tracker.best_account_with_priority(&prioritized) {
             // Find the matching credentials
-            if let Some((_, creds)) = candidates.iter().find(|(aid, _)| aid == &best) {
+            if let Some((_, creds, _)) = candidates.iter().find(|(aid, _, _)| aid == &best) {
                 let provider_id = creds.provider.clone();
                 return (provider_id, Some(creds.clone()), Some(best));
             }
@@ -542,7 +547,7 @@ impl ProviderRegistry {
 
         // All accounts rate-limited — return first candidate anyway with account_id
         // so the caller can attempt and get a proper 429
-        let (account_id, creds) = candidates.into_iter().next().unwrap();
+        let (account_id, creds, _) = candidates.into_iter().next().unwrap();
         let provider_id = creds.provider.clone();
         (provider_id, Some(creds), Some(account_id))
     }

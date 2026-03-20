@@ -93,6 +93,17 @@ pub struct ProviderResponse {
 /// Contains raw SSE bytes that the handler pipes to the client.
 pub type ProviderStreamItem = Result<Bytes, ApiError>;
 
+/// Streaming response from a provider, wrapping initial headers and the byte stream.
+///
+/// The headers are captured before the response body is consumed as a stream,
+/// allowing the caller to extract rate-limit headers (e.g. Retry-After).
+pub struct ProviderStreamResponse {
+    /// HTTP headers from the initial streaming response.
+    pub headers: axum::http::HeaderMap,
+    /// The streaming body as SSE byte chunks.
+    pub stream: std::pin::Pin<Box<dyn futures::stream::Stream<Item = ProviderStreamItem> + Send>>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

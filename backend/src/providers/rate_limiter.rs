@@ -51,6 +51,16 @@ pub struct RateLimitState {
 
 /// Tracks per-account rate-limit headroom and selects the best account
 /// for each request using a score-based algorithm.
+///
+/// **Limitation: process-local state.** All rate-limit data lives in an
+/// in-memory `DashMap`. When running multiple replicas behind a load balancer,
+/// each replica maintains its own independent view of rate-limit headroom.
+/// This means replicas may route to an account that another replica has already
+/// exhausted. For single-replica deployments (the current default), this is fine.
+///
+/// To support multi-replica deployments, implement the [`RateLimitStore`] trait
+/// with a shared backend (e.g. Redis or PostgreSQL) and replace the `DashMap`
+/// with that implementation.
 pub struct RateLimitTracker {
     states: DashMap<AccountId, RateLimitState>,
     round_robin: AtomicU64,
@@ -210,6 +220,36 @@ impl RateLimitTracker {
         Some(candidates[winner_idx].clone())
     }
 
+    /// Select the best account from candidates grouped by priority tier.
+    ///
+    /// Candidates are `(AccountId, priority)` where lower priority number = better.
+    /// Within the best available tier, selects by headroom score + round-robin tiebreak.
+    /// Falls back to next tier if the best tier is fully rate-limited.
+    /// Returns None if all candidates are currently rate-limited.
+    pub fn best_account_with_priority(&self, candidates: &[(AccountId, i32)]) -> Option<AccountId> {
+        if candidates.is_empty() {
+            return None;
+        }
+
+        // Group candidates by priority tier
+        let mut tiers: std::collections::BTreeMap<i32, Vec<&AccountId>> =
+            std::collections::BTreeMap::new();
+        for (aid, pri) in candidates {
+            tiers.entry(*pri).or_default().push(aid);
+        }
+
+        // Try each tier in priority order (lowest number first)
+        for tier_accounts in tiers.values() {
+            let tier_ids: Vec<AccountId> = tier_accounts.iter().map(|a| (*a).clone()).collect();
+            if let Some(best) = self.best_account(&tier_ids) {
+                return Some(best);
+            }
+            // All in this tier are rate-limited — try next tier
+        }
+
+        None
+    }
+
     /// Remove entries that haven't been updated within `max_age`.
     #[allow(dead_code)]
     pub fn cleanup_stale(&self, max_age: Duration) {
@@ -242,6 +282,31 @@ pub struct RateLimitStateSnapshot {
     pub requests_remaining: Option<u64>,
     pub tokens_remaining: Option<u64>,
     pub limited_until: Option<Instant>,
+}
+
+/// Trait abstracting rate-limit state storage.
+///
+/// The default [`RateLimitTracker`] is process-local. Implement this trait
+/// with a shared backend (Redis, PostgreSQL) to support multi-replica
+/// deployments where rate-limit headroom must be visible across all replicas.
+#[allow(dead_code)]
+pub trait RateLimitStore: Send + Sync {
+    /// Record a successful response's rate-limit headers.
+    fn update_from_headers(
+        &self,
+        account_id: &AccountId,
+        provider_id: &ProviderId,
+        headers: &HeaderMap,
+    );
+
+    /// Mark an account as rate-limited after a 429 response.
+    fn mark_limited(&self, account_id: &AccountId, retry_after: Option<Duration>);
+
+    /// Select the best account from candidates based on headroom.
+    fn best_account(&self, candidates: &[AccountId]) -> Option<AccountId>;
+
+    /// Select the best account considering priority tiers.
+    fn best_account_with_priority(&self, candidates: &[(AccountId, i32)]) -> Option<AccountId>;
 }
 
 /// Compute a score for an account based on remaining headroom.
@@ -620,5 +685,115 @@ mod tests {
 
         assert!(tracker.states.get(&stale).is_none());
         assert!(tracker.states.get(&fresh).is_some());
+    }
+
+    #[test]
+    fn test_priority_prefers_higher_priority_tier() {
+        let tracker = RateLimitTracker::new();
+
+        let acct_p0 = make_account(ProviderId::Anthropic, "priority-0");
+        let acct_p1 = make_account(ProviderId::Anthropic, "priority-1");
+
+        // p0 has less headroom but higher priority
+        tracker.states.insert(
+            acct_p0.clone(),
+            RateLimitState {
+                requests_remaining: Some(10),
+                tokens_remaining: Some(1_000),
+                reset_at: None,
+                limited_until: None,
+                updated_at: Instant::now(),
+            },
+        );
+        // p1 has more headroom but lower priority
+        tracker.states.insert(
+            acct_p1.clone(),
+            RateLimitState {
+                requests_remaining: Some(500),
+                tokens_remaining: Some(100_000),
+                reset_at: None,
+                limited_until: None,
+                updated_at: Instant::now(),
+            },
+        );
+
+        let candidates = vec![(acct_p0, 0), (acct_p1, 1)];
+        let best = tracker.best_account_with_priority(&candidates).unwrap();
+        assert_eq!(best.account_label, "priority-0");
+    }
+
+    #[test]
+    fn test_priority_falls_back_when_best_tier_limited() {
+        let tracker = RateLimitTracker::new();
+
+        let acct_p0 = make_account(ProviderId::Anthropic, "p0-limited");
+        let acct_p1 = make_account(ProviderId::Anthropic, "p1-available");
+
+        // p0 is rate-limited
+        tracker.mark_limited(&acct_p0, Some(Duration::from_secs(300)));
+
+        // p1 is available
+        tracker.states.insert(
+            acct_p1.clone(),
+            RateLimitState {
+                requests_remaining: Some(100),
+                tokens_remaining: Some(50_000),
+                reset_at: None,
+                limited_until: None,
+                updated_at: Instant::now(),
+            },
+        );
+
+        let candidates = vec![(acct_p0, 0), (acct_p1, 1)];
+        let best = tracker.best_account_with_priority(&candidates).unwrap();
+        assert_eq!(best.account_label, "p1-available");
+    }
+
+    #[test]
+    fn test_priority_same_tier_uses_headroom() {
+        let tracker = RateLimitTracker::new();
+
+        let acct_a = make_account(ProviderId::Anthropic, "same-tier-a");
+        let acct_b = make_account(ProviderId::Anthropic, "same-tier-b");
+
+        tracker.states.insert(
+            acct_a.clone(),
+            RateLimitState {
+                requests_remaining: Some(50),
+                tokens_remaining: Some(10_000),
+                reset_at: None,
+                limited_until: None,
+                updated_at: Instant::now(),
+            },
+        );
+        tracker.states.insert(
+            acct_b.clone(),
+            RateLimitState {
+                requests_remaining: Some(200),
+                tokens_remaining: Some(50_000),
+                reset_at: None,
+                limited_until: None,
+                updated_at: Instant::now(),
+            },
+        );
+
+        // Same priority — higher headroom wins
+        let candidates = vec![(acct_a, 0), (acct_b, 0)];
+        let best = tracker.best_account_with_priority(&candidates).unwrap();
+        assert_eq!(best.account_label, "same-tier-b");
+    }
+
+    #[test]
+    fn test_priority_all_limited_returns_none() {
+        let tracker = RateLimitTracker::new();
+
+        let acct_a = make_account(ProviderId::Anthropic, "all-lim-a");
+        let acct_b = make_account(ProviderId::Anthropic, "all-lim-b");
+
+        tracker.mark_limited(&acct_a, Some(Duration::from_secs(300)));
+        tracker.mark_limited(&acct_b, Some(Duration::from_secs(300)));
+
+        let candidates = vec![(acct_a, 0), (acct_b, 1)];
+        assert!(tracker.best_account_with_priority(&candidates).is_none());
     }
 }
