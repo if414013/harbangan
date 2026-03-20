@@ -33,6 +33,57 @@ impl ProviderId {
             ProviderId::Custom => "custom",
         }
     }
+
+    /// Human-readable name for UI display.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ProviderId::Kiro => "Kiro",
+            ProviderId::Anthropic => "Anthropic",
+            ProviderId::OpenAICodex => "OpenAI Codex",
+            ProviderId::Copilot => "Copilot",
+            ProviderId::Qwen => "Qwen",
+            ProviderId::Custom => "Custom",
+        }
+    }
+
+    /// Authentication category: how the provider acquires credentials.
+    /// - `"device_code"`: Device authorization flow (Kiro, Copilot, Qwen)
+    /// - `"oauth_relay"`: API key stored per-user (Anthropic, OpenAI)
+    /// - `"custom"`: User-supplied base URL + key
+    pub fn category(&self) -> &'static str {
+        match self {
+            ProviderId::Kiro | ProviderId::Copilot | ProviderId::Qwen => "device_code",
+            ProviderId::Anthropic | ProviderId::OpenAICodex => "oauth_relay",
+            ProviderId::Custom => "custom",
+        }
+    }
+
+    /// Whether this provider can participate in admin load-balancing pools.
+    pub fn supports_pool(&self) -> bool {
+        !matches!(self, ProviderId::Custom)
+    }
+
+    /// All providers visible to users (excludes Custom).
+    pub fn all_visible() -> &'static [ProviderId] {
+        &[
+            ProviderId::Kiro,
+            ProviderId::Anthropic,
+            ProviderId::OpenAICodex,
+            ProviderId::Copilot,
+            ProviderId::Qwen,
+        ]
+    }
+
+    /// Default API base URL for this provider, if known.
+    pub fn default_base_url(&self) -> Option<&'static str> {
+        match self {
+            ProviderId::Anthropic => Some("https://api.anthropic.com"),
+            ProviderId::OpenAICodex => Some("https://api.openai.com"),
+            ProviderId::Copilot => Some("https://api.githubcopilot.com"),
+            ProviderId::Qwen => Some("https://dashscope-intl.aliyuncs.com/compatible-mode"),
+            ProviderId::Kiro | ProviderId::Custom => None,
+        }
+    }
 }
 
 impl std::fmt::Display for ProviderId {
@@ -328,5 +379,97 @@ mod tests {
         // "Qwen" (capitalized) should fail — only lowercase "qwen" is valid
         assert!(ProviderId::from_str("Qwen").is_err());
         assert!(ProviderId::from_str("QWEN").is_err());
+    }
+
+    // ── Metadata methods ──────────────────────────────────────────────
+
+    #[test]
+    fn test_display_name() {
+        assert_eq!(ProviderId::Kiro.display_name(), "Kiro");
+        assert_eq!(ProviderId::Anthropic.display_name(), "Anthropic");
+        assert_eq!(ProviderId::OpenAICodex.display_name(), "OpenAI Codex");
+        assert_eq!(ProviderId::Copilot.display_name(), "Copilot");
+        assert_eq!(ProviderId::Qwen.display_name(), "Qwen");
+        assert_eq!(ProviderId::Custom.display_name(), "Custom");
+    }
+
+    #[test]
+    fn test_category_exact_values() {
+        assert_eq!(ProviderId::Kiro.category(), "device_code");
+        assert_eq!(ProviderId::Anthropic.category(), "oauth_relay");
+        assert_eq!(ProviderId::OpenAICodex.category(), "oauth_relay");
+        assert_eq!(ProviderId::Copilot.category(), "device_code");
+        assert_eq!(ProviderId::Qwen.category(), "device_code");
+        assert_eq!(ProviderId::Custom.category(), "custom");
+    }
+
+    #[test]
+    fn test_supports_pool() {
+        assert!(ProviderId::Kiro.supports_pool());
+        assert!(ProviderId::Anthropic.supports_pool());
+        assert!(ProviderId::OpenAICodex.supports_pool());
+        assert!(ProviderId::Copilot.supports_pool());
+        assert!(ProviderId::Qwen.supports_pool());
+        assert!(!ProviderId::Custom.supports_pool());
+    }
+
+    #[test]
+    fn test_all_visible_excludes_custom() {
+        let visible = ProviderId::all_visible();
+        assert_eq!(visible.len(), 5);
+        assert!(!visible.contains(&ProviderId::Custom));
+        assert!(visible.contains(&ProviderId::Kiro));
+        assert!(visible.contains(&ProviderId::Anthropic));
+        assert!(visible.contains(&ProviderId::OpenAICodex));
+        assert!(visible.contains(&ProviderId::Copilot));
+        assert!(visible.contains(&ProviderId::Qwen));
+    }
+
+    /// Exhaustiveness guard: if a new variant is added to ProviderId,
+    /// this test forces the developer to update all_visible().
+    #[test]
+    fn test_all_visible_exhaustiveness_guard() {
+        // Every variant except Custom must be in all_visible()
+        let visible = ProviderId::all_visible();
+        for id in [
+            ProviderId::Kiro,
+            ProviderId::Anthropic,
+            ProviderId::OpenAICodex,
+            ProviderId::Copilot,
+            ProviderId::Qwen,
+        ] {
+            assert!(
+                visible.contains(&id),
+                "{} missing from all_visible()",
+                id.as_str()
+            );
+        }
+        // Custom must NOT be in all_visible()
+        assert!(
+            !visible.contains(&ProviderId::Custom),
+            "Custom should not be in all_visible()"
+        );
+    }
+
+    #[test]
+    fn test_default_base_url() {
+        assert_eq!(
+            ProviderId::Anthropic.default_base_url(),
+            Some("https://api.anthropic.com")
+        );
+        assert_eq!(
+            ProviderId::OpenAICodex.default_base_url(),
+            Some("https://api.openai.com")
+        );
+        assert_eq!(
+            ProviderId::Copilot.default_base_url(),
+            Some("https://api.githubcopilot.com")
+        );
+        assert_eq!(
+            ProviderId::Qwen.default_base_url(),
+            Some("https://dashscope-intl.aliyuncs.com/compatible-mode")
+        );
+        assert_eq!(ProviderId::Kiro.default_base_url(), None);
+        assert_eq!(ProviderId::Custom.default_base_url(), None);
     }
 }
