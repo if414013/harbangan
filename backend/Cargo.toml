@@ -73,7 +73,7 @@ hex = "0.4"
 base64 = "0.22"
 aes-gcm = "0.10"
 urlencoding = "2"
-rand = "0.8"
+rand = "0.9"
 
 # Async utilities
 async-trait = "0.1"
