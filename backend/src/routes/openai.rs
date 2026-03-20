@@ -56,24 +56,7 @@ pub(crate) async fn get_models_handler(
         });
     }
 
-    // 3. Proxy mode: add known models for each configured provider
-    for provider in state.provider_registry.configured_proxy_providers() {
-        let known = crate::providers::known_models::known_models_for_provider(&provider);
-        for model_id in known {
-            if !seen.contains(*model_id) {
-                seen.insert(model_id.to_string());
-                models.push(OpenAIModel {
-                    id: model_id.to_string(),
-                    object: "model".to_string(),
-                    created: 0,
-                    owned_by: provider.as_str().to_string(),
-                    description: None,
-                });
-            }
-        }
-    }
-
-    // 3b. Add custom provider models from env
+    // 3. Add custom provider models from env
     for model_id in state.provider_registry.custom_model_names() {
         if !seen.contains(model_id) {
             seen.insert(model_id.clone());

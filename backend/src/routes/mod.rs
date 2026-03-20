@@ -211,23 +211,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_models_proxy_known_models_appear() {
-        let state = create_proxy_test_state();
-        let result = openai::get_models_handler(State(state)).await.unwrap().0;
-        let ids: Vec<&str> = result.data.iter().map(|m| m.id.as_str()).collect();
-
-        // Anthropic known models should appear
-        assert!(ids.contains(&"claude-opus-4-6"), "missing claude-opus-4-6");
-        assert!(
-            ids.contains(&"claude-sonnet-4-6"),
-            "missing claude-sonnet-4-6"
-        );
-        // OpenAI known models should appear
-        assert!(ids.contains(&"gpt-4o"), "missing gpt-4o");
-        assert!(ids.contains(&"o3"), "missing o3");
-    }
-
-    #[tokio::test]
     async fn test_get_models_proxy_custom_models_appear() {
         let state = create_proxy_test_state();
         let result = openai::get_models_handler(State(state)).await.unwrap().0;

@@ -11,7 +11,6 @@ pub mod anthropic;
 pub mod copilot;
 pub mod custom;
 pub mod kiro;
-pub mod known_models;
 pub mod openai_codex;
 pub mod qwen;
 pub mod rate_limiter;

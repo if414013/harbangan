@@ -576,6 +576,7 @@ impl ProviderRegistry {
     }
 
     /// Return the set of provider IDs that have proxy credentials configured.
+    #[allow(dead_code)]
     pub fn configured_proxy_providers(&self) -> Vec<ProviderId> {
         match &self.proxy_credentials {
             Some(creds) => creds.keys().cloned().collect(),
