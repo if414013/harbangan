@@ -429,6 +429,17 @@ async fn main() -> Result<()> {
             Arc::clone(db),
             Arc::clone(&app_state.session_cache),
         );
+
+        // Model registry: auto-populate on startup + periodic refresh
+        if setup_complete_flag {
+            spawn_model_registry_tasks(
+                Arc::clone(db),
+                http_client.clone(),
+                Arc::clone(&auth_manager),
+                model_cache.clone(),
+            );
+        }
+
         tracing::info!("Background tasks started (token refresh, session cleanup)");
     }
 
@@ -548,6 +559,84 @@ fn add_hidden_models(cache: &cache::ModelCache) {
 
     for (display_name, internal_id) in hidden_models {
         cache.add_hidden_model(display_name, internal_id);
+    }
+}
+
+/// Spawn background tasks for model registry: initial populate + periodic refresh.
+fn spawn_model_registry_tasks(
+    db: Arc<web_ui::config_db::ConfigDb>,
+    http_client: Arc<http_client::KiroHttpClient>,
+    auth_manager: Arc<tokio::sync::RwLock<auth::AuthManager>>,
+    model_cache: cache::ModelCache,
+) {
+    tokio::spawn(async move {
+        // Initial populate on startup
+        populate_all_providers(&db, &http_client, &auth_manager, &model_cache).await;
+
+        // Periodic refresh (every 6 hours)
+        let refresh_interval = std::time::Duration::from_secs(6 * 60 * 60);
+        loop {
+            tokio::time::sleep(refresh_interval).await;
+            tracing::info!("Running periodic model registry refresh");
+            populate_all_providers(&db, &http_client, &auth_manager, &model_cache).await;
+        }
+    });
+}
+
+/// Populate all provider model registries, then reload the cache.
+async fn populate_all_providers(
+    db: &Arc<web_ui::config_db::ConfigDb>,
+    http_client: &Arc<http_client::KiroHttpClient>,
+    auth_manager: &Arc<tokio::sync::RwLock<auth::AuthManager>>,
+    model_cache: &cache::ModelCache,
+) {
+    let providers = ["anthropic", "openai_codex", "qwen", "copilot", "kiro"];
+
+    for provider_id in &providers {
+        let auth = if *provider_id == "kiro" {
+            let guard = auth_manager.read().await;
+            if guard.has_credentials().await {
+                // Cannot hold the guard across populate_provider, so fetch kiro directly
+                match web_ui::model_registry::fetch_kiro_models(http_client, &guard).await {
+                    Ok(models) if !models.is_empty() => {
+                        drop(guard);
+                        match db.bulk_upsert_registry_models(&models).await {
+                            Ok(count) => {
+                                tracing::info!(provider = "kiro", count, "Populated models");
+                            }
+                            Err(e) => {
+                                tracing::warn!(provider = "kiro", error = %e, "Failed to upsert");
+                            }
+                        }
+                    }
+                    _ => {
+                        drop(guard);
+                    }
+                }
+                continue;
+            } else {
+                drop(guard);
+                continue;
+            }
+        } else {
+            None
+        };
+
+        match web_ui::model_registry::populate_provider(provider_id, db, http_client, auth).await {
+            Ok(count) => {
+                if count > 0 {
+                    tracing::info!(provider = provider_id, count, "Populated models");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(provider = provider_id, error = %e, "Failed to populate");
+            }
+        }
+    }
+
+    // Reload registry cache after populating all providers
+    if let Err(e) = model_cache.load_from_registry().await {
+        tracing::warn!(error = %e, "Failed to reload registry cache after populate");
     }
 }
 

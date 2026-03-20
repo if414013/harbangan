@@ -266,7 +266,6 @@ pub fn all_static_models() -> Vec<RegistryModel> {
 // ── Dynamic Model Fetching ───────────────────────────────────
 
 /// Fetch Kiro models from the ListAvailableModels API, storing internal IDs in upstream_meta.
-#[allow(dead_code)]
 pub async fn fetch_kiro_models(
     http_client: &crate::http_client::KiroHttpClient,
     auth_manager: &crate::auth::AuthManager,
@@ -331,7 +330,6 @@ pub async fn fetch_kiro_models(
 }
 
 /// Fetch Copilot models from `{base_url}/models` using a copilot token from DB.
-#[allow(dead_code)]
 pub async fn fetch_copilot_models(
     http_client: &crate::http_client::KiroHttpClient,
     db: &ConfigDb,
@@ -383,7 +381,6 @@ pub async fn fetch_copilot_models(
 }
 
 /// Fetch models from an OpenAI-compatible `/v1/models` endpoint.
-#[allow(dead_code)]
 pub async fn fetch_openai_compatible_models(
     http_client: &crate::http_client::KiroHttpClient,
     provider_id: &str,
@@ -415,14 +412,17 @@ pub async fn fetch_openai_compatible_models(
 }
 
 /// Fetch Anthropic models from `GET /v1/models`.
-#[allow(dead_code)]
 pub async fn fetch_anthropic_models(
     http_client: &crate::http_client::KiroHttpClient,
     api_key: &str,
+    base_url: Option<&str>,
 ) -> Result<Vec<RegistryModel>> {
+    let base = base_url.unwrap_or("https://api.anthropic.com");
+    let url = format!("{}/v1/models", base.trim_end_matches('/'));
+
     let resp = http_client
         .client()
-        .get("https://api.anthropic.com/v1/models")
+        .get(&url)
         .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")
         .send()
@@ -509,9 +509,20 @@ pub(crate) fn parse_openai_models_response(
         .collect()
 }
 
+/// Look up the first enabled admin pool account for a provider.
+async fn get_admin_pool_credential(
+    db: &ConfigDb,
+    provider_id: &str,
+) -> Option<(String, Option<String>)> {
+    let accounts = db.get_admin_pool_accounts(provider_id).await.ok()?;
+    accounts
+        .into_iter()
+        .find(|a| a.enabled)
+        .map(|a| (a.api_key, a.base_url))
+}
+
 /// Populate a provider's models in the DB: tries API first, falls back to static.
 /// Returns the number of models upserted.
-#[allow(dead_code)]
 pub async fn populate_provider(
     provider_id: &str,
     db: &Arc<ConfigDb>,
@@ -527,8 +538,38 @@ pub async fn populate_provider(
             }
         }
         "copilot" => fetch_copilot_models(http_client, db).await.ok(),
-        "qwen" => None, // static only
-        _ => None,      // anthropic, openai_codex handled via user keys below
+        "anthropic" => {
+            if let Some((api_key, base_url)) = get_admin_pool_credential(db, "anthropic").await {
+                fetch_anthropic_models(http_client, &api_key, base_url.as_deref())
+                    .await
+                    .ok()
+            } else {
+                None
+            }
+        }
+        "openai_codex" => {
+            if let Some((api_key, base_url)) =
+                get_admin_pool_credential(db, "openai_codex").await
+            {
+                let base = base_url.as_deref().unwrap_or("https://api.openai.com");
+                fetch_openai_compatible_models(http_client, "openai_codex", base, &api_key)
+                    .await
+                    .ok()
+            } else {
+                None
+            }
+        }
+        "qwen" => {
+            if let Some((api_key, base_url)) = get_admin_pool_credential(db, "qwen").await {
+                let base = base_url.as_deref().unwrap_or("https://chat.qwen.ai/api");
+                fetch_openai_compatible_models(http_client, "qwen", base, &api_key)
+                    .await
+                    .ok()
+            } else {
+                None
+            }
+        }
+        _ => None,
     };
 
     let models = if let Some(api) = api_models {
@@ -572,7 +613,7 @@ pub async fn populate_provider_with_key(
     http_client: &crate::http_client::KiroHttpClient,
 ) -> Result<usize> {
     let api_models = match provider_id {
-        "anthropic" => fetch_anthropic_models(http_client, api_key).await.ok(),
+        "anthropic" => fetch_anthropic_models(http_client, api_key, None).await.ok(),
         "openai_codex" => fetch_openai_compatible_models(
             http_client,
             "openai_codex",
