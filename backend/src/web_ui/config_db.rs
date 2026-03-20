@@ -2937,6 +2937,10 @@ impl ConfigDb {
         Ok(())
     }
 
+    // v21: DROP CHECK constraints on provider_id columns.
+    // Validation moved to Rust via ProviderId::from_str() — the enum is the single
+    // source of truth for valid providers. DB constraints were removed to avoid
+    // maintaining parallel validation in both SQL and Rust.
     async fn migrate_to_v21(&self) -> Result<()> {
         tracing::info!(
             "Running database migration to version 21 (drop provider_id CHECK constraints)..."

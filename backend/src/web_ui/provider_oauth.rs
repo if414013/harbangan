@@ -1246,7 +1246,12 @@ mod tests {
     #[test]
     fn test_providers_status_response_structure() {
         let mut providers = serde_json::Map::new();
-        for pid in &["anthropic", "openai_codex"] {
+        let oauth_relay_providers: Vec<&str> = ProviderId::all_visible()
+            .iter()
+            .filter(|p| p.category() == "oauth_relay")
+            .map(|p| p.as_str())
+            .collect();
+        for pid in &oauth_relay_providers {
             providers.insert(
                 pid.to_string(),
                 serde_json::to_value(ProviderStatusInfo {

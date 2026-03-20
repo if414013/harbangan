@@ -54,8 +54,9 @@ function ProviderPool() {
           setProvider(eligible[0].id);
         }
       })
-      .catch(() => {});
+      .catch(() => showToast("Failed to load providers", "error"));
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleAdd(e: React.FormEvent) {

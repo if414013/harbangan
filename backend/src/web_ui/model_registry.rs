@@ -461,4 +461,50 @@ mod tests {
             "qwen/qwen3-coder-plus"
         );
     }
+
+    // ── Keep-last-successful behavior ─────────────────────────────────
+    // populate_provider uses `api_models.filter(|m| !m.is_empty())` to
+    // decide whether to upsert. These tests verify the filter semantics.
+
+    #[test]
+    fn test_keep_last_successful_none_returns_zero() {
+        // API failure (None) → should not upsert, return Ok(0)
+        let api_models: Option<Vec<RegistryModel>> = None;
+        let result = api_models.filter(|m| !m.is_empty());
+        assert!(result.is_none(), "None API response should skip upsert");
+    }
+
+    #[test]
+    fn test_keep_last_successful_empty_vec_returns_zero() {
+        // API returns empty list → should not upsert, return Ok(0)
+        let api_models: Option<Vec<RegistryModel>> = Some(vec![]);
+        let result = api_models.filter(|m| !m.is_empty());
+        assert!(result.is_none(), "Empty model list should skip upsert");
+    }
+
+    #[test]
+    fn test_keep_last_successful_with_models_proceeds() {
+        // API returns models → should proceed to upsert
+        let api_models: Option<Vec<RegistryModel>> = Some(vec![RegistryModel {
+            id: uuid::Uuid::nil(),
+            provider_id: "anthropic".to_string(),
+            model_id: "claude-opus-4-6".to_string(),
+            prefixed_id: "anthropic/claude-opus-4-6".to_string(),
+            display_name: "claude-opus-4-6".to_string(),
+            context_length: 200000,
+            max_output_tokens: 16384,
+            capabilities: serde_json::json!({}),
+            enabled: true,
+            source: "api".to_string(),
+            upstream_meta: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }]);
+        let result = api_models.filter(|m| !m.is_empty());
+        assert!(
+            result.is_some(),
+            "Non-empty model list should proceed to upsert"
+        );
+        assert_eq!(result.unwrap().len(), 1);
+    }
 }

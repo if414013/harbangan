@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { PageHeader } from "../components/PageHeader";
 import { TabBar } from "../components/TabBar";
 import { useToast } from "../components/useToast";
@@ -60,13 +60,15 @@ export function Providers() {
     message: string;
   } | null>(null);
 
-  const allProviders = registry.map((p) => p.id);
-  const multiAccountProviders = registry
-    .filter((p) => p.category === "oauth_relay")
-    .map((p) => p.id);
-  const deviceCodeProviders = registry
-    .filter((p) => p.category === "device_code")
-    .map((p) => p.id);
+  const allProviders = useMemo(() => registry.map((p) => p.id), [registry]);
+  const multiAccountProviders = useMemo(
+    () => registry.filter((p) => p.category === "oauth_relay").map((p) => p.id),
+    [registry],
+  );
+  const deviceCodeProviders = useMemo(
+    () => registry.filter((p) => p.category === "device_code").map((p) => p.id),
+    [registry],
+  );
 
   // Phase 1: fetch registry (mount-only)
   useEffect(() => {
