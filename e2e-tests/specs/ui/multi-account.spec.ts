@@ -4,6 +4,16 @@ import { navigateTo, expectToastMessage } from '../../helpers/navigation.js'
 
 // --- Mock data ---
 
+const mockRegistry = {
+  providers: [
+    { id: 'kiro', display_name: 'Kiro', category: 'device_code', supports_pool: true },
+    { id: 'anthropic', display_name: 'Anthropic', category: 'oauth_relay', supports_pool: true },
+    { id: 'openai_codex', display_name: 'OpenAI Codex', category: 'oauth_relay', supports_pool: true },
+    { id: 'copilot', display_name: 'Copilot', category: 'device_code', supports_pool: true },
+    { id: 'qwen', display_name: 'Qwen', category: 'device_code', supports_pool: true },
+  ],
+}
+
 const mockPoolAccounts = [
   {
     id: 'pool-1',
@@ -66,6 +76,17 @@ const mockRateLimits = [
 // --- Admin Page: Provider Pool Section ---
 
 test.describe('Admin page — Provider Pool', () => {
+  test.beforeEach(async ({ page }) => {
+    // After dynamic provider registry, Admin page fetches providers from API
+    await page.route('**/api/providers/registry', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockRegistry),
+      })
+    })
+  })
+
   test('renders PROVIDER POOL section header', async ({ page }) => {
     await navigateTo(page, '/admin')
 
@@ -285,6 +306,14 @@ test.describe('Providers page — Multi-Account', () => {
     const accounts = overrides.accounts ?? mockUserAccounts
     const rateLimits = overrides.rateLimits ?? mockRateLimits
     const connected = overrides.connected ?? true
+
+    await page.route('**/api/providers/registry', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockRegistry),
+      })
+    })
 
     await page.route('**/api/providers/status', async (route) => {
       await route.fulfill({
