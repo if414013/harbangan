@@ -82,7 +82,7 @@ async-stream = "0.3"
 # AWS Bedrock guardrails
 aws-sigv4 = "1"
 aws-credential-types = "1"
-cel-interpreter = "0.8"
+cel-interpreter = "0.10"
 cel-parser = "0.8"
 
 # Google SSO / session auth
