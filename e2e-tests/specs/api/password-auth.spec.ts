@@ -233,10 +233,11 @@ test.describe('Admin user management API', () => {
 
     // Create regular user
     const testEmail = `regularuser-${Date.now()}@example.com`;
-    await request.post('/_ui/api/admin/users/create', {
+    const createRes = await request.post('/_ui/api/admin/users/create', {
       data: { email: testEmail, name: 'Regular User', password: 'RegularPass123!', role: 'user' },
       headers: { 'x-csrf-token': csrfToken },
     });
+    expect(createRes.status()).toBe(200);
 
     // Login as regular user (no TOTP → direct session with cookies)
     const userLoginRes = await request.post('/_ui/api/auth/login', {

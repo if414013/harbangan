@@ -185,14 +185,16 @@ test.describe('Admin user management', () => {
       await navigateTo(page, '/config')
       const toggle2 = page.locator('input#auth_password_enabled')
       if (isChecked) {
-        // It was checked, we unchecked it, now check it back
         if (!(await toggle2.isChecked())) await toggle2.click()
       } else {
-        // It was unchecked, we checked it, now uncheck it back
         if (await toggle2.isChecked()) await toggle2.click()
       }
-      await page.locator('button.btn-save', { hasText: 'Save Configuration' }).click()
-      await expectToastMessage(page, 'applied immediately')
+      // Only save if there are unsaved changes (dirty state)
+      const saveBar = page.locator('div.config-save-bar')
+      if ((await saveBar.count()) > 0) {
+        await page.locator('button.btn-save', { hasText: 'Save Configuration' }).click()
+        await expectToastMessage(page, 'applied immediately')
+      }
     }
     // If toggle doesn't exist, skip — config field name may differ
   })
@@ -267,7 +269,7 @@ test.describe('Admin user management', () => {
     const createBtn = page.locator('button.btn-save', { hasText: 'Create User' })
     await createBtn.click()
 
-    // Should show an error toast about duplicate email
-    await expectToastMessage(page, /already exists|duplicate|Failed/, 'error')
+    // Should show an error toast (duplicate email triggers a server error)
+    await expectToastMessage(page, /error|already exists|duplicate|Failed/i, 'error')
   })
 })

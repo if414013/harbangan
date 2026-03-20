@@ -76,8 +76,11 @@ test.describe('Admin page — Provider Pool', () => {
   test('add pool account form is visible with provider dropdown, label, and API key inputs', async ({ page }) => {
     await navigateTo(page, '/admin')
 
-    // Provider dropdown
-    const providerSelect = page.locator('select.config-input')
+    // Scope to the pool form (contains "Add Pool Account" button)
+    const poolForm = page.locator('form').filter({ hasText: 'Add Pool Account' })
+
+    // Provider dropdown (scoped to pool form to avoid matching user form dropdown)
+    const providerSelect = poolForm.locator('select.config-input')
     await expect(providerSelect).toBeVisible()
 
     // Label input
@@ -146,8 +149,8 @@ test.describe('Admin page — Provider Pool', () => {
     // Verify success toast
     await expectToastMessage(page, 'added', 'success')
 
-    // Verify the new account appears in the data table
-    const table = page.locator(Table.dataTable)
+    // Verify the new account appears in the pool data table
+    const table = page.getByRole('table', { name: 'Admin provider pool accounts' })
     await expect(table).toBeVisible({ timeout: 5_000 })
     await expect(table.locator('td', { hasText: 'new-account' })).toBeVisible()
     await expect(table.locator('td', { hasText: 'anthropic' })).toBeVisible()
@@ -176,7 +179,7 @@ test.describe('Admin page — Provider Pool', () => {
 
     await navigateTo(page, '/admin')
 
-    const table = page.locator(Table.dataTable)
+    const table = page.getByRole('table', { name: 'Admin provider pool accounts' })
     await expect(table).toBeVisible({ timeout: 5_000 })
 
     // First account (pool-1) is enabled — toggle button should show "on"
@@ -212,16 +215,18 @@ test.describe('Admin page — Provider Pool', () => {
 
     await navigateTo(page, '/admin')
 
-    const table = page.locator(Table.dataTable)
+    const table = page.getByRole('table', { name: 'Admin provider pool accounts' })
     await expect(table).toBeVisible({ timeout: 5_000 })
     await expect(table.locator('td', { hasText: 'team-primary' })).toBeVisible()
 
-    // Accept the confirm dialog
-    page.on('dialog', (dialog) => dialog.accept())
-
-    // Click delete
-    const deleteBtn = table.locator('.device-code-cancel', { hasText: 'delete' })
+    // Click delete button in the pool table
+    const deleteBtn = table.locator('.btn-danger', { hasText: 'delete' })
     await deleteBtn.click()
+
+    // ConfirmDialog should appear — click the confirm button
+    const confirmBtn = page.locator('button.btn-modal-confirm')
+    await expect(confirmBtn).toBeVisible()
+    await confirmBtn.click()
 
     // Verify toast and removal
     await expectToastMessage(page, 'deleted', 'success')
@@ -239,7 +244,7 @@ test.describe('Admin page — Provider Pool', () => {
 
     await navigateTo(page, '/admin')
 
-    const table = page.locator(Table.dataTable)
+    const table = page.getByRole('table', { name: 'Admin provider pool accounts' })
     await expect(table).toBeVisible({ timeout: 5_000 })
 
     await expect(table.locator('th', { hasText: 'status' })).toBeVisible()
@@ -334,14 +339,12 @@ test.describe('Providers page — Multi-Account', () => {
     await setupProviderMocks(page)
     await navigateTo(page, '/providers')
 
-    // Expand the Anthropic tree node
-    const anthropicToggle = page.locator('.tree-node-toggle', { hasText: 'Anthropic' })
-    await expect(anthropicToggle).toBeVisible({ timeout: 10_000 })
-    await anthropicToggle.click()
+    // Switch to connections tab
+    await page.locator('button', { hasText: 'connections' }).click()
 
-    // Provider card should be visible with connected status
-    const providerCard = page.locator('.provider-card').first()
-    await expect(providerCard).toBeVisible()
+    // Find the Anthropic provider card
+    const providerCard = page.locator('.provider-card').filter({ hasText: 'Anthropic' })
+    await expect(providerCard).toBeVisible({ timeout: 10_000 })
     await expect(providerCard.locator('.tag-ok', { hasText: 'CONNECTED' })).toBeVisible()
 
     // Account list should render with account labels
@@ -355,10 +358,9 @@ test.describe('Providers page — Multi-Account', () => {
     await setupProviderMocks(page)
     await navigateTo(page, '/providers')
 
-    // Expand the Anthropic tree node
-    await page.locator('.tree-node-toggle', { hasText: 'Anthropic' }).click()
+    await page.locator('button', { hasText: 'connections' }).click()
 
-    const providerCard = page.locator('.provider-card').first()
+    const providerCard = page.locator('.provider-card').filter({ hasText: 'Anthropic' })
     await expect(providerCard).toBeVisible()
 
     const connectAnotherBtn = providerCard.locator('.btn-save', { hasText: '$ connect another' })
@@ -369,10 +371,9 @@ test.describe('Providers page — Multi-Account', () => {
     await setupProviderMocks(page)
     await navigateTo(page, '/providers')
 
-    // Expand the Anthropic tree node
-    await page.locator('.tree-node-toggle', { hasText: 'Anthropic' }).click()
+    await page.locator('button', { hasText: 'connections' }).click()
 
-    const providerCard = page.locator('.provider-card').first()
+    const providerCard = page.locator('.provider-card').filter({ hasText: 'Anthropic' })
     await expect(providerCard).toBeVisible()
 
     // personal-key has requests_remaining = 42
@@ -388,23 +389,21 @@ test.describe('Providers page — Multi-Account', () => {
     await setupProviderMocks(page)
     await navigateTo(page, '/providers')
 
-    // Expand the Anthropic tree node
-    await page.locator('.tree-node-toggle', { hasText: 'Anthropic' }).click()
+    await page.locator('button', { hasText: 'connections' }).click()
 
-    const providerCard = page.locator('.provider-card').first()
+    const providerCard = page.locator('.provider-card').filter({ hasText: 'Anthropic' })
     await expect(providerCard).toBeVisible()
 
     const personalRow = providerCard.locator('.account-row').filter({ hasText: 'personal-key' })
     await expect(personalRow).toBeVisible()
 
-    // Accept the confirm dialog
-    page.on('dialog', (dialog) => {
-      expect(dialog.message()).toContain('Remove account')
-      dialog.accept()
-    })
-
     // Click remove
-    await personalRow.locator('.device-code-cancel', { hasText: 'remove' }).click()
+    await personalRow.locator('.btn-danger', { hasText: 'remove' }).click()
+
+    // ConfirmDialog should appear — click the modal confirm button
+    const confirmBtn = page.locator('button.btn-modal-confirm')
+    await expect(confirmBtn).toBeVisible()
+    await confirmBtn.click()
 
     // Verify success toast
     await expectToastMessage(page, 'removed', 'success')
@@ -414,10 +413,9 @@ test.describe('Providers page — Multi-Account', () => {
     await setupProviderMocks(page, { connected: false, accounts: [], rateLimits: [] })
     await navigateTo(page, '/providers')
 
-    // Expand the Anthropic tree node
-    await page.locator('.tree-node-toggle', { hasText: 'Anthropic' }).click()
+    await page.locator('button', { hasText: 'connections' }).click()
 
-    const providerCard = page.locator('.provider-card').first()
+    const providerCard = page.locator('.provider-card').filter({ hasText: 'Anthropic' })
     await expect(providerCard).toBeVisible()
     await expect(providerCard.locator('.tag-err', { hasText: 'NOT CONNECTED' })).toBeVisible()
 
@@ -430,13 +428,12 @@ test.describe('Providers page — Multi-Account', () => {
     await setupProviderMocks(page)
     await navigateTo(page, '/providers')
 
-    // Expand the Anthropic tree node
-    await page.locator('.tree-node-toggle', { hasText: 'Anthropic' }).click()
+    await page.locator('button', { hasText: 'connections' }).click()
 
-    const providerCard = page.locator('.provider-card').first()
+    const providerCard = page.locator('.provider-card').filter({ hasText: 'Anthropic' })
     await expect(providerCard).toBeVisible()
 
-    const disconnectBtn = providerCard.locator('.device-code-cancel', { hasText: '$ disconnect all' })
+    const disconnectBtn = providerCard.locator('.btn-danger', { hasText: '$ disconnect all' })
     await expect(disconnectBtn).toBeVisible()
   })
 })

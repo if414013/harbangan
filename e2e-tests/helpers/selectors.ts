@@ -3,7 +3,7 @@
 export const Nav = {
   link: 'a.nav-link',
   linkActive: 'a.nav-link.active',
-  logout: 'button.btn-logout',
+  logout: 'button.btn-logout[title="Sign out"]',
 } as const
 
 export const Card = {
