@@ -89,7 +89,28 @@ test.describe('Admin page — domain manager', () => {
 
 // ── Provider pool rendering tests ───────────────────────────────────
 
+const mockRegistry = {
+  providers: [
+    { id: 'kiro', display_name: 'Kiro', category: 'device_code', supports_pool: true },
+    { id: 'anthropic', display_name: 'Anthropic', category: 'oauth_relay', supports_pool: true },
+    { id: 'openai_codex', display_name: 'OpenAI Codex', category: 'oauth_relay', supports_pool: true },
+    { id: 'copilot', display_name: 'Copilot', category: 'device_code', supports_pool: true },
+    { id: 'qwen', display_name: 'Qwen', category: 'device_code', supports_pool: true },
+  ],
+}
+
 test.describe('Admin page — provider pool', () => {
+  test.beforeEach(async ({ page }) => {
+    // Admin page fetches provider registry to populate pool dropdown
+    await page.route('**/api/providers/registry', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockRegistry),
+      })
+    })
+  })
+
   test('pool form has provider select, label, key, and base URL inputs', async ({ page }) => {
     await navigateTo(page, '/admin')
 

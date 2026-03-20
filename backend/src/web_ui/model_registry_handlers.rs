@@ -6,6 +6,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::providers::types::ProviderId;
 use crate::routes::AppState;
 use crate::web_ui::config_db::RegistryModel;
 
@@ -179,7 +180,10 @@ async fn populate_models(
     let providers: Vec<&str> = if let Some(ref pid) = body.provider_id {
         vec![pid.as_str()]
     } else {
-        vec!["anthropic", "openai_codex", "qwen", "copilot", "kiro"]
+        ProviderId::all_visible()
+            .iter()
+            .map(|p| p.as_str())
+            .collect()
     };
 
     let mut total_upserted = 0usize;

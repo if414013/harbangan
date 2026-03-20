@@ -1,3 +1,4 @@
+import type { ComponentType } from "react";
 import { KiroSetup } from "../../components/KiroSetup";
 import { CopilotSetup } from "../../components/CopilotSetup";
 import { QwenSetup } from "../../components/QwenSetup";
@@ -9,7 +10,11 @@ import type {
   RateLimitInfo,
 } from "../../lib/api";
 
-const MULTI_ACCOUNT_PROVIDERS = ["anthropic", "openai_codex"] as const;
+const DEVICE_CODE_COMPONENTS: Record<string, ComponentType> = {
+  kiro: KiroSetup,
+  copilot: CopilotSetup,
+  qwen: QwenSetup,
+};
 
 interface ConnectionsTabProps {
   providerStatus: ProvidersStatusResponse | null;
@@ -17,6 +22,8 @@ interface ConnectionsTabProps {
   rateLimits: RateLimitInfo[];
   isAdmin: boolean;
   onRefresh: () => void;
+  multiAccountProviders: string[];
+  deviceCodeProviders: string[];
 }
 
 export function ConnectionsTab({
@@ -25,28 +32,29 @@ export function ConnectionsTab({
   rateLimits,
   isAdmin,
   onRefresh,
+  multiAccountProviders,
+  deviceCodeProviders,
 }: ConnectionsTabProps) {
   return (
     <div className="provider-sections">
       <div>
         <h2 className="section-header">Device Code Providers</h2>
         <div className="provider-tree">
-          <div style={{ marginBottom: 12 }}>
-            <KiroSetup />
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <CopilotSetup />
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <QwenSetup />
-          </div>
+          {deviceCodeProviders.map((id) => {
+            const C = DEVICE_CODE_COMPONENTS[id];
+            return C ? (
+              <div key={id} style={{ marginBottom: 12 }}>
+                <C />
+              </div>
+            ) : null;
+          })}
         </div>
       </div>
 
       <div>
         <h2 className="section-header">Multi-Account Providers</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {MULTI_ACCOUNT_PROVIDERS.map((p) => {
+          {multiAccountProviders.map((p) => {
             const info = providerStatus?.providers[p];
             return (
               <ProviderCard

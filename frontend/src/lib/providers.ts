@@ -1,10 +1,15 @@
-import type { RegistryModel } from "./api";
+import type { RegistryModel, ProviderRegistryEntry } from "./api";
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   openai_codex: "OpenAI Codex",
 };
 
-export function providerDisplayName(id: string): string {
+export function providerDisplayName(
+  id: string,
+  registry?: ProviderRegistryEntry[],
+): string {
+  const entry = registry?.find((p) => p.id === id);
+  if (entry) return entry.display_name;
   return PROVIDER_DISPLAY_NAMES[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
 }
 

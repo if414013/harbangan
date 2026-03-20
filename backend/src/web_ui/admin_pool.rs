@@ -4,7 +4,10 @@ use axum::{Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use std::str::FromStr;
+
 use crate::error::ApiError;
+use crate::providers::types::ProviderId;
 use crate::routes::{AppState, SessionInfo};
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -92,13 +95,12 @@ async fn add_pool_account(
         .as_ref()
         .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("No database configured")))?;
 
-    // Validate provider_id
-    let valid_providers = ["kiro", "anthropic", "openai_codex", "copilot", "qwen"];
-    if !valid_providers.contains(&payload.provider_id.as_str()) {
+    // Validate provider_id via enum
+    let pid = ProviderId::from_str(&payload.provider_id).map_err(ApiError::ValidationError)?;
+    if !pid.supports_pool() {
         return Err(ApiError::ValidationError(format!(
-            "Invalid provider_id: {}. Must be one of: {}",
-            payload.provider_id,
-            valid_providers.join(", ")
+            "Provider '{}' does not support pool accounts",
+            payload.provider_id
         )));
     }
 
@@ -269,4 +271,36 @@ pub fn user_account_routes() -> Router<AppState> {
 /// Rate limit monitoring route (session-authenticated).
 pub fn rate_limit_routes() -> Router<AppState> {
     Router::new().route("/providers/rate-limits", get(get_rate_limits))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use crate::providers::types::ProviderId;
+
+    #[test]
+    fn test_pool_valid_providers_pass() {
+        // anthropic and kiro are valid pool providers
+        for name in &["anthropic", "kiro"] {
+            let pid = ProviderId::from_str(name).unwrap();
+            assert!(pid.supports_pool(), "{} should support pool", name);
+        }
+    }
+
+    #[test]
+    fn test_pool_custom_provider_rejected() {
+        // "custom" parses but doesn't support pool
+        let pid = ProviderId::from_str("custom").unwrap();
+        assert!(!pid.supports_pool(), "custom should not support pool");
+    }
+
+    #[test]
+    fn test_pool_unknown_provider_rejected() {
+        // "gemini" is not a valid ProviderId at all
+        assert!(
+            ProviderId::from_str("gemini").is_err(),
+            "gemini should fail from_str"
+        );
+    }
 }

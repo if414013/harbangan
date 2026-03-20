@@ -575,14 +575,6 @@ impl ProviderRegistry {
         }
     }
 
-    /// Return the set of provider IDs that have proxy credentials configured.
-    pub fn configured_proxy_providers(&self) -> Vec<ProviderId> {
-        match &self.proxy_credentials {
-            Some(creds) => creds.keys().cloned().collect(),
-            None => Vec::new(),
-        }
-    }
-
     /// Return the custom model names configured for proxy mode.
     pub fn custom_model_names(&self) -> &HashSet<String> {
         &self.custom_models
@@ -604,14 +596,15 @@ impl ProviderRegistry {
     ) {
         let mut creds_map = HashMap::new();
         let mut expires_map = HashMap::new();
-        for provider_str in &["anthropic", "openai_codex", "qwen"] {
+        for pid in ProviderId::all_visible() {
+            let provider_str = pid.as_str();
             if let Ok(Some((access_token, _refresh_token, expires_at, _email))) =
                 db.get_user_provider_token(user_id, provider_str).await
             {
                 // Only include tokens that haven't fully expired
                 let now = Utc::now();
                 if expires_at > now {
-                    let (provider, base_url) = match *provider_str {
+                    let (provider, base_url) = match provider_str {
                         "anthropic" => (ProviderId::Anthropic, None),
                         "openai_codex" => (ProviderId::OpenAICodex, None),
                         "qwen" => {
@@ -1898,22 +1891,6 @@ mod tests {
     fn test_new_with_proxy_non_empty_creds_sets_some() {
         let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), HashSet::new());
         assert!(registry.proxy_credentials.is_some());
-    }
-
-    #[test]
-    fn test_configured_proxy_providers_empty() {
-        let registry = ProviderRegistry::new();
-        assert!(registry.configured_proxy_providers().is_empty());
-    }
-
-    #[test]
-    fn test_configured_proxy_providers_returns_configured() {
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), HashSet::new());
-        let providers = registry.configured_proxy_providers();
-        assert!(providers.contains(&ProviderId::Anthropic));
-        assert!(providers.contains(&ProviderId::OpenAICodex));
-        assert!(providers.contains(&ProviderId::Custom));
-        assert_eq!(providers.len(), 3);
     }
 
     #[test]

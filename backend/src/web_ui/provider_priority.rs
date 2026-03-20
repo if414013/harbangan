@@ -3,7 +3,10 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
+use std::str::FromStr;
+
 use crate::error::ApiError;
+use crate::providers::types::ProviderId;
 use crate::routes::{AppState, SessionInfo};
 
 // ── Types ────────────────────────────────────────────────────────
@@ -64,8 +67,6 @@ async fn get_priority(
 
 // ── POST /providers/priority ─────────────────────────────────────
 
-const VALID_PROVIDERS: &[&str] = &["kiro", "anthropic", "openai_codex", "copilot", "qwen"];
-
 async fn update_priority(
     State(state): State<AppState>,
     request: axum::http::Request<axum::body::Body>,
@@ -85,12 +86,9 @@ async fn update_priority(
 
     // Validate
     for p in &payload.priorities {
-        if !VALID_PROVIDERS.contains(&p.provider_id.as_str()) {
-            return Err(ApiError::ValidationError(format!(
-                "Unknown provider: {}",
-                p.provider_id
-            )));
-        }
+        ProviderId::from_str(&p.provider_id).map_err(|_| {
+            ApiError::ValidationError(format!("Invalid provider: {}", p.provider_id))
+        })?;
     }
 
     let db = state.require_config_db()?;
@@ -190,14 +188,15 @@ mod tests {
     }
 
     #[test]
-    fn test_valid_providers_list() {
-        assert!(VALID_PROVIDERS.contains(&"kiro"));
-        assert!(VALID_PROVIDERS.contains(&"anthropic"));
-        assert!(VALID_PROVIDERS.contains(&"openai_codex"));
-        assert!(!VALID_PROVIDERS.contains(&"gemini"));
-        assert!(VALID_PROVIDERS.contains(&"copilot"));
-        assert!(VALID_PROVIDERS.contains(&"qwen"));
-        assert!(!VALID_PROVIDERS.contains(&"azure"));
+    fn test_valid_providers_via_provider_id() {
+        use std::str::FromStr;
+        assert!(ProviderId::from_str("kiro").is_ok());
+        assert!(ProviderId::from_str("anthropic").is_ok());
+        assert!(ProviderId::from_str("openai_codex").is_ok());
+        assert!(ProviderId::from_str("gemini").is_err());
+        assert!(ProviderId::from_str("copilot").is_ok());
+        assert!(ProviderId::from_str("qwen").is_ok());
+        assert!(ProviderId::from_str("azure").is_err());
     }
 
     #[test]
@@ -210,9 +209,9 @@ mod tests {
     // ── 6.7: Qwen in VALID_PROVIDERS ────────────────────────────────
 
     #[test]
-    fn test_valid_providers_count() {
-        // Ensure we have exactly 5 providers (kiro, anthropic, openai_codex, copilot, qwen)
-        assert_eq!(VALID_PROVIDERS.len(), 5);
+    fn test_all_visible_providers_count() {
+        // Ensure we have exactly 5 visible providers (kiro, anthropic, openai_codex, copilot, qwen)
+        assert_eq!(ProviderId::all_visible().len(), 5);
     }
 
     #[test]
@@ -244,10 +243,11 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_provider_not_in_valid_list() {
+    fn test_invalid_provider_rejected_by_provider_id() {
+        use std::str::FromStr;
         // Verify that made-up providers are rejected
-        assert!(!VALID_PROVIDERS.contains(&"qwen2"));
-        assert!(!VALID_PROVIDERS.contains(&"qwq"));
-        assert!(!VALID_PROVIDERS.contains(&"dashscope"));
+        assert!(ProviderId::from_str("qwen2").is_err());
+        assert!(ProviderId::from_str("qwq").is_err());
+        assert!(ProviderId::from_str("dashscope").is_err());
     }
 }

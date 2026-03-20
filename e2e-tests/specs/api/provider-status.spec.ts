@@ -37,6 +37,64 @@ test.describe('Provider Status — Shape Tests', () => {
   });
 });
 
+test.describe('Provider Registry — Shape Tests', () => {
+  test('GET /providers/registry returns providers array with correct shape', async ({ request }) => {
+    await adminLogin(request);
+
+    const res = await request.get('/_ui/api/providers/registry');
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+
+    expect(body).toHaveProperty('providers');
+    expect(Array.isArray(body.providers)).toBe(true);
+    expect(body.providers.length).toBe(5);
+
+    // Each entry must have id, display_name, category, supports_pool
+    for (const entry of body.providers) {
+      expect(typeof entry.id).toBe('string');
+      expect(typeof entry.display_name).toBe('string');
+      expect(typeof entry.category).toBe('string');
+      expect(typeof entry.supports_pool).toBe('boolean');
+      expect(['device_code', 'oauth_relay']).toContain(entry.category);
+    }
+
+    // Verify specific providers are present
+    const ids = body.providers.map((p: { id: string }) => p.id);
+    expect(ids).toContain('kiro');
+    expect(ids).toContain('anthropic');
+    expect(ids).toContain('openai_codex');
+    expect(ids).toContain('copilot');
+    expect(ids).toContain('qwen');
+  });
+
+  test('registry providers have correct categories', async ({ request }) => {
+    await adminLogin(request);
+
+    const res = await request.get('/_ui/api/providers/registry');
+    const body = await res.json();
+    const byId = Object.fromEntries(
+      body.providers.map((p: { id: string; category: string }) => [p.id, p])
+    );
+
+    expect(byId.anthropic.category).toBe('oauth_relay');
+    expect(byId.openai_codex.category).toBe('oauth_relay');
+    expect(byId.kiro.category).toBe('device_code');
+    expect(byId.copilot.category).toBe('device_code');
+    expect(byId.qwen.category).toBe('device_code');
+  });
+
+  test('all registry providers support pool', async ({ request }) => {
+    await adminLogin(request);
+
+    const res = await request.get('/_ui/api/providers/registry');
+    const body = await res.json();
+
+    for (const entry of body.providers) {
+      expect(entry.supports_pool).toBe(true);
+    }
+  });
+});
+
 test.describe('Provider Priority — Lifecycle', () => {
   let csrfToken: string;
   let originalPriorities: unknown;

@@ -590,10 +590,9 @@ async fn populate_all_providers(
     auth_manager: &Arc<tokio::sync::RwLock<auth::AuthManager>>,
     model_cache: &cache::ModelCache,
 ) {
-    let providers = ["anthropic", "openai_codex", "qwen", "copilot", "kiro"];
-
-    for provider_id in &providers {
-        let auth = if *provider_id == "kiro" {
+    for pid in providers::types::ProviderId::all_visible() {
+        let provider_id = pid.as_str();
+        let auth = if provider_id == "kiro" {
             let guard = auth_manager.read().await;
             if guard.has_credentials().await {
                 // Cannot hold the guard across populate_provider, so fetch kiro directly

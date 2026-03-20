@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use async_trait::async_trait;
 use axum::extract::{Path, Query, State};
 use axum::routing::{delete, get, post};
@@ -8,6 +10,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::error::ApiError;
+use crate::providers::types::ProviderId;
 use crate::routes::{AppState, SessionInfo};
 
 // ── Provider OAuth Pending State ─────────────────────────────────────
@@ -120,15 +123,16 @@ fn get_provider_config(
     }
 }
 
-/// Validate that a provider path param is one of the supported providers.
+/// Validate that a provider path param is a known oauth_relay provider.
 fn validate_provider(provider: &str) -> Result<(), ApiError> {
-    match provider {
-        "anthropic" | "openai_codex" => Ok(()),
-        _ => Err(ApiError::ValidationError(format!(
-            "Unknown provider: {}. Must be one of: anthropic, openai_codex",
+    let pid = ProviderId::from_str(provider).map_err(ApiError::ValidationError)?;
+    if pid.category() != "oauth_relay" {
+        return Err(ApiError::ValidationError(format!(
+            "Provider '{}' does not support OAuth relay connection",
             provider
-        ))),
+        )));
     }
+    Ok(())
 }
 
 /// Validate that a domain string is safe for shell interpolation.
@@ -482,6 +486,19 @@ struct ProvidersStatusResponse {
 }
 
 #[derive(Serialize)]
+struct ProviderRegistryEntry {
+    id: &'static str,
+    display_name: &'static str,
+    category: &'static str,
+    supports_pool: bool,
+}
+
+#[derive(Serialize)]
+struct ProviderRegistryResponse {
+    providers: Vec<ProviderRegistryEntry>,
+}
+
+#[derive(Serialize)]
 struct ConnectResponse {
     relay_script_url: String,
 }
@@ -505,6 +522,20 @@ const RELAY_TOKEN_TTL_SECS: i64 = 600;
 /// Max pending relay tokens per DashMap (prevent memory exhaustion).
 const MAX_PENDING_RELAYS: usize = 10_000;
 
+/// GET /_ui/api/providers/registry — returns all visible providers with metadata.
+async fn providers_registry() -> Json<ProviderRegistryResponse> {
+    let providers = ProviderId::all_visible()
+        .iter()
+        .map(|p| ProviderRegistryEntry {
+            id: p.as_str(),
+            display_name: p.display_name(),
+            category: p.category(),
+            supports_pool: p.supports_pool(),
+        })
+        .collect();
+    Json(ProviderRegistryResponse { providers })
+}
+
 /// GET /_ui/api/providers/status
 async fn providers_status(
     State(state): State<AppState>,
@@ -521,11 +552,14 @@ async fn providers_status(
     let connected_map: std::collections::HashMap<String, String> = connected.into_iter().collect();
 
     let mut providers = serde_json::Map::new();
-    for pid in &["anthropic", "openai_codex"] {
-        let email = connected_map.get(*pid).cloned();
+    for pid in ProviderId::all_visible()
+        .iter()
+        .filter(|p| p.category() == "oauth_relay")
+    {
+        let email = connected_map.get(pid.as_str()).cloned();
         let connected = email.is_some();
         providers.insert(
-            pid.to_string(),
+            pid.as_str().to_string(),
             serde_json::to_value(ProviderStatusInfo { connected, email }).unwrap_or_default(),
         );
     }
@@ -929,6 +963,7 @@ async fn disconnect_provider(
 /// Relay routes (relay-script, relay callback): authenticated by relay_token, no session needed.
 pub fn provider_oauth_routes() -> Router<AppState> {
     Router::new()
+        .route("/providers/registry", get(providers_registry))
         .route("/providers/status", get(providers_status))
         .route("/providers/:provider/connect", get(provider_connect))
         .route("/providers/:provider", delete(disconnect_provider))
@@ -948,17 +983,50 @@ mod tests {
     use dashmap::DashMap;
 
     #[test]
-    fn test_validate_provider_valid() {
+    fn test_validate_provider_valid_oauth_relay() {
         assert!(validate_provider("anthropic").is_ok());
         assert!(validate_provider("openai_codex").is_ok());
     }
 
     #[test]
-    fn test_validate_provider_invalid() {
+    fn test_validate_provider_rejects_non_oauth_relay() {
+        // device_code providers are valid ProviderId but not oauth_relay
         assert!(validate_provider("kiro").is_err());
+        assert!(validate_provider("copilot").is_err());
+        assert!(validate_provider("qwen").is_err());
+    }
+
+    #[test]
+    fn test_validate_provider_rejects_unknown() {
         assert!(validate_provider("gemini").is_err());
         assert!(validate_provider("foobar").is_err());
         assert!(validate_provider("").is_err());
+    }
+
+    #[test]
+    fn test_providers_registry_response() {
+        let resp = ProviderId::all_visible()
+            .iter()
+            .map(|p| ProviderRegistryEntry {
+                id: p.as_str(),
+                display_name: p.display_name(),
+                category: p.category(),
+                supports_pool: p.supports_pool(),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(resp.len(), 5);
+        let ids: Vec<&str> = resp.iter().map(|e| e.id).collect();
+        assert!(ids.contains(&"anthropic"));
+        assert!(ids.contains(&"openai_codex"));
+        assert!(ids.contains(&"kiro"));
+        assert!(ids.contains(&"copilot"));
+        assert!(ids.contains(&"qwen"));
+        // Verify category values
+        let anthropic = resp.iter().find(|e| e.id == "anthropic").unwrap();
+        assert_eq!(anthropic.category, "oauth_relay");
+        assert!(anthropic.supports_pool);
+        let kiro = resp.iter().find(|e| e.id == "kiro").unwrap();
+        assert_eq!(kiro.category, "device_code");
     }
 
     #[test]
@@ -1178,7 +1246,12 @@ mod tests {
     #[test]
     fn test_providers_status_response_structure() {
         let mut providers = serde_json::Map::new();
-        for pid in &["anthropic", "openai_codex"] {
+        let oauth_relay_providers: Vec<&str> = ProviderId::all_visible()
+            .iter()
+            .filter(|p| p.category() == "oauth_relay")
+            .map(|p| p.as_str())
+            .collect();
+        for pid in &oauth_relay_providers {
             providers.insert(
                 pid.to_string(),
                 serde_json::to_value(ProviderStatusInfo {

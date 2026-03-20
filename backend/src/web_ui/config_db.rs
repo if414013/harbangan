@@ -415,6 +415,10 @@ impl ConfigDb {
             self.migrate_to_v20().await?;
         }
 
+        if max_version.unwrap_or(1) < 21 {
+            self.migrate_to_v21().await?;
+        }
+
         Ok(())
     }
 
@@ -2930,6 +2934,66 @@ impl ConfigDb {
             .context("Failed to commit v20 migration")?;
 
         tracing::info!("Database migration to version 20 complete");
+        Ok(())
+    }
+
+    // v21: DROP CHECK constraints on provider_id columns.
+    // Validation moved to Rust via ProviderId::from_str() — the enum is the single
+    // source of truth for valid providers. DB constraints were removed to avoid
+    // maintaining parallel validation in both SQL and Rust.
+    async fn migrate_to_v21(&self) -> Result<()> {
+        tracing::info!(
+            "Running database migration to version 21 (drop provider_id CHECK constraints)..."
+        );
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v21 migration transaction")?;
+
+        // Drop hardcoded CHECK constraints on provider_id columns.
+        // Validation now happens in Rust via ProviderId::from_str().
+        for table in &[
+            "user_provider_tokens",
+            "model_routes",
+            "admin_provider_pool",
+        ] {
+            let drop_sql = format!(
+                "DO $$
+                DECLARE r RECORD;
+                BEGIN
+                    FOR r IN
+                        SELECT con.conname
+                        FROM pg_constraint con
+                        JOIN pg_class rel ON rel.oid = con.conrelid
+                        JOIN pg_attribute att ON att.attrelid = rel.oid
+                            AND att.attnum = ANY(con.conkey)
+                        WHERE rel.relname = '{table}'
+                          AND att.attname = 'provider_id'
+                          AND con.contype = 'c'
+                    LOOP
+                        EXECUTE 'ALTER TABLE {table} DROP CONSTRAINT ' || r.conname;
+                    END LOOP;
+                END $$"
+            );
+            sqlx::query(&drop_sql)
+                .execute(&mut *tx)
+                .await
+                .context(format!("Failed to drop provider_id CHECK on {}", table))?;
+        }
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(21_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 21")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit v21 migration")?;
+
+        tracing::info!("Database migration to version 21 complete");
         Ok(())
     }
 

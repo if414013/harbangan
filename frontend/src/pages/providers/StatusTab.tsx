@@ -2,18 +2,11 @@ import { ProviderHealthCard } from "../../components/ProviderHealthCard";
 import { providerDisplayName } from "../../lib/providers";
 import type {
   ProvidersStatusResponse,
+  ProviderRegistryEntry,
   RegistryModel,
   UserProviderAccount,
   RateLimitInfo,
 } from "../../lib/api";
-
-const ALL_PROVIDERS = [
-  "kiro",
-  "copilot",
-  "qwen",
-  "anthropic",
-  "openai_codex",
-] as const;
 
 interface StatusTabProps {
   providerStatus: ProvidersStatusResponse | null;
@@ -24,6 +17,8 @@ interface StatusTabProps {
   copilotConnected: boolean;
   qwenConnected: boolean;
   onNavigate: (providerId: string) => void;
+  allProviders: string[];
+  registry: ProviderRegistryEntry[];
 }
 
 export function StatusTab({
@@ -35,6 +30,8 @@ export function StatusTab({
   copilotConnected,
   qwenConnected,
   onNavigate,
+  allProviders,
+  registry,
 }: StatusTabProps) {
   function isConnected(id: string): boolean {
     if (id === "kiro") return kiroConnected;
@@ -55,16 +52,16 @@ export function StatusTab({
     return rateLimits.filter((r) => r.provider_id === id);
   }
 
-  const connectedCount = ALL_PROVIDERS.filter((p) => isConnected(p)).length;
+  const connectedCount = allProviders.filter((p) => isConnected(p)).length;
   const enabledModels = models.filter((m) => m.enabled).length;
 
   return (
     <>
       <div className="health-grid">
-        {ALL_PROVIDERS.map((p) => (
+        {allProviders.map((p) => (
           <ProviderHealthCard
             key={p}
-            name={providerDisplayName(p)}
+            name={providerDisplayName(p, registry)}
             providerId={p}
             connected={isConnected(p)}
             modelCount={getModelCount(p)}
@@ -80,7 +77,7 @@ export function StatusTab({
           total
         </span>
         <span className="summary-bar-stat">
-          <strong>{connectedCount}</strong>/{ALL_PROVIDERS.length} providers
+          <strong>{connectedCount}</strong>/{allProviders.length} providers
           connected
         </span>
       </div>
