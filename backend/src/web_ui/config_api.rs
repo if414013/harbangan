@@ -1032,7 +1032,11 @@ mod tests {
 
     #[test]
     fn test_validate_google_client_id_valid() {
-        assert!(validate_config_field("google_client_id", &json!("some-client-id.apps.googleusercontent.com")).is_ok());
+        assert!(validate_config_field(
+            "google_client_id",
+            &json!("some-client-id.apps.googleusercontent.com")
+        )
+        .is_ok());
     }
 
     #[test]
@@ -1066,11 +1070,13 @@ mod tests {
         assert!(validate_config_field(
             "google_callback_url",
             &json!("http://localhost:9999/_ui/api/auth/google/callback")
-        ).is_ok());
+        )
+        .is_ok());
         assert!(validate_config_field(
             "google_callback_url",
             &json!("https://myapp.example.com/_ui/api/auth/google/callback")
-        ).is_ok());
+        )
+        .is_ok());
     }
 
     #[test]
@@ -1092,12 +1098,19 @@ mod tests {
 
     #[test]
     fn test_validate_google_callback_url_control_chars_rejected() {
-        assert!(validate_config_field("google_callback_url", &json!("http://example.com\n/callback")).is_err());
+        assert!(validate_config_field(
+            "google_callback_url",
+            &json!("http://example.com\n/callback")
+        )
+        .is_err());
     }
 
     #[test]
     fn test_validate_google_client_secret_valid() {
-        assert!(validate_config_field("google_client_secret", &json!("GOCSPX-some-secret-value")).is_ok());
+        assert!(
+            validate_config_field("google_client_secret", &json!("GOCSPX-some-secret-value"))
+                .is_ok()
+        );
     }
 
     #[test]

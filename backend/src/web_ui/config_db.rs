@@ -1025,6 +1025,12 @@ impl ConfigDb {
                 "google_client_id" => config.google_client_id = value.clone(),
                 "google_client_secret" => config.google_client_secret = value.clone(),
                 "google_callback_url" => config.google_callback_url = value.clone(),
+                "auth_google_enabled" => {
+                    config.auth_google_enabled = value == "true";
+                }
+                "auth_password_enabled" => {
+                    config.auth_password_enabled = value == "true";
+                }
                 _ => {}
             }
         }

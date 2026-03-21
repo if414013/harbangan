@@ -87,10 +87,14 @@ pub struct Config {
     #[allow(dead_code)]
     pub openai_oauth_client_id: String,
 
-    // Google SSO (bootstrap from env vars)
+    // Google SSO (DB-backed, loaded via load_into_config)
     pub google_client_id: String,
     pub google_client_secret: String,
     pub google_callback_url: String,
+
+    // Auth toggles (DB-backed, loaded via load_into_config)
+    pub auth_google_enabled: bool,
+    pub auth_password_enabled: bool,
 
     // Initial admin seeding (env vars, used by validate to allow password-only auth)
     pub initial_admin_email: Option<String>,
@@ -196,6 +200,8 @@ impl Config {
             google_client_id: String::new(),
             google_client_secret: String::new(),
             google_callback_url: String::new(),
+            auth_google_enabled: false,
+            auth_password_enabled: true,
             initial_admin_email: None,
             initial_admin_password: None,
         }

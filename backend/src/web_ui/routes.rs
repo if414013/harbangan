@@ -63,28 +63,8 @@ fn mask_sensitive(value: &str) -> String {
 pub async fn get_config(State(state): State<AppState>) -> Json<Value> {
     let setup_complete = state.setup_complete.load(Ordering::Relaxed);
 
-    // Clone the config snapshot and drop the read guard before any .await
+    // Clone the config snapshot — auth toggles are cached here via load_into_config
     let config = state.config.read().unwrap().clone();
-
-    // Read DB-only toggle keys
-    let auth_google_enabled = if let Some(ref db) = state.config_db {
-        db.get("auth_google_enabled")
-            .await
-            .unwrap_or(None)
-            .map(|v| v == "true")
-            .unwrap_or(false)
-    } else {
-        false
-    };
-    let auth_password_enabled = if let Some(ref db) = state.config_db {
-        db.get("auth_password_enabled")
-            .await
-            .unwrap_or(None)
-            .map(|v| v == "true")
-            .unwrap_or(true)
-    } else {
-        true
-    };
 
     Json(json!({
         "setup_complete": setup_complete,
@@ -113,11 +93,18 @@ pub async fn get_config(State(state): State<AppState>) -> Json<Value> {
             "google_client_secret": if config.google_client_secret.is_empty() {
                 String::new()
             } else {
-                mask_sensitive(&config.google_client_secret)
+                // Use "••••" prefix to match sentinel detection in PUT handler
+                let chars: Vec<char> = config.google_client_secret.chars().collect();
+                if chars.len() > 4 {
+                    let suffix: String = chars[chars.len() - 4..].iter().collect();
+                    format!("••••{}", suffix)
+                } else {
+                    "••••".to_string()
+                }
             },
             "google_callback_url": config.google_callback_url,
-            "auth_google_enabled": auth_google_enabled,
-            "auth_password_enabled": auth_password_enabled,
+            "auth_google_enabled": config.auth_google_enabled,
+            "auth_password_enabled": config.auth_password_enabled,
         }
     }))
 }
@@ -130,6 +117,76 @@ pub async fn update_config(
     // Validate all fields first
     for (key, value) in &updates {
         validate_config_field(key, value).map_err(ApiError::ValidationError)?;
+    }
+
+    // Cross-field validation: prevent disabling both auth methods
+    if let Some(ref config_db) = state.config_db {
+        // Read current DB state for both toggles
+        let current_google_enabled = config_db
+            .get("auth_google_enabled")
+            .await
+            .unwrap_or(None)
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        let current_password_enabled = config_db
+            .get("auth_password_enabled")
+            .await
+            .unwrap_or(None)
+            .map(|v| v == "true")
+            .unwrap_or(true);
+
+        // Check if Google SSO is fully configured
+        let google_configured = {
+            let config = state.config.read().unwrap_or_else(|p| p.into_inner());
+            !config.google_client_id.is_empty()
+                && !config.google_client_secret.is_empty()
+                && !config.google_callback_url.is_empty()
+        };
+
+        // Apply proposed changes on top of current state
+        let mut proposed_google = current_google_enabled;
+        let mut proposed_password = current_password_enabled;
+        let mut proposed_google_configured = google_configured;
+
+        for (key, value) in &updates {
+            let val_str = match value {
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            match key.as_str() {
+                "auth_google_enabled" => proposed_google = val_str == "true",
+                "auth_password_enabled" => proposed_password = val_str == "true",
+                // Clearing any SSO credential field breaks google_configured
+                "google_client_id" | "google_client_secret" | "google_callback_url" => {
+                    if val_str.is_empty() {
+                        proposed_google_configured = false;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Reject if both would be disabled
+        if !proposed_password && !proposed_google {
+            return Err(ApiError::ValidationError(
+                "Cannot disable both authentication methods".to_string(),
+            ));
+        }
+
+        // Reject if disabling password when Google SSO isn't fully configured
+        if !proposed_password && (!proposed_google || !proposed_google_configured) {
+            return Err(ApiError::ValidationError(
+                "Cannot disable password auth when Google SSO is not fully configured and enabled"
+                    .to_string(),
+            ));
+        }
+
+        // Reject clearing SSO fields when password is disabled
+        if !proposed_password && !proposed_google_configured && google_configured {
+            return Err(ApiError::ValidationError(
+                "Cannot clear Google SSO credentials when password auth is disabled".to_string(),
+            ));
+        }
     }
 
     let mut updated = Vec::new();
@@ -277,6 +334,20 @@ fn apply_config_field(state: &AppState, key: &str, value: &Value) -> bool {
             config.openai_oauth_client_id = value_str;
             true
         }
+        "auth_google_enabled" => match value_str.parse() {
+            Ok(v) => {
+                config.auth_google_enabled = v;
+                true
+            }
+            Err(_) => false,
+        },
+        "auth_password_enabled" => match value_str.parse() {
+            Ok(v) => {
+                config.auth_password_enabled = v;
+                true
+            }
+            Err(_) => false,
+        },
         "google_client_id" => {
             config.google_client_id = value_str;
             true
@@ -521,5 +592,161 @@ mod tests {
         let password_toggle = fields["auth_password_enabled"].as_object().unwrap();
         assert_eq!(password_toggle["type"], "boolean");
         assert_eq!(password_toggle["requires_restart"], false);
+    }
+
+    // ── apply_config_field tests ────────────────────────────────────
+
+    fn create_test_state() -> AppState {
+        use crate::{
+            auth::AuthManager, cache::ModelCache, config::Config, http_client::KiroHttpClient,
+            resolver::ModelResolver,
+        };
+        use std::collections::HashMap;
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Arc;
+
+        let cache = ModelCache::new(3600);
+        let http_client = Arc::new(KiroHttpClient::new(20, 30, 300, 3).unwrap());
+        let auth_manager = Arc::new(tokio::sync::RwLock::new(
+            AuthManager::new_for_testing("test-token".to_string(), "us-east-1".to_string(), 300)
+                .unwrap(),
+        ));
+        let resolver = ModelResolver::new(cache.clone(), HashMap::new());
+        let config = Config::with_defaults();
+        let config_arc = Arc::new(std::sync::RwLock::new(config));
+
+        AppState {
+            proxy_api_key_hash: None,
+            model_cache: cache,
+            auth_manager: Arc::clone(&auth_manager),
+            http_client: Arc::clone(&http_client),
+            resolver,
+            config: Arc::clone(&config_arc),
+            setup_complete: Arc::new(AtomicBool::new(true)),
+            config_db: None,
+            session_cache: Arc::new(dashmap::DashMap::new()),
+            api_key_cache: Arc::new(dashmap::DashMap::new()),
+            kiro_token_cache: Arc::new(dashmap::DashMap::new()),
+            oauth_pending: Arc::new(dashmap::DashMap::new()),
+            guardrails_engine: None,
+            provider_registry: Arc::new(crate::providers::registry::ProviderRegistry::new()),
+            providers: crate::providers::build_provider_map(http_client, auth_manager, config_arc),
+            provider_oauth_pending: Arc::new(dashmap::DashMap::new()),
+            token_exchanger: Arc::new(
+                crate::web_ui::provider_oauth::HttpTokenExchanger::new(),
+            ),
+            login_rate_limiter: Arc::new(dashmap::DashMap::new()),
+            rate_tracker: Arc::new(crate::providers::rate_limiter::RateLimitTracker::new()),
+        }
+    }
+
+    #[test]
+    fn test_apply_config_field_google_client_id() {
+        let state = create_test_state();
+        let result =
+            apply_config_field(&state, "google_client_id", &json!("my-client-id.apps.google"));
+        assert!(result);
+        let config = state.config.read().unwrap();
+        assert_eq!(config.google_client_id, "my-client-id.apps.google");
+    }
+
+    #[test]
+    fn test_apply_config_field_google_client_id_empty() {
+        let state = create_test_state();
+        // Pre-set a value
+        state.config.write().unwrap().google_client_id = "existing-id".to_string();
+        // Clear it
+        let result = apply_config_field(&state, "google_client_id", &json!(""));
+        assert!(result);
+        let config = state.config.read().unwrap();
+        assert_eq!(config.google_client_id, "");
+    }
+
+    #[test]
+    fn test_apply_config_field_google_callback_url() {
+        let state = create_test_state();
+        let url = "http://localhost:9999/_ui/api/auth/google/callback";
+        let result = apply_config_field(&state, "google_callback_url", &json!(url));
+        assert!(result);
+        let config = state.config.read().unwrap();
+        assert_eq!(config.google_callback_url, url);
+    }
+
+    #[test]
+    fn test_apply_config_field_google_client_secret() {
+        let state = create_test_state();
+        let result =
+            apply_config_field(&state, "google_client_secret", &json!("GOCSPX-real-secret"));
+        assert!(result);
+        let config = state.config.read().unwrap();
+        assert_eq!(config.google_client_secret, "GOCSPX-real-secret");
+    }
+
+    #[test]
+    fn test_apply_config_field_google_client_secret_sentinel_dots_skipped() {
+        let state = create_test_state();
+        // Pre-set a real secret
+        state.config.write().unwrap().google_client_secret = "GOCSPX-real-secret".to_string();
+        // Apply a masked sentinel (dots prefix) — should be a no-op
+        let result =
+            apply_config_field(&state, "google_client_secret", &json!("••••cret"));
+        assert!(result); // returns true (success, not failure)
+        let config = state.config.read().unwrap();
+        // Secret must remain unchanged
+        assert_eq!(config.google_client_secret, "GOCSPX-real-secret");
+    }
+
+    #[test]
+    fn test_apply_config_field_google_client_secret_sentinel_xxxx_skipped() {
+        let state = create_test_state();
+        state.config.write().unwrap().google_client_secret = "GOCSPX-real-secret".to_string();
+        let result =
+            apply_config_field(&state, "google_client_secret", &json!("xxxxcret"));
+        assert!(result);
+        let config = state.config.read().unwrap();
+        assert_eq!(config.google_client_secret, "GOCSPX-real-secret");
+    }
+
+    #[test]
+    fn test_apply_config_field_google_client_secret_empty_clears() {
+        let state = create_test_state();
+        state.config.write().unwrap().google_client_secret = "GOCSPX-real-secret".to_string();
+        // Empty string is NOT a sentinel — it clears the secret
+        let result = apply_config_field(&state, "google_client_secret", &json!(""));
+        assert!(result);
+        let config = state.config.read().unwrap();
+        assert_eq!(config.google_client_secret, "");
+    }
+
+    #[test]
+    fn test_apply_config_field_auth_google_enabled() {
+        let state = create_test_state();
+        assert!(!state.config.read().unwrap().auth_google_enabled); // default false
+        let result = apply_config_field(&state, "auth_google_enabled", &json!("true"));
+        assert!(result);
+        assert!(state.config.read().unwrap().auth_google_enabled);
+    }
+
+    #[test]
+    fn test_apply_config_field_auth_password_enabled() {
+        let state = create_test_state();
+        assert!(state.config.read().unwrap().auth_password_enabled); // default true
+        let result = apply_config_field(&state, "auth_password_enabled", &json!("false"));
+        assert!(result);
+        assert!(!state.config.read().unwrap().auth_password_enabled);
+    }
+
+    #[test]
+    fn test_apply_config_field_auth_toggle_invalid_value() {
+        let state = create_test_state();
+        let result = apply_config_field(&state, "auth_google_enabled", &json!("not_a_bool"));
+        assert!(!result); // parsing fails
+    }
+
+    #[test]
+    fn test_apply_config_field_unknown_key_returns_false() {
+        let state = create_test_state();
+        let result = apply_config_field(&state, "nonexistent_key", &json!("value"));
+        assert!(!result);
     }
 }
