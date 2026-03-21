@@ -91,6 +91,8 @@ fn create_test_app_state() -> AppState {
         google_client_id: String::new(),
         google_client_secret: String::new(),
         google_callback_url: String::new(),
+        auth_google_enabled: false,
+        auth_password_enabled: true,
         initial_admin_email: None,
         initial_admin_password: None,
     };
