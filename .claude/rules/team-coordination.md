@@ -88,7 +88,7 @@ Anti-patterns: circular dependencies (deadlock), unnecessary sequencing, star bo
 | Trunk-based + flags | CI/CD, incremental rollout | Natural — uses existing config flags |
 | Worktree isolation | Parallel teams, overlapping files | Multi-feature development |
 
-Conflict resolution hierarchy: contract wins → tests decide → kanban-master arbitrates → file owner merges manually.
+Conflict resolution hierarchy: contract wins → tests decide → file owner merges manually.
 
 ## Agent Health & Respawn
 

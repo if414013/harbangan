@@ -43,15 +43,6 @@ See `references/hypothesis-testing.md` for templates, decision trees, and Harban
 
 ## Phase 1: Initial Triage
 
-Create a GitHub Issue for the debug investigation and add to the Harbangan Board:
-```bash
-gh issue create --title "[bug]: Investigate {error summary}" \
-  --label "bug,priority:{p0|p1|p2}" \
-  --project "Harbangan Board" \
-  --body "Debug investigation using ACH methodology.\n\nSymptom: {description}"
-```
-Set board Status → In progress, Priority based on severity.
-
 Analyze the error or symptom to establish the investigation baseline.
 
 ### 1.1 Gather Context
@@ -335,7 +326,6 @@ Prevention:
 
 ### 6.2 Cleanup
 
-- Update the debug GitHub Issue board Status → Done
 - Terminate all investigator agents via `SendMessage` with `type: "shutdown_request"`
 - Save report to `~/.claude/teams/{team-name}/debug-report.md`
 - Use `TeamDelete` to remove team and task directories

@@ -80,11 +80,3 @@ Assign each file to exactly one agent. No overlaps.
 Read `.claude/rules/*.md` to ensure plans follow project conventions:
 - `backend.md` — Rust/Axum patterns, error handling, testing
 - `web-ui.md` — React 19, TypeScript, CRT aesthetic, API patterns
-
-## Kanban Board Integration
-
-When in plan mode, consult the `kanban-master` agent to:
-- Check existing board items for related or duplicate work before planning
-- Create board items (GitHub Issues on the Harbangan Board) for planned tasks
-- Ensure plans reference GitHub Issue numbers for traceability
-- Set appropriate Priority (P0/P1/P2) and Size (XS/S/M/L/XL) on board items

@@ -7,8 +7,7 @@ This directory contains the multi-agent workflow system for Harbangan. See [READ
 ```
 .claude/
 ├── settings.json                # Plugin toggles, MCP servers, env vars
-├── agents/                      # 8 agent definitions (domain-specific AI roles)
-│   ├── kanban-master.md          # Workflow coordinator (orchestrates all agents)
+├── agents/                      # 7 agent definitions (domain-specific AI roles)
 │   ├── rust-backend-engineer.md # Axum/Tokio backend (converters, auth, streaming)
 │   ├── react-frontend-engineer.md # React 19 web UI (pages, SSE, CRT aesthetic)
 │   ├── database-engineer.md     # PostgreSQL schema, migrations, query optimization
@@ -16,16 +15,13 @@ This directory contains the multi-agent workflow system for Harbangan. See [READ
 │   ├── backend-qa.md            # Rust unit/integration tests
 │   ├── frontend-qa.md           # Playwright E2E tests
 │   └── document-writer.md       # Notion, Slack, documentation
-├── skills/                      # 11 invocable skills (/skill-name)
+├── skills/                      # 8 invocable skills (/skill-name)
 │   ├── team-plan/               # Scope analysis and implementation planning
 │   ├── team-implement/          # Full lifecycle: spawn → assign → verify → PR → shutdown
 │   ├── team-status/             # Show team health and agent activity
 │   ├── team-review/             # Multi-dimensional code review
 │   ├── team-debug/              # Hypothesis-driven debugging
 │   ├── merge-pr/                # Squash-merge PR, cleanup branches, return to main
-│   ├── create-issue/            # Create GH issue on Harbangan Board (via kanban-master)
-│   ├── board-status/            # Show project board status
-│   ├── close-issues/            # Close GH issues and update board to Done
 │   ├── rename-plan/             # Rename plan files to datetime-prefixed names
 │   └── humanizer/               # AI writing cleanup
 ├── agent-memory/                # Persistent agent-specific memory
@@ -57,7 +53,4 @@ All agent work must follow the PR flow — never commit directly to `main`.
 | Code review | `/team-review --diff` |
 | Debug an issue | `/team-debug "error message"` |
 | Merge & cleanup | `/merge-pr` |
-| Create board issue | `/create-issue "title" --service backend --priority p1` |
-| View board | `/board-status` |
-| Close issues | `/close-issues 93 94 --pr 92` |
 | Rename plan file | `/rename-plan my-feature-name` |

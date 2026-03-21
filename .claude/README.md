@@ -9,8 +9,8 @@ This directory is the AI workflow infrastructure for Harbangan. It provides a fu
 ├── CLAUDE.md                    # Quick reference (structure + skill table)
 ├── README.md                    # This file (full documentation)
 ├── settings.json                # Claude Code configuration
-├── agents/                      # 8 agent definitions
-├── skills/                      # 10 invocable skills
+├── agents/                      # 7 agent definitions
+├── skills/                      # 8 invocable skills
 ├── agent-memory/                # Persistent per-agent memory
 ├── rules/                       # Coding standards + plan mode rules
 └── plans/                       # Implementation plans
@@ -18,7 +18,7 @@ This directory is the AI workflow infrastructure for Harbangan. It provides a fu
 
 ---
 
-## Agents (8 total)
+## Agents (7 total)
 
 Each agent is a `.md` file with YAML frontmatter defining its name, description, tools, model, memory scope, `permissionMode`, and `maxTurns`. The body contains domain-specific context. All agents run with `permissionMode: bypassPermissions` for autonomous execution.
 
@@ -39,15 +39,9 @@ Each agent is a `.md` file with YAML frontmatter defining its name, description,
 | `backend-qa` | `backend/src/` tests | cargo test, 395+ unit tests, tokio::test | 80 |
 | `frontend-qa` | `frontend/` | Playwright E2E tests, browser testing | 80 |
 
-### Orchestration Agent (1)
-
-| Agent | Role | maxTurns |
-|-------|------|----------|
-| `kanban-master` | Workflow coordinator — decomposes tasks, spawns teams, monitors progress | 100 |
-
 ---
 
-## Skills (10 total)
+## Skills (8 total)
 
 Skills are invocable via `/skill-name [arguments]`.
 
@@ -83,18 +77,13 @@ Skills are invocable via `/skill-name [arguments]`.
 | `refactor` | coordinator + 2 service + 1 reviewer | Code refactoring |
 | `hotfix` | 1 service + 1 QA agent | Urgent bug fix |
 
-### GitHub Operations (4) — Board & PR Lifecycle
+### Git Operations (1) — PR Lifecycle
 
 | Skill | Purpose | Execution | Key Arguments |
 |-------|---------|-----------|---------------|
 | `/merge-pr` | Squash-merge PR, cleanup branches, return to main | Inline | `[pr-number]` |
-| `/create-issue` | Create GH issue on Harbangan Board | Forks to kanban-master | `"title" [--service X] [--priority X] [--size X]` |
-| `/board-status` | Show project board status grouped by column | Inline (read-only) | `[--status column] [--service name]` |
-| `/close-issues` | Close issues and update board to Done | Inline | `<numbers> [--pr N]` |
 
-`/merge-pr` and `/close-issues` have `disable-model-invocation: true` (destructive — user-only).
-`/board-status` is safe for Claude auto-invocation (read-only).
-`/create-issue` delegates to `kanban-master` agent for board field setup.
+`/merge-pr` has `disable-model-invocation: true` (destructive — user-only).
 
 ### Utility Skills (2)
 
@@ -115,26 +104,11 @@ Note: Team coordination guidance (file ownership, communication protocols, team 
 
 ```
 /team-plan (explore + design)   →  produce plan in .claude/plans/
-/team-implement {plan}         →  spawn → assign → verify → PR → shutdown
-GitHub Issues (persistent)     →  gh issue create for each task
-TaskList (ephemeral, [#N] refs)→  /team-implement --delegate (assign to agents)
-/team-implement --status       →  monitor progress (TaskList + GitHub Issues)
-Quality Gates (from CLAUDE.md) →  verify completion
-gh issue close #N              →  sync completion to GitHub
-/team-implement --shutdown     →  persist to GitHub, clean up ephemeral state
-```
-
-### Kanban Master Workflow
-
-```
- 1. gh issue list                       — check existing issues for related work
- 2. /team-plan "description"            — analyze scope, explore codebase, produce plan
- 3. /team-implement "plan" --preset X   — full lifecycle: spawn → assign → verify → PR
- 4. /team-implement --status            — monitor progress (TaskList + GitHub Issues)
- 5. /team-implement --delegate          — assign tasks, send messages
- 6. Verify against Quality Gates        — from CLAUDE.md
- 7. gh issue close #N                   — close issues, link PRs with "Closes #N"
- 8. /team-implement --shutdown          — persist to GitHub, clean up
+/team-implement {plan}          →  spawn → assign → verify → PR → shutdown
+TaskList (ephemeral)            →  /team-implement --delegate (assign to agents)
+/team-implement --status        →  monitor progress (TaskList)
+Quality Gates (from CLAUDE.md)  →  verify completion
+/team-implement --shutdown      →  clean up ephemeral state
 ```
 
 ---

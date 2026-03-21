@@ -33,9 +33,7 @@ Show health and activity for a running agent team. Auto-detects the team if only
 
 5. **Context exhaustion detection**: 3+ consecutive idle notifications with an in_progress task and no file edits = likely exhausted.
 
-6. **Cross-reference TaskList vs GitHub Issues** for drift (tasks completed locally but not updated on board, or vice versa).
-
-7. **Output summary**:
+6. **Output summary**:
    ```
    Team: {team-name}
    Members: {count} agents
@@ -50,4 +48,4 @@ Show health and activity for a running agent team. Auto-detects the team if only
    - backend-qa may be context-exhausted (3 idle cycles, no edits)
    ```
 
-8. **Actionable suggestions**: For stale/exhausted agents, suggest respawn or task reassignment.
+7. **Actionable suggestions**: For stale/exhausted agents, suggest respawn or task reassignment.

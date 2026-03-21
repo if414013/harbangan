@@ -80,24 +80,6 @@ Write plan to `.claude/plans/` with:
 5. **Verification Commands** — per-service quality gates from CLAUDE.md
 6. **Recommended Team Preset** — for `/team-implement`
 
-## Phase 6: Create Board Items
-
-After writing the plan file, create GitHub Issues for each wave task and add them to the Harbangan Board:
-
-```bash
-gh issue create --title "[service]: task description" \
-  --label "service:{service},priority:{p0|p1|p2}" \
-  --project "Harbangan Board" \
-  --body "From plan: {plan-file-name}\n\nDescription and acceptance criteria\n\nDepends on #N"
-```
-
-After creating each issue, set board fields:
-- Status → Backlog
-- Priority → based on task criticality (P0/P1/P2)
-- Size → based on complexity estimate (XS/S/M/L/XL)
-
-Include the issue numbers in the plan file for traceability (update the plan after issue creation).
-
 ### Plan File Format
 
 ```markdown

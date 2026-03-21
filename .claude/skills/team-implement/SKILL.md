@@ -77,38 +77,7 @@ For each task:
 - Define dependencies on other tasks
 - Specify verification commands
 
-### Phase 5: GitHub Issues
-
-For each task in the decomposition:
-```bash
-gh issue create --title "[service]: task description" \
-  --label "service:{service},priority:{p0|p1|p2}" \
-  --project "Harbangan Board" \
-  --body "Description, acceptance criteria, Depends on #N"
-```
-
-After creating each issue, update its project board fields:
-```bash
-# Get the project item ID
-ITEM_ID=$(gh project item-list 3 --owner if414013 --format json --jq ".items[] | select(.content.url == \"$ISSUE_URL\") | .id")
-
-# Set Status → Ready, Priority, and Size
-gh project item-edit --project-id PVT_kwHOATKEhs4BRp0j --id $ITEM_ID \
-  --field-id PVTSSF_lAHOATKEhs4BRp0jzg_azo8 --single-select-option-id 61e4505c  # Ready
-gh project item-edit --project-id PVT_kwHOATKEhs4BRp0j --id $ITEM_ID \
-  --field-id PVTSSF_lAHOATKEhs4BRp0jzg_azuA --single-select-option-id {priority_id}
-gh project item-edit --project-id PVT_kwHOATKEhs4BRp0j --id $ITEM_ID \
-  --field-id PVTSSF_lAHOATKEhs4BRp0jzg_azuE --single-select-option-id {size_id}
-```
-
-Apply `status:blocked` label for tasks with open dependencies.
-
-Board sync during execution:
-- When agent starts work on a task: update board Status → In progress
-- When agent completes a task: update board Status → In review (until verified)
-- After verification passes: update board Status → Done
-
-### Phase 6: Spawn
+### Phase 5: Spawn
 
 Use lazy per-wave spawning:
 
@@ -120,7 +89,7 @@ For each agent spawn:
 - Set `mode: "bypassPermissions"` for autonomous execution
 - Match `subagent_type` to agent name from the registry
 
-### Phase 7: Assign
+### Phase 6: Assign
 
 Send each agent their task via `SendMessage`:
 - Owned files and required changes
@@ -128,7 +97,7 @@ Send each agent their task via `SendMessage`:
 - Dependencies and wave number
 - Verification commands to run after completion
 
-### Phase 8: Monitor
+### Phase 7: Monitor
 
 Run a health monitoring loop:
 
@@ -141,12 +110,8 @@ Run a health monitoring loop:
    - Respawn agent with same name for ownership continuity
    - Send handoff summary with completed commits and remaining tasks
 5. **Wave progression**: When all Wave N tasks complete, spawn deferred Wave N+1 agents
-6. **Board sync**: When TaskList status changes, mirror to GitHub Project board:
-   - `pending` → Ready
-   - `in_progress` → In progress
-   - `completed` → In review (until verified), then Done
 
-### Phase 9: Verify
+### Phase 8: Verify
 
 Run quality gates per affected service:
 
@@ -160,7 +125,7 @@ Cross-service validation:
 - Grep for shared types/endpoints to ensure contract consistency
 - Run E2E tests if both backend and frontend changed
 
-### Phase 10: PR
+### Phase 9: PR
 
 If worktree is active:
 ```bash
@@ -170,22 +135,19 @@ git push -u origin feat/{feature-slug}
 gh pr create --title "feat: ..." --body "## Summary\n..."
 ```
 
-### Phase 11: Shutdown
+### Phase 10: Shutdown
 
 Ordered termination:
-1. Persist incomplete work to GitHub Issues (update status, add progress notes)
-2. Update board status: incomplete tasks → Backlog (with progress comment), completed tasks → Done
-3. Commit uncommitted changes in worktree
-4. Push unpushed commits
-5. Workers first, coordinator last
-6. `TeamDelete` for each agent
-7. Remove worktree: `git worktree remove .trees/{team-name} && git worktree prune`
+1. Commit uncommitted changes in worktree
+2. Push unpushed commits
+3. Workers first, coordinator last
+4. `TeamDelete` for each agent
+5. Remove worktree: `git worktree remove .trees/{team-name} && git worktree prune`
 
-### Phase 12: Report
+### Phase 11: Report
 
 Output final status:
 - Work streams completed
-- GitHub Issues created/closed
 - Verification results (pass/fail per gate)
 - PR URL (if created)
 
@@ -207,16 +169,13 @@ Interactive task management menu:
 
 Agent validation is dynamic — read team config for current members, never hardcode names.
 
-Blocked task detection: check GitHub Issue labels for `status:blocked`, warn before assigning.
-
 ### Shutdown (`--shutdown team-name`)
 
 1. Check for uncommitted changes in worktree
 2. Check for unpushed commits
-3. Persist incomplete tasks to GitHub Issues (add progress comment, update labels)
-4. Terminate workers first, coordinator last
-5. `TeamDelete` for each agent
-6. If worktree active:
+3. Terminate workers first, coordinator last
+4. `TeamDelete` for each agent
+5. If worktree active:
    - `git worktree remove .trees/{team-name}`
    - `git worktree prune`
-7. Clean up team config
+6. Clean up team config

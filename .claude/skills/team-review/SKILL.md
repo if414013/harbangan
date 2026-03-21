@@ -40,14 +40,6 @@ Refer to `references/review-dimensions.md` for detailed per-dimension checklists
    - `<target>`: file path, directory, git diff range (e.g., `main...HEAD`), or PR number (e.g., `#123`)
    - `--reviewers`: comma-separated dimensions (default: `security,performance,architecture`)
    - `--base-branch`: base branch for diff comparison (default: `main`)
-3. Create a GitHub Issue for the review task and add to the Harbangan Board:
-   ```bash
-   gh issue create --title "[review]: {dimensions} review of {target}" \
-     --label "chore,priority:p1" \
-     --project "Harbangan Board" \
-     --body "Multi-dimensional code review: {dimensions}"
-   ```
-   Set board Status → In progress when review starts.
 
 ## Phase 1: Target Resolution
 
@@ -232,6 +224,5 @@ Present the consolidated report:
 
 ## Phase 8: Cleanup
 
-1. Update the review GitHub Issue board Status → Done
-2. Send `shutdown_request` to all reviewer teammates via `SendMessage`
-3. Use `TeamDelete` to remove team and task directories
+1. Send `shutdown_request` to all reviewer teammates via `SendMessage`
+2. Use `TeamDelete` to remove team and task directories
