@@ -256,6 +256,19 @@ pub async fn login_handler(
         must_change_password,
     ) = user;
 
+    // Check auth_password_enabled BEFORE password verification (admin exempt)
+    if role != "admin" {
+        let password_enabled = {
+            let config = state.config.read().unwrap_or_else(|p| p.into_inner());
+            config.auth_password_enabled
+        };
+        if !password_enabled {
+            return Err(ApiError::Forbidden(
+                "Password authentication is disabled".to_string(),
+            ));
+        }
+    }
+
     // Must have a password hash (allows Google-first users who set a password to log in)
     let stored_hash = password_hash.ok_or(ApiError::InvalidCredentials)?;
 
@@ -650,7 +663,13 @@ pub async fn admin_create_user_handler(
 
     // Create user
     let user_id = db
-        .create_password_user(&payload.email, &payload.name, &password_hash, &payload.role)
+        .create_password_user(
+            &payload.email,
+            &payload.name,
+            &password_hash,
+            &payload.role,
+            true,
+        )
         .await
         .map_err(ApiError::Internal)?;
 

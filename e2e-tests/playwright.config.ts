@@ -33,6 +33,7 @@ export default defineConfig({
         'model-registry.spec.ts',
         'provider-status.spec.ts',
         'password-auth.spec.ts',
+        'sso-config.spec.ts',
       ],
       use: {
         baseURL: GATEWAY_URL,
@@ -73,6 +74,7 @@ export default defineConfig({
         'model-registry.spec.ts',
         'provider-status.spec.ts',
         'password-auth.spec.ts',
+        'sso-config.spec.ts',
       ],
       fullyParallel: false,
       use: {
@@ -110,6 +112,7 @@ export default defineConfig({
         'config.spec.ts', 'admin.spec.ts', 'admin-users.spec.ts',
         'guardrails.spec.ts', 'multi-account.spec.ts',
         'user-detail.spec.ts', 'logout-redirect.spec.ts', 'profile-actions.spec.ts',
+        'sso-config-flow.spec.ts',
       ],
       fullyParallel: false,
       use: {

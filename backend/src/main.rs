@@ -111,7 +111,7 @@ async fn main() -> Result<()> {
                 match web_ui::password_auth::hash_password(&password).await {
                     Ok(password_hash) => {
                         match db
-                            .create_password_user(&email, &email, &password_hash, "admin")
+                            .create_password_user(&email, &email, &password_hash, "admin", false)
                             .await
                         {
                             Ok(user_id) => {

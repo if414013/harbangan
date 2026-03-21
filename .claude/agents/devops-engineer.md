@@ -46,9 +46,6 @@ Single backend container, no DB/SSO. Uses device code auth, env-based config. Fo
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `POSTGRES_PASSWORD` | Yes | PostgreSQL password |
-| `GOOGLE_CLIENT_ID` | Yes | Google OAuth Client ID |
-| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth Client Secret |
-| `GOOGLE_CALLBACK_URL` | Yes | OAuth callback URL |
 
 Auto-set by docker-compose: `DATABASE_URL`, `SERVER_HOST` (0.0.0.0), `SERVER_PORT` (9999).
 

@@ -78,7 +78,9 @@ pub fn derive_origin(callback_url: &str) -> String {
     }
 }
 
-/// Whether the callback URL is a local development URL (skip Secure flag on cookies).
+/// Whether to skip the Secure flag on cookies.
+/// Only skip for explicit localhost URLs. Default (including empty) is Secure=true
+/// so HTTPS deployments are safe even before callback_url is configured.
 fn is_local_dev(callback_url: &str) -> bool {
     callback_url.starts_with("http://localhost") || callback_url.starts_with("http://127.0.0.1")
 }
@@ -165,6 +167,12 @@ pub(crate) fn extract_csrf_cookie(headers: &axum::http::HeaderMap) -> Option<Str
 pub async fn google_auth_redirect(State(state): State<AppState>) -> Result<Response, ApiError> {
     let (client_id, client_secret, callback_url) = {
         let config = state.config.read().unwrap_or_else(|p| p.into_inner());
+        // Enforce auth_google_enabled toggle (cached in Config struct)
+        if !config.auth_google_enabled {
+            return Err(ApiError::Forbidden(
+                "Google SSO authentication is disabled".to_string(),
+            ));
+        }
         (
             config.google_client_id.clone(),
             config.google_client_secret.clone(),
@@ -174,7 +182,7 @@ pub async fn google_auth_redirect(State(state): State<AppState>) -> Result<Respo
 
     if client_id.is_empty() || client_secret.is_empty() || callback_url.is_empty() {
         return Err(ApiError::ConfigError(
-            "Google OAuth not configured (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_CALLBACK_URL)".to_string(),
+            "Google OAuth not configured".to_string(),
         ));
     }
 
@@ -246,6 +254,17 @@ pub async fn google_link_redirect(
     State(state): State<AppState>,
     request: Request<Body>,
 ) -> Result<Response, ApiError> {
+    // Enforce auth_google_enabled toggle
+    let google_enabled = {
+        let config = state.config.read().unwrap_or_else(|p| p.into_inner());
+        config.auth_google_enabled
+    };
+    if !google_enabled {
+        return Err(ApiError::Forbidden(
+            "Google SSO authentication is disabled".to_string(),
+        ));
+    }
+
     let session = request
         .extensions()
         .get::<SessionInfo>()
@@ -326,6 +345,10 @@ pub async fn google_auth_callback(
 ) -> Result<Response, ApiError> {
     let (client_id, client_secret, callback_url) = {
         let config = state.config.read().unwrap_or_else(|p| p.into_inner());
+        // Enforce auth_google_enabled toggle (cached in Config struct)
+        if !config.auth_google_enabled {
+            return redirect_login_error("google_sso_disabled");
+        }
         (
             config.google_client_id.clone(),
             config.google_client_secret.clone(),
@@ -345,7 +368,7 @@ pub async fn google_auth_callback(
 
     if client_id.is_empty() || client_secret.is_empty() || callback_url.is_empty() {
         return Err(ApiError::ConfigError(
-            "Google OAuth not configured (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_CALLBACK_URL)".to_string(),
+            "Google OAuth not configured".to_string(),
         ));
     }
 
@@ -619,37 +642,23 @@ pub async fn auth_me(
 }
 
 /// GET /_ui/api/status — public endpoint, no auth required.
+/// Uses setup_complete from AtomicBool and auth toggles from cached Config struct
+/// to avoid DB queries on this unauthenticated endpoint.
 pub async fn status(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let has_users = if let Some(ref db) = state.config_db {
-        db.is_setup_complete().await
-    } else {
-        false
-    };
+    let has_users = state
+        .setup_complete
+        .load(std::sync::atomic::Ordering::Relaxed);
 
-    let google_configured = {
+    let (google_configured, auth_google_enabled, auth_password_enabled) = {
         let config = state.config.read().unwrap_or_else(|p| p.into_inner());
-        !config.google_client_id.is_empty()
+        let configured = !config.google_client_id.is_empty()
             && !config.google_client_secret.is_empty()
-            && !config.google_callback_url.is_empty()
-    };
-
-    let auth_google_enabled = if let Some(ref db) = state.config_db {
-        db.get("auth_google_enabled")
-            .await
-            .unwrap_or(None)
-            .map(|v| v == "true")
-            .unwrap_or(true)
-    } else {
-        true
-    };
-    let auth_password_enabled = if let Some(ref db) = state.config_db {
-        db.get("auth_password_enabled")
-            .await
-            .unwrap_or(None)
-            .map(|v| v == "true")
-            .unwrap_or(true)
-    } else {
-        true
+            && !config.google_callback_url.is_empty();
+        (
+            configured,
+            config.auth_google_enabled,
+            config.auth_password_enabled,
+        )
     };
 
     Json(json!({
@@ -1206,8 +1215,8 @@ mod tests {
         let result = status(State(state)).await;
         let json = result.0;
 
-        // No config_db → setup_complete defaults to false
-        assert_eq!(json["setup_complete"], false);
+        // Test state has setup_complete=true (AtomicBool)
+        assert_eq!(json["setup_complete"], true);
         // No Google SSO configured → google_configured is false
         assert_eq!(json["google_configured"], false);
     }
@@ -1243,5 +1252,95 @@ mod tests {
         assert_eq!(json["role"], "admin");
         assert_eq!(json["user_id"], user_id.to_string());
         assert_eq!(json["has_kiro_token"], false);
+    }
+
+    // ── Google SSO status endpoint tests ────────────────────────────
+
+    #[tokio::test]
+    async fn test_status_google_configured_true_when_all_fields_set() {
+        let state = create_test_state();
+        // Set all 3 Google SSO fields
+        {
+            let mut config = state.config.write().unwrap();
+            config.google_client_id = "some-client-id.apps.googleusercontent.com".to_string();
+            config.google_client_secret = "GOCSPX-secret-value".to_string();
+            config.google_callback_url =
+                "http://localhost:9999/_ui/api/auth/google/callback".to_string();
+        }
+
+        let result = status(State(state)).await;
+        let json = result.0;
+        assert_eq!(json["google_configured"], true);
+    }
+
+    #[tokio::test]
+    async fn test_status_google_configured_false_when_partially_set() {
+        let state = create_test_state();
+        // Only set client_id, leave secret and callback empty
+        {
+            let mut config = state.config.write().unwrap();
+            config.google_client_id = "some-client-id".to_string();
+            // google_client_secret and google_callback_url remain empty
+        }
+
+        let result = status(State(state)).await;
+        let json = result.0;
+        assert_eq!(json["google_configured"], false);
+    }
+
+    #[tokio::test]
+    async fn test_status_google_configured_false_when_secret_empty() {
+        let state = create_test_state();
+        {
+            let mut config = state.config.write().unwrap();
+            config.google_client_id = "some-client-id".to_string();
+            config.google_client_secret = String::new(); // empty
+            config.google_callback_url = "http://localhost:9999/callback".to_string();
+        }
+
+        let result = status(State(state)).await;
+        let json = result.0;
+        assert_eq!(json["google_configured"], false);
+    }
+
+    #[tokio::test]
+    async fn test_status_google_configured_false_when_callback_empty() {
+        let state = create_test_state();
+        {
+            let mut config = state.config.write().unwrap();
+            config.google_client_id = "some-client-id".to_string();
+            config.google_client_secret = "some-secret".to_string();
+            config.google_callback_url = String::new(); // empty
+        }
+
+        let result = status(State(state)).await;
+        let json = result.0;
+        assert_eq!(json["google_configured"], false);
+    }
+
+    #[tokio::test]
+    async fn test_status_auth_google_enabled_requires_configured() {
+        let state = create_test_state();
+        // google_configured is false (no SSO fields set), so auth_google_enabled
+        // should be false even though the DB toggle defaults would be true
+        let result = status(State(state)).await;
+        let json = result.0;
+        // google_configured is false → auth_google_enabled must be false
+        // (line 658: auth_google_enabled && google_configured)
+        assert_eq!(json["auth_google_enabled"], false);
+    }
+
+    #[tokio::test]
+    async fn test_status_defaults_without_db() {
+        let state = create_test_state();
+        // No config_db → reads from Config struct defaults + AtomicBool
+        let result = status(State(state)).await;
+        let json = result.0;
+        // Test state has setup_complete=true (AtomicBool)
+        assert_eq!(json["setup_complete"], true);
+        assert_eq!(json["google_configured"], false);
+        assert_eq!(json["auth_google_enabled"], false);
+        // auth_password_enabled defaults to true in Config::with_defaults()
+        assert_eq!(json["auth_password_enabled"], true);
     }
 }
