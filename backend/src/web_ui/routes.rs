@@ -66,6 +66,26 @@ pub async fn get_config(State(state): State<AppState>) -> Json<Value> {
     // Clone the config snapshot and drop the read guard before any .await
     let config = state.config.read().unwrap().clone();
 
+    // Read DB-only toggle keys
+    let auth_google_enabled = if let Some(ref db) = state.config_db {
+        db.get("auth_google_enabled")
+            .await
+            .unwrap_or(None)
+            .map(|v| v == "true")
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    let auth_password_enabled = if let Some(ref db) = state.config_db {
+        db.get("auth_password_enabled")
+            .await
+            .unwrap_or(None)
+            .map(|v| v == "true")
+            .unwrap_or(true)
+    } else {
+        true
+    };
+
     Json(json!({
         "setup_complete": setup_complete,
         "config": {
@@ -89,6 +109,15 @@ pub async fn get_config(State(state): State<AppState>) -> Json<Value> {
             "qwen_oauth_client_id": config.qwen_oauth_client_id,
             "anthropic_oauth_client_id": config.anthropic_oauth_client_id,
             "openai_oauth_client_id": config.openai_oauth_client_id,
+            "google_client_id": config.google_client_id,
+            "google_client_secret": if config.google_client_secret.is_empty() {
+                String::new()
+            } else {
+                mask_sensitive(&config.google_client_secret)
+            },
+            "google_callback_url": config.google_callback_url,
+            "auth_google_enabled": auth_google_enabled,
+            "auth_password_enabled": auth_password_enabled,
         }
     }))
 }
@@ -114,6 +143,36 @@ pub async fn update_config(
                 Value::String(s) => s.clone(),
                 other => other.to_string(),
             };
+
+            // Skip masked sentinel values for secrets (no-op on re-submit)
+            if key == "google_client_secret"
+                && (value_str.starts_with("••••") || value_str.starts_with("xxxx"))
+            {
+                continue;
+            }
+
+            // Store google_client_secret encrypted
+            if key == "google_client_secret" {
+                if let Ok(ek) = crate::web_ui::crypto::load_encryption_key() {
+                    config_db
+                        .set_encrypted(key, &value_str, &ek, "web_ui")
+                        .await
+                        .map_err(ApiError::Internal)?;
+                } else if value_str.is_empty() {
+                    // Allow clearing even without encryption key
+                    config_db
+                        .set(key, &value_str, "web_ui")
+                        .await
+                        .map_err(ApiError::Internal)?;
+                } else {
+                    return Err(ApiError::ValidationError(
+                        "CONFIG_ENCRYPTION_KEY must be set to store Google client secret"
+                            .to_string(),
+                    ));
+                }
+                continue;
+            }
+
             config_db
                 .set(key, &value_str, "web_ui")
                 .await
@@ -218,6 +277,22 @@ fn apply_config_field(state: &AppState, key: &str, value: &Value) -> bool {
             config.openai_oauth_client_id = value_str;
             true
         }
+        "google_client_id" => {
+            config.google_client_id = value_str;
+            true
+        }
+        "google_client_secret" => {
+            // Skip masked sentinel values
+            if value_str.starts_with("••••") || value_str.starts_with("xxxx") {
+                return true;
+            }
+            config.google_client_secret = value_str;
+            true
+        }
+        "google_callback_url" => {
+            config.google_callback_url = value_str;
+            true
+        }
         _ => false,
     }
 }
@@ -259,8 +334,15 @@ pub async fn get_config_schema() -> Json<Value> {
             | "http_max_retries" => {
                 field.insert("type".to_string(), json!("number"));
             }
-            "fake_reasoning_enabled" | "truncation_recovery" | "guardrails_enabled" => {
+            "fake_reasoning_enabled"
+            | "truncation_recovery"
+            | "guardrails_enabled"
+            | "auth_google_enabled"
+            | "auth_password_enabled" => {
                 field.insert("type".to_string(), json!("boolean"));
+            }
+            "google_client_secret" => {
+                field.insert("type".to_string(), json!("password"));
             }
             _ => {
                 field.insert("type".to_string(), json!("string"));
@@ -279,7 +361,11 @@ pub struct HistoryQuery {
 }
 
 /// Keys whose values must be masked in config history responses.
-const SENSITIVE_CONFIG_KEYS: &[&str] = &["kiro_refresh_token", "oauth_client_secret"];
+const SENSITIVE_CONFIG_KEYS: &[&str] = &[
+    "kiro_refresh_token",
+    "oauth_client_secret",
+    "google_client_secret",
+];
 
 /// GET /ui/api/config/history - Config change history
 pub async fn get_config_history(
@@ -360,5 +446,80 @@ mod tests {
 
         let server_port = fields["server_port"].as_object().unwrap();
         assert_eq!(server_port["requires_restart"], true);
+    }
+
+    // ── Google SSO masking tests ────────────────────────────────────
+
+    #[test]
+    fn test_mask_sensitive_google_client_secret_long() {
+        // Secret > 8 chars shows prefix...suffix
+        let masked = mask_sensitive("GOCSPX-abcdefgh12345678");
+        assert!(masked.starts_with("GOCS"));
+        assert!(masked.ends_with("5678"));
+        assert!(masked.contains("..."));
+        // Must NOT contain the full secret
+        assert!(!masked.contains("GOCSPX-abcdefgh12345678"));
+    }
+
+    #[test]
+    fn test_mask_sensitive_google_client_secret_short() {
+        // Secret <= 8 chars shows "****"
+        let masked = mask_sensitive("short");
+        assert_eq!(masked, "****");
+    }
+
+    #[test]
+    fn test_mask_sensitive_empty() {
+        assert_eq!(mask_sensitive(""), "");
+    }
+
+    #[test]
+    fn test_sensitive_config_keys_includes_google_secret() {
+        assert!(SENSITIVE_CONFIG_KEYS.contains(&"google_client_secret"));
+    }
+
+    // ── Google SSO schema tests ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_config_schema_has_google_sso_fields() {
+        let result = get_config_schema().await;
+        let value = result.0;
+        let fields = value["fields"].as_object().unwrap();
+
+        assert!(fields.contains_key("google_client_id"));
+        assert!(fields.contains_key("google_client_secret"));
+        assert!(fields.contains_key("google_callback_url"));
+
+        // google_client_secret should have type "password"
+        let secret = fields["google_client_secret"].as_object().unwrap();
+        assert_eq!(secret["type"], "password");
+
+        // google_client_id should be string type
+        let client_id = fields["google_client_id"].as_object().unwrap();
+        assert_eq!(client_id["type"], "string");
+
+        // All SSO fields should be hot-reloadable (no restart)
+        assert_eq!(client_id["requires_restart"], false);
+        assert_eq!(secret["requires_restart"], false);
+        let callback = fields["google_callback_url"].as_object().unwrap();
+        assert_eq!(callback["requires_restart"], false);
+    }
+
+    #[tokio::test]
+    async fn test_config_schema_has_auth_toggles() {
+        let result = get_config_schema().await;
+        let value = result.0;
+        let fields = value["fields"].as_object().unwrap();
+
+        assert!(fields.contains_key("auth_google_enabled"));
+        assert!(fields.contains_key("auth_password_enabled"));
+
+        let google_toggle = fields["auth_google_enabled"].as_object().unwrap();
+        assert_eq!(google_toggle["type"], "boolean");
+        assert_eq!(google_toggle["requires_restart"], false);
+
+        let password_toggle = fields["auth_password_enabled"].as_object().unwrap();
+        assert_eq!(password_toggle["type"], "boolean");
+        assert_eq!(password_toggle["requires_restart"], false);
     }
 }

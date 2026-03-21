@@ -146,6 +146,13 @@ const CONFIG_GROUPS: { title: string; icon: string; fields: ConfigField[] }[] =
       icon: "lock",
       fields: [
         { key: "auth_google_enabled", label: "Google SSO", type: "checkbox" },
+        { key: "google_client_id", label: "Client ID", type: "text" },
+        {
+          key: "google_client_secret",
+          label: "Client Secret",
+          type: "password",
+        },
+        { key: "google_callback_url", label: "Callback URL", type: "text" },
         {
           key: "auth_password_enabled",
           label: "Password Auth",

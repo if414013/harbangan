@@ -275,6 +275,23 @@ pub async fn login_handler(
     // Password verified — clear rate limiter
     clear_rate_limit(&state, &payload.email);
 
+    // Check auth_password_enabled (admin exempt — always has password fallback)
+    if role != "admin" {
+        if let Some(ref config_db) = state.config_db {
+            let password_enabled = config_db
+                .get("auth_password_enabled")
+                .await
+                .unwrap_or(None)
+                .map(|v| v == "true")
+                .unwrap_or(true);
+            if !password_enabled {
+                return Err(ApiError::Forbidden(
+                    "Password authentication is disabled".to_string(),
+                ));
+            }
+        }
+    }
+
     // If TOTP is enabled, create pending 2FA login
     if totp_enabled {
         let token = db
@@ -650,7 +667,13 @@ pub async fn admin_create_user_handler(
 
     // Create user
     let user_id = db
-        .create_password_user(&payload.email, &payload.name, &password_hash, &payload.role)
+        .create_password_user(
+            &payload.email,
+            &payload.name,
+            &password_hash,
+            &payload.role,
+            true,
+        )
         .await
         .map_err(ApiError::Internal)?;
 

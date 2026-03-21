@@ -79,8 +79,11 @@ pub fn derive_origin(callback_url: &str) -> String {
 }
 
 /// Whether the callback URL is a local development URL (skip Secure flag on cookies).
+/// Empty string is treated as local dev (safe default when SSO not yet configured).
 fn is_local_dev(callback_url: &str) -> bool {
-    callback_url.starts_with("http://localhost") || callback_url.starts_with("http://127.0.0.1")
+    callback_url.is_empty()
+        || callback_url.starts_with("http://localhost")
+        || callback_url.starts_with("http://127.0.0.1")
 }
 
 /// Build a session cookie header value.
@@ -1243,5 +1246,94 @@ mod tests {
         assert_eq!(json["role"], "admin");
         assert_eq!(json["user_id"], user_id.to_string());
         assert_eq!(json["has_kiro_token"], false);
+    }
+
+    // ── Google SSO status endpoint tests ────────────────────────────
+
+    #[tokio::test]
+    async fn test_status_google_configured_true_when_all_fields_set() {
+        let state = create_test_state();
+        // Set all 3 Google SSO fields
+        {
+            let mut config = state.config.write().unwrap();
+            config.google_client_id = "some-client-id.apps.googleusercontent.com".to_string();
+            config.google_client_secret = "GOCSPX-secret-value".to_string();
+            config.google_callback_url =
+                "http://localhost:9999/_ui/api/auth/google/callback".to_string();
+        }
+
+        let result = status(State(state)).await;
+        let json = result.0;
+        assert_eq!(json["google_configured"], true);
+    }
+
+    #[tokio::test]
+    async fn test_status_google_configured_false_when_partially_set() {
+        let state = create_test_state();
+        // Only set client_id, leave secret and callback empty
+        {
+            let mut config = state.config.write().unwrap();
+            config.google_client_id = "some-client-id".to_string();
+            // google_client_secret and google_callback_url remain empty
+        }
+
+        let result = status(State(state)).await;
+        let json = result.0;
+        assert_eq!(json["google_configured"], false);
+    }
+
+    #[tokio::test]
+    async fn test_status_google_configured_false_when_secret_empty() {
+        let state = create_test_state();
+        {
+            let mut config = state.config.write().unwrap();
+            config.google_client_id = "some-client-id".to_string();
+            config.google_client_secret = String::new(); // empty
+            config.google_callback_url = "http://localhost:9999/callback".to_string();
+        }
+
+        let result = status(State(state)).await;
+        let json = result.0;
+        assert_eq!(json["google_configured"], false);
+    }
+
+    #[tokio::test]
+    async fn test_status_google_configured_false_when_callback_empty() {
+        let state = create_test_state();
+        {
+            let mut config = state.config.write().unwrap();
+            config.google_client_id = "some-client-id".to_string();
+            config.google_client_secret = "some-secret".to_string();
+            config.google_callback_url = String::new(); // empty
+        }
+
+        let result = status(State(state)).await;
+        let json = result.0;
+        assert_eq!(json["google_configured"], false);
+    }
+
+    #[tokio::test]
+    async fn test_status_auth_google_enabled_requires_configured() {
+        let state = create_test_state();
+        // google_configured is false (no SSO fields set), so auth_google_enabled
+        // should be false even though the DB toggle defaults would be true
+        let result = status(State(state)).await;
+        let json = result.0;
+        // google_configured is false → auth_google_enabled must be false
+        // (line 658: auth_google_enabled && google_configured)
+        assert_eq!(json["auth_google_enabled"], false);
+    }
+
+    #[tokio::test]
+    async fn test_status_defaults_without_db() {
+        let state = create_test_state();
+        // No config_db → defaults
+        let result = status(State(state)).await;
+        let json = result.0;
+        assert_eq!(json["setup_complete"], false);
+        assert_eq!(json["google_configured"], false);
+        assert_eq!(json["auth_google_enabled"], false);
+        // auth_password_enabled defaults to true when no DB
+        assert_eq!(json["auth_password_enabled"], true);
     }
 }

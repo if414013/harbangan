@@ -271,11 +271,6 @@ impl Config {
             config.openai_oauth_client_id = v;
         }
 
-        // Google SSO
-        config.google_client_id = std::env::var("GOOGLE_CLIENT_ID").unwrap_or_default();
-        config.google_client_secret = std::env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default();
-        config.google_callback_url = std::env::var("GOOGLE_CALLBACK_URL").unwrap_or_default();
-
         // Initial admin seeding
         config.initial_admin_email = std::env::var("INITIAL_ADMIN_EMAIL")
             .ok()
@@ -302,32 +297,8 @@ impl Config {
             }
         }
 
-        let has_password_auth =
-            self.initial_admin_email.is_some() && self.initial_admin_password.is_some();
-        let has_google_sso = !self.google_client_id.is_empty();
-
-        // At least one auth method must be configured
-        if !has_password_auth && !has_google_sso {
-            anyhow::bail!(
-                "No authentication method configured. Set either \
-                 GOOGLE_CLIENT_ID (+ SECRET + CALLBACK_URL) for Google SSO, or \
-                 INITIAL_ADMIN_EMAIL + INITIAL_ADMIN_PASSWORD for password auth."
-            );
-        }
-
-        // If Google SSO fields are partially set, require all of them
-        if has_google_sso {
-            if self.google_callback_url.is_empty() {
-                anyhow::bail!(
-                    "GOOGLE_CALLBACK_URL is required when GOOGLE_CLIENT_ID is set. \
-                     No default is provided because SERVER_HOST=0.0.0.0 in Docker makes any auto-derived default broken."
-                );
-            }
-            if self.google_client_secret.is_empty() {
-                anyhow::bail!("GOOGLE_CLIENT_SECRET is required when GOOGLE_CLIENT_ID is set.");
-            }
-        }
-
+        // Full mode: auth methods are configured at runtime via the admin UI
+        // (stored in the config DB), not validated at startup.
         Ok(())
     }
 }
@@ -470,49 +441,11 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_requires_at_least_one_auth_method() {
-        let config = Config {
-            google_client_id: String::new(),
-            ..Config::with_defaults()
-        };
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("No authentication method configured"));
-    }
-
-    #[test]
-    fn test_validate_google_callback_url_required() {
-        let config = Config {
-            google_client_id: "some-id".to_string(),
-            google_client_secret: "some-secret".to_string(),
-            google_callback_url: String::new(),
-            ..Config::with_defaults()
-        };
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("GOOGLE_CALLBACK_URL"));
-    }
-
-    #[test]
-    fn test_validate_google_secret_required() {
-        let config = Config {
-            google_client_id: "some-id".to_string(),
-            google_client_secret: String::new(),
-            google_callback_url: "http://localhost:8000/callback".to_string(),
-            ..Config::with_defaults()
-        };
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("GOOGLE_CLIENT_SECRET"));
+    fn test_validate_full_mode_no_auth_at_startup() {
+        // Full mode with no auth configured at startup is valid —
+        // auth config is now in DB, not validated at startup.
+        let config = Config::with_defaults();
+        assert!(config.validate().is_ok());
     }
 
     #[test]
@@ -535,50 +468,16 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_skips_google_sso_in_proxy_mode() {
+    fn test_validate_proxy_mode_still_works() {
         let config = Config {
             gateway_mode: GatewayMode::Proxy,
             proxy: Some(ProxyConfig {
                 api_key: "test-key-long-enough".to_string(),
                 ..Default::default()
             }),
-            google_client_id: String::new(),
-            google_client_secret: String::new(),
-            google_callback_url: String::new(),
             ..Config::with_defaults()
         };
         assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_validate_allows_password_only_auth() {
-        let config = Config {
-            google_client_id: String::new(),
-            google_client_secret: String::new(),
-            google_callback_url: String::new(),
-            initial_admin_email: Some("admin@example.com".to_string()),
-            initial_admin_password: Some("test-password-123".to_string()),
-            ..Config::with_defaults()
-        };
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_validate_google_partial_config_fails_with_password_auth() {
-        let config = Config {
-            google_client_id: "some-id".to_string(),
-            google_client_secret: String::new(),
-            google_callback_url: String::new(),
-            initial_admin_email: Some("admin@example.com".to_string()),
-            initial_admin_password: Some("test-password-123".to_string()),
-            ..Config::with_defaults()
-        };
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("GOOGLE_CALLBACK_URL"));
     }
 
     #[test]
@@ -616,14 +515,12 @@ mod tests {
 
     #[test]
     fn test_debug_redacts_secrets() {
-        let config = Config {
-            google_client_secret: "super-secret".to_string(),
-            proxy: Some(ProxyConfig {
-                api_key: "my-secret-api-key".to_string(),
-                ..Default::default()
-            }),
-            ..Config::with_defaults()
-        };
+        let mut config = Config::with_defaults();
+        config.google_client_secret = "super-secret".to_string();
+        config.proxy = Some(ProxyConfig {
+            api_key: "my-secret-api-key".to_string(),
+            ..Default::default()
+        });
         let debug_output = format!("{:?}", config);
         assert!(!debug_output.contains("super-secret"));
         assert!(!debug_output.contains("my-secret-api-key"));
@@ -734,5 +631,62 @@ mod tests {
         assert!(proxy.qwen_token.is_none());
         assert!(proxy.custom_provider_url.is_some());
         assert!(proxy.custom_provider_key.is_none());
+    }
+
+    // ── Google SSO config struct tests ───────────────────────────────
+
+    #[test]
+    fn test_google_sso_fields_default_empty() {
+        let config = Config::with_defaults();
+        assert!(config.google_client_id.is_empty());
+        assert!(config.google_client_secret.is_empty());
+        assert!(config.google_callback_url.is_empty());
+    }
+
+    #[test]
+    fn test_google_sso_fields_settable() {
+        let mut config = Config::with_defaults();
+        config.google_client_id = "test-client-id.apps.googleusercontent.com".to_string();
+        config.google_client_secret = "GOCSPX-test-secret".to_string();
+        config.google_callback_url =
+            "http://localhost:9999/_ui/api/auth/google/callback".to_string();
+
+        assert_eq!(
+            config.google_client_id,
+            "test-client-id.apps.googleusercontent.com"
+        );
+        assert_eq!(config.google_client_secret, "GOCSPX-test-secret");
+        assert_eq!(
+            config.google_callback_url,
+            "http://localhost:9999/_ui/api/auth/google/callback"
+        );
+    }
+
+    #[test]
+    fn test_debug_redacts_google_client_secret() {
+        let mut config = Config::with_defaults();
+        config.google_client_secret = "GOCSPX-super-secret-value".to_string();
+        let debug_output = format!("{:?}", config);
+        assert!(!debug_output.contains("GOCSPX-super-secret-value"));
+        assert!(debug_output.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn test_validate_full_mode_with_google_sso_configured() {
+        let mut config = Config::with_defaults();
+        config.google_client_id = "test-id".to_string();
+        config.google_client_secret = "test-secret".to_string();
+        config.google_callback_url = "http://localhost:9999/callback".to_string();
+        // Full mode with SSO configured is valid
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_full_mode_with_partial_google_sso() {
+        let mut config = Config::with_defaults();
+        config.google_client_id = "test-id".to_string();
+        // Missing secret and callback — still valid at startup since
+        // auth config is now in DB, not validated at startup
+        assert!(config.validate().is_ok());
     }
 }

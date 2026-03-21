@@ -33,6 +33,9 @@ pub fn classify_config_change(key: &str) -> ChangeType {
         "anthropic_oauth_client_id" | "openai_oauth_client_id" | "qwen_oauth_client_id" => {
             ChangeType::HotReload
         }
+        "google_client_id" | "google_client_secret" | "google_callback_url" => {
+            ChangeType::HotReload
+        }
         "server_host"
         | "server_port"
         | "streaming_timeout"
@@ -191,6 +194,40 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
             }
             Ok(())
         }
+        "google_client_id" | "google_callback_url" => {
+            let s = value
+                .as_str()
+                .ok_or_else(|| format!("{} must be a string", key))?;
+            if s.is_empty() {
+                return Ok(());
+            }
+            if s.len() > 512 {
+                return Err(format!("{} must be at most 512 characters", key));
+            }
+            if s.chars().any(|c| c.is_control()) {
+                return Err(format!("{} must not contain control characters", key));
+            }
+            Ok(())
+        }
+        "google_client_secret" => {
+            let s = value
+                .as_str()
+                .ok_or_else(|| "google_client_secret must be a string".to_string())?;
+            // Masked sentinel value — treat as no-op (caller should skip update)
+            if s.starts_with("••••") || s.starts_with("xxxx") {
+                return Ok(());
+            }
+            if s.is_empty() {
+                return Ok(());
+            }
+            if s.len() > 512 {
+                return Err("google_client_secret must be at most 512 characters".to_string());
+            }
+            if s.chars().any(|c| c.is_control()) {
+                return Err("google_client_secret must not contain control characters".to_string());
+            }
+            Ok(())
+        }
         _ => Err(format!("Unknown config field: '{}'", key)),
     }
 }
@@ -285,6 +322,18 @@ pub fn get_config_field_descriptions() -> HashMap<&'static str, &'static str> {
     m.insert(
         "openai_oauth_client_id",
         "OpenAI OAuth client ID for PKCE flow",
+    );
+    m.insert(
+        "google_client_id",
+        "Google OAuth client ID for SSO authentication",
+    );
+    m.insert(
+        "google_client_secret",
+        "Google OAuth client secret (stored encrypted)",
+    );
+    m.insert(
+        "google_callback_url",
+        "Google OAuth callback URL (e.g. http://localhost:9999/_ui/api/auth/google/callback)",
     );
     m
 }
@@ -977,5 +1026,147 @@ mod tests {
             classify_config_change("openai_oauth_client_id"),
             ChangeType::HotReload
         ));
+    }
+
+    // ── Google SSO config validation tests ───────────────────────────
+
+    #[test]
+    fn test_validate_google_client_id_valid() {
+        assert!(validate_config_field("google_client_id", &json!("some-client-id.apps.googleusercontent.com")).is_ok());
+    }
+
+    #[test]
+    fn test_validate_google_client_id_empty_allowed() {
+        // Empty string is valid (SSO unconfigured / clearing)
+        assert!(validate_config_field("google_client_id", &json!("")).is_ok());
+    }
+
+    #[test]
+    fn test_validate_google_client_id_non_string_rejected() {
+        assert!(validate_config_field("google_client_id", &json!(123)).is_err());
+        assert!(validate_config_field("google_client_id", &json!(true)).is_err());
+    }
+
+    #[test]
+    fn test_validate_google_client_id_max_length() {
+        // 512 chars OK
+        assert!(validate_config_field("google_client_id", &json!("a".repeat(512))).is_ok());
+        // 513 chars rejected
+        assert!(validate_config_field("google_client_id", &json!("a".repeat(513))).is_err());
+    }
+
+    #[test]
+    fn test_validate_google_client_id_control_chars_rejected() {
+        assert!(validate_config_field("google_client_id", &json!("id\nwith\nnewlines")).is_err());
+        assert!(validate_config_field("google_client_id", &json!("id\x00null")).is_err());
+    }
+
+    #[test]
+    fn test_validate_google_callback_url_valid() {
+        assert!(validate_config_field(
+            "google_callback_url",
+            &json!("http://localhost:9999/_ui/api/auth/google/callback")
+        ).is_ok());
+        assert!(validate_config_field(
+            "google_callback_url",
+            &json!("https://myapp.example.com/_ui/api/auth/google/callback")
+        ).is_ok());
+    }
+
+    #[test]
+    fn test_validate_google_callback_url_empty_allowed() {
+        assert!(validate_config_field("google_callback_url", &json!("")).is_ok());
+    }
+
+    #[test]
+    fn test_validate_google_callback_url_non_string_rejected() {
+        assert!(validate_config_field("google_callback_url", &json!(123)).is_err());
+        assert!(validate_config_field("google_callback_url", &json!(true)).is_err());
+    }
+
+    #[test]
+    fn test_validate_google_callback_url_max_length() {
+        assert!(validate_config_field("google_callback_url", &json!("a".repeat(512))).is_ok());
+        assert!(validate_config_field("google_callback_url", &json!("a".repeat(513))).is_err());
+    }
+
+    #[test]
+    fn test_validate_google_callback_url_control_chars_rejected() {
+        assert!(validate_config_field("google_callback_url", &json!("http://example.com\n/callback")).is_err());
+    }
+
+    #[test]
+    fn test_validate_google_client_secret_valid() {
+        assert!(validate_config_field("google_client_secret", &json!("GOCSPX-some-secret-value")).is_ok());
+    }
+
+    #[test]
+    fn test_validate_google_client_secret_empty_allowed() {
+        assert!(validate_config_field("google_client_secret", &json!("")).is_ok());
+    }
+
+    #[test]
+    fn test_validate_google_client_secret_non_string_rejected() {
+        assert!(validate_config_field("google_client_secret", &json!(123)).is_err());
+        assert!(validate_config_field("google_client_secret", &json!(true)).is_err());
+    }
+
+    #[test]
+    fn test_validate_google_client_secret_max_length() {
+        assert!(validate_config_field("google_client_secret", &json!("a".repeat(512))).is_ok());
+        assert!(validate_config_field("google_client_secret", &json!("a".repeat(513))).is_err());
+    }
+
+    #[test]
+    fn test_validate_google_client_secret_control_chars_rejected() {
+        assert!(validate_config_field("google_client_secret", &json!("secret\x00null")).is_err());
+        assert!(validate_config_field("google_client_secret", &json!("secret\nnewline")).is_err());
+    }
+
+    #[test]
+    fn test_validate_google_client_secret_masked_sentinel_accepted() {
+        // Masked values from GET /config should pass validation (treated as no-op)
+        assert!(validate_config_field("google_client_secret", &json!("••••ghij")).is_ok());
+        assert!(validate_config_field("google_client_secret", &json!("xxxxghij")).is_ok());
+    }
+
+    // ── Google SSO change classification tests ──────────────────────
+
+    #[test]
+    fn test_classify_google_client_id_hot_reload() {
+        assert!(matches!(
+            classify_config_change("google_client_id"),
+            ChangeType::HotReload
+        ));
+    }
+
+    #[test]
+    fn test_classify_google_client_secret_hot_reload() {
+        assert!(matches!(
+            classify_config_change("google_client_secret"),
+            ChangeType::HotReload
+        ));
+    }
+
+    #[test]
+    fn test_classify_google_callback_url_hot_reload() {
+        assert!(matches!(
+            classify_config_change("google_callback_url"),
+            ChangeType::HotReload
+        ));
+    }
+
+    // ── Google SSO field descriptions ────────────────────────────────
+
+    #[test]
+    fn test_field_descriptions_include_google_sso() {
+        let descriptions = get_config_field_descriptions();
+        assert!(descriptions.contains_key("google_client_id"));
+        assert!(descriptions.contains_key("google_client_secret"));
+        assert!(descriptions.contains_key("google_callback_url"));
+        // Verify descriptions mention what they're for
+        assert!(descriptions["google_client_id"].contains("Google"));
+        assert!(descriptions["google_client_secret"].contains("encrypted"));
+        assert!(descriptions["google_callback_url"].contains("callback"));
     }
 }

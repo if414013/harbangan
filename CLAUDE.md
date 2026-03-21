@@ -68,9 +68,6 @@ Set in `.env` (see `.env.example`):
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `POSTGRES_PASSWORD` | Yes | PostgreSQL password |
-| `GOOGLE_CLIENT_ID` | Yes | Google OAuth Client ID |
-| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth Client Secret |
-| `GOOGLE_CALLBACK_URL` | Yes | OAuth callback (e.g. `http://localhost:9999/_ui/api/auth/google/callback`) |
 | `INITIAL_ADMIN_EMAIL` | No | Seed admin email for password auth (first-run only) |
 | `INITIAL_ADMIN_PASSWORD` | No | Seed admin password for password auth (first-run only) |
 | `INITIAL_ADMIN_TOTP_SECRET` | No | TOTP secret (base32) for admin 2FA — enables automated E2E auth |

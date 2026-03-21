@@ -1022,6 +1022,9 @@ impl ConfigDb {
                 "qwen_oauth_client_id" => config.qwen_oauth_client_id = value.clone(),
                 "anthropic_oauth_client_id" => config.anthropic_oauth_client_id = value.clone(),
                 "openai_oauth_client_id" => config.openai_oauth_client_id = value.clone(),
+                "google_client_id" => config.google_client_id = value.clone(),
+                "google_client_secret" => config.google_client_secret = value.clone(),
+                "google_callback_url" => config.google_callback_url = value.clone(),
                 _ => {}
             }
         }
@@ -1159,7 +1162,7 @@ impl ConfigDb {
 
     // ── Password Auth + 2FA Methods ────────────────────────────────
 
-    /// Create a password-authenticated user (with must_change_password=true).
+    /// Create a password-authenticated user.
     /// Uses SERIALIZABLE isolation like upsert_user for first-user-admin logic.
     #[allow(dead_code)]
     pub async fn create_password_user(
@@ -1168,6 +1171,7 @@ impl ConfigDb {
         name: &str,
         password_hash: &str,
         role: &str,
+        must_change_password: bool,
     ) -> Result<Uuid> {
         for attempt in 0..3 {
             let mut tx = self
@@ -1198,7 +1202,7 @@ impl ConfigDb {
 
             let result = sqlx::query_scalar::<_, Uuid>(
                 "INSERT INTO users (id, email, name, role, auth_method, password_hash, must_change_password)
-                 VALUES ($1, $2, $3, $4, 'password', $5, true)
+                 VALUES ($1, $2, $3, $4, 'password', $5, $6)
                  RETURNING id",
             )
             .bind(id)
@@ -1206,6 +1210,7 @@ impl ConfigDb {
             .bind(name)
             .bind(&effective_role)
             .bind(password_hash)
+            .bind(must_change_password)
             .fetch_one(&mut *tx)
             .await;
 

@@ -43,6 +43,13 @@ export const Form = {
   save: 'button.btn-save',
 } as const
 
+export const Config = {
+  group: 'div.config-group',
+  groupHeader: 'h3.config-group-header',
+  label: 'label.config-label',
+  saveBar: 'div.config-save-bar',
+} as const
+
 export const Kiro = {
   wrap: 'div.device-code-wrap',
 } as const
