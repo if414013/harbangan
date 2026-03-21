@@ -10,7 +10,7 @@ This directory is the AI workflow infrastructure for Harbangan. It provides a fu
 ├── README.md                    # This file (full documentation)
 ├── settings.json                # Claude Code configuration
 ├── agents/                      # 7 agent definitions
-├── skills/                      # 9 invocable skills
+├── skills/                      # 10 invocable skills
 ├── agent-memory/                # Persistent per-agent memory
 ├── rules/                       # Coding standards + plan mode rules
 └── plans/                       # Implementation plans
@@ -41,16 +41,17 @@ Each agent is a `.md` file with YAML frontmatter defining its name, description,
 
 ---
 
-## Skills (9 total)
+## Skills (10 total)
 
 Skills are invocable via `/skill-name [arguments]`.
 
-### Team Skills (5) — Multi-Agent Orchestration
+### Team Skills (6) — Multi-Agent Orchestration
 
 | Skill | Purpose | Key Arguments |
 |-------|---------|---------------|
 | `/team-plan` | Analyze scope, explore codebase, produce plans | `"description" [--scope path]` |
 | `/team-implement` | Full lifecycle: spawn → assign → verify → PR | `"description"` |
+| `/team-document` | Update docs with domain agent consultation | `[scope] [--target gh-pages\|readme\|claude\|all]` |
 | `/team-review` | Multi-dimensional code review | `[target] [--base branch]` |
 | `/team-debug` | Hypothesis-driven debugging | `"error" [--scope path] [--hypotheses N]` |
 | `/team-shutdown` | Gracefully terminate a running team | `[team-name]` |
