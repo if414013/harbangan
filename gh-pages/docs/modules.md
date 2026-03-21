@@ -7,7 +7,7 @@ nav_order: 7
 # Module Reference
 {: .no_toc }
 
-Overview of all source modules in the Kiro Gateway codebase, their responsibilities, and how they interconnect. The gateway supports multiple AI providers (Kiro, Anthropic, OpenAI, Gemini, Copilot, Qwen) via a `Provider` trait and `ProviderRegistry`.
+Overview of all source modules in the Harbangan codebase, their responsibilities, and how they interconnect. The gateway supports multiple AI providers (Kiro, Anthropic, OpenAI Codex, Copilot, Qwen, Custom) via a `Provider` trait and `ProviderRegistry`.
 {: .fs-6 .fw-300 }
 
 <details open markdown="block">
@@ -25,32 +25,33 @@ Overview of all source modules in the Kiro Gateway codebase, their responsibilit
 graph TD
     main["main.rs<br/><i>Entry point</i>"]
     config["config.rs<br/><i>ENV + DB config</i>"]
-    routes["routes/mod.rs<br/><i>API handlers + AppState</i>"]
+    routes["routes/<br/><i>API handlers + AppState</i>"]
     middleware["middleware/<br/><i>Auth, CORS, Debug</i>"]
     converters["converters/<br/><i>Format translation</i>"]
     models["models/<br/><i>Request/response types</i>"]
     auth["auth/<br/><i>Token management</i>"]
-    streaming["streaming/mod.rs<br/><i>AWS Event Stream parser</i>"]
+    streaming["streaming/<br/><i>SSE stream parser</i>"]
     http_client["http_client.rs<br/><i>Connection pool + retry</i>"]
     resolver["resolver.rs<br/><i>Model name aliases</i>"]
     cache["cache.rs<br/><i>Model list cache</i>"]
-    metrics["metrics/<br/><i>Request tracking</i>"]
-    web_ui["web_ui/<br/><i>Google SSO, API keys,<br/>sessions, config API,<br/>provider OAuth</i>"]
-    log_capture["log_capture.rs<br/><i>Tracing → SSE logs</i>"]
+    web_ui["web_ui/<br/><i>Auth (Google SSO + password),<br/>API keys, sessions,<br/>config API, provider OAuth</i>"]
     truncation["truncation.rs<br/><i>Truncation recovery</i>"]
     thinking["thinking_parser.rs<br/><i>Reasoning extraction</i>"]
     tokenizer["tokenizer.rs<br/><i>Token counting</i>"]
     error["error.rs<br/><i>Error types</i>"]
     bench["bench/<br/><i>Benchmarking</i>"]
     guardrails["guardrails/<br/><i>CEL rules + Bedrock<br/>content validation</i>"]
-    providers["providers/<br/><i>Provider trait, registry,<br/>Kiro/Anthropic/OpenAI/<br/>Gemini/Copilot/Qwen</i>"]
+    providers["providers/<br/><i>Provider trait, registry,<br/>Kiro/Anthropic/OpenAI Codex/<br/>Copilot/Qwen/Custom</i>"]
+    cost["cost.rs<br/><i>Token cost calculation</i>"]
+    datadog["datadog.rs<br/><i>OTLP metrics + tracing</i>"]
 
     main --> config
     main --> routes
     main --> web_ui
-    main --> log_capture
     main --> guardrails
     main --> providers
+    main --> cost
+    main --> datadog
 
     routes --> middleware
     routes --> converters
@@ -58,7 +59,6 @@ graph TD
     routes --> http_client
     routes --> streaming
     routes --> resolver
-    routes --> metrics
     routes --> truncation
     routes --> tokenizer
     routes --> guardrails
@@ -74,7 +74,6 @@ graph TD
 
     resolver --> cache
 
-    web_ui --> metrics
     web_ui --> auth
 
     http_client --> auth
@@ -89,7 +88,6 @@ graph TD
     style auth fill:#ffd43b,color:#333
     style web_ui fill:#cc5de8,color:#fff
     style models fill:#868e96,color:#fff
-    style log_capture fill:#ff922b,color:#fff
     style guardrails fill:#e64980,color:#fff
     style providers fill:#339af0,color:#fff
 ```
@@ -102,7 +100,7 @@ graph TD
 
 | Module | File(s) | Description |
 |--------|---------|-------------|
-| `main` | `backend/src/main.rs` | Application entry point. Loads config from environment + PostgreSQL, initializes all subsystems (auth, HTTP client, model cache, metrics, log capture), builds the Axum router, and starts the HTTP server on port 8000. |
+| `main` | `backend/src/main.rs` | Application entry point. Loads config from environment + PostgreSQL, initializes all subsystems (auth, HTTP client, model cache, metrics, log capture, provider registry), builds the Axum router, and starts the HTTP server (default port 8000, overridden to 9999 by docker-compose). |
 | `lib` | `backend/src/lib.rs` | Library root. Re-exports all public modules for use by integration tests. |
 | `config` | `backend/src/config.rs` | Configuration management. Defines `Config` struct with all runtime settings, `DebugMode` and `FakeReasoningHandling` enums. Loads from environment variables + `.env` file, with PostgreSQL overlay for runtime config changes via the Web UI. |
 | `error` | `backend/src/error.rs` | Error types. Defines `ApiError` enum (`AuthError`, `InvalidModel`, `KiroApiError`, `ConfigError`, `ValidationError`, `Internal`) with `IntoResponse` implementation that maps each variant to an HTTP status code and JSON error body. |
@@ -111,7 +109,7 @@ graph TD
 
 | Module | File(s) | Description |
 |--------|---------|-------------|
-| `routes` | `backend/src/routes/mod.rs` | API route handlers and `AppState` definition. Contains handlers for `GET /`, `GET /health`, `GET /v1/models`, `POST /v1/chat/completions`, and `POST /v1/messages`. Manages request lifecycle with `RequestGuard` for metrics tracking. Builds separate router groups for health (unauthenticated), OpenAI (authenticated), and Anthropic (authenticated) routes. |
+| `routes` | `backend/src/routes/mod.rs`, `openai.rs`, `anthropic.rs`, `pipeline.rs`, `state.rs` | API route handlers and `AppState` definition. `mod.rs` builds separate router groups for health (unauthenticated), OpenAI (authenticated), and Anthropic (authenticated) routes. `openai.rs` handles `POST /v1/chat/completions` and `GET /v1/models`. `anthropic.rs` handles `POST /v1/messages`. `pipeline.rs` contains shared request pipeline logic. `state.rs` defines `AppState`. Manages request lifecycle with `RequestGuard` for metrics tracking. |
 | `middleware` | `backend/src/middleware/mod.rs`, `backend/src/middleware/debug.rs` | Authentication, CORS, and debug logging middleware. `auth_middleware` validates API keys by SHA-256 hashing and looking up in cache/DB to identify the user and inject per-user Kiro credentials. `cors_layer()` creates a permissive CORS layer allowing all origins, methods, and headers. `debug.rs` provides request/response body logging controlled by `DebugMode`. |
 
 ### Format Translation
@@ -123,6 +121,8 @@ graph TD
 | `converters::anthropic_to_kiro` | `backend/src/converters/anthropic_to_kiro.rs` | Converts Anthropic `AnthropicMessagesRequest` to Kiro's `KiroRequest` format. Handles content blocks (text, images, tool use/results, thinking). |
 | `converters::kiro_to_openai` | `backend/src/converters/kiro_to_openai.rs` | Converts Kiro streaming events back to OpenAI `ChatCompletionChunk` format. |
 | `converters::kiro_to_anthropic` | `backend/src/converters/kiro_to_anthropic.rs` | Converts Kiro streaming events back to Anthropic `StreamEvent` format. |
+| `converters::openai_to_anthropic` | `backend/src/converters/openai_to_anthropic.rs` | Converts OpenAI `ChatCompletionRequest` to Anthropic `AnthropicMessagesRequest`. Used for cross-format round-trip testing. |
+| `converters::anthropic_to_openai` | `backend/src/converters/anthropic_to_openai.rs` | Converts Anthropic `AnthropicMessagesRequest` to OpenAI `ChatCompletionRequest`. Used for cross-format round-trip testing. |
 | `converters::core` | `backend/src/converters/core.rs` | Shared conversion logic used by both OpenAI and Anthropic converters. Defines `UnifiedMessage`, `MessageContent`, `ToolCall`, `ToolResult`, and `UnifiedTool` types. |
 
 ### Data Models
@@ -148,7 +148,7 @@ graph TD
 
 | Module | File(s) | Description |
 |--------|---------|-------------|
-| `streaming` | `backend/src/streaming/mod.rs` | Kiro AWS Event Stream parser. Parses the binary event stream format from the Kiro API into typed `KiroEvent` variants. Provides `stream_kiro_to_openai()`, `stream_kiro_to_anthropic()`, `collect_openai_response()`, and `collect_anthropic_response()` functions for both streaming and non-streaming response handling. |
+| `streaming` | `backend/src/streaming/mod.rs`, `sse.rs`, `cross_format.rs` | Kiro SSE stream parser. Uses text-based `SseParser` with pattern matching and brace counting to extract JSON events from the Kiro API response stream. Entry point: `parse_kiro_stream()`. Also includes `parse_sse_stream()` for direct providers and `OpenAIToAnthropicState` for cross-format streaming. Provides `stream_kiro_to_openai()`, `stream_kiro_to_anthropic()`, `collect_openai_response()`, and `collect_anthropic_response()`. |
 | `thinking_parser` | `backend/src/thinking_parser.rs` | Extracts reasoning/thinking blocks from model responses. Parses `<thinking>` tags and converts them to structured content blocks for both OpenAI (`reasoning_content`) and Anthropic (`thinking` content block) formats. |
 | `truncation` | `backend/src/truncation.rs` | Truncation detection and recovery. Injects recovery instructions into conversation context (`inject_openai_truncation_recovery`, `inject_anthropic_truncation_recovery`) and detects when responses are cut off mid-stream to trigger retries. |
 | `tokenizer` | `backend/src/tokenizer.rs` | Approximate token counting for messages, tools, and system prompts. Provides `count_message_tokens()`, `count_anthropic_message_tokens()`, and `count_tools_tokens()` for input token estimation. |
@@ -160,14 +160,9 @@ graph TD
 | `http_client` | `backend/src/http_client.rs` | Connection-pooled HTTP client (`KiroHttpClient`) for communicating with the Kiro API. Configurable connection pool size, connect/request timeouts, and automatic retry with exponential backoff. Provides `request_with_retry()` for resilient upstream calls. |
 | `resolver` | `backend/src/resolver.rs` | Model name resolution. `ModelResolver` maps model name aliases (e.g. `claude-sonnet-4.5`) to canonical Kiro model IDs. Checks the model cache first, then falls back to pattern matching. |
 | `cache` | `backend/src/cache.rs` | `ModelCache` — thread-safe cache for the model list fetched from the Kiro API at startup. Provides `get_all_model_ids()` and `update()` methods. Configurable TTL. |
-| `log_capture` | `backend/src/log_capture.rs` | Custom `tracing` subscriber layer that captures log events into the shared log buffer. Enables real-time log streaming to the web UI via SSE (`/_ui/api/stream/logs`). |
+| `cost` | `backend/src/cost.rs` | Token cost calculation. Provides pricing data and cost estimation for requests across providers. |
+| `datadog` | `backend/src/datadog.rs` | Datadog APM integration via OpenTelemetry. Configures OTLP trace and metric exporters when `DD_AGENT_HOST` is set. Zero-overhead when not configured. |
 | `utils` | `backend/src/utils.rs` | Miscellaneous utility functions shared across modules. |
-
-### Monitoring & Metrics
-
-| Module | File(s) | Description |
-|--------|---------|-------------|
-| `metrics` | `backend/src/metrics/mod.rs`, `backend/src/metrics/collector.rs` | `MetricsCollector` — lock-free metrics collection using atomic counters and ring buffers. Tracks active connections, total requests/errors, latency percentiles (p50/p95/p99), per-model statistics (request count, avg latency, input/output tokens), and error breakdown by type. `StreamingMetricsTracker` handles async output token counting for streaming requests. Provides `to_json_snapshot()` for the Web UI. Samples auto-expire after 15 minutes. |
 
 ### Web UI
 
@@ -182,9 +177,14 @@ graph TD
 | `web_ui::users` | `backend/src/web_ui/users.rs` | User administration (admin-only). Endpoints for listing users, changing roles, and removing users. |
 | `web_ui::config_api` | `backend/src/web_ui/config_api.rs` | Config field validation and metadata. `classify_config_change()` determines if a field change can be hot-reloaded or requires restart. `validate_config_field()` validates types and ranges. `get_config_field_descriptions()` provides human-readable descriptions for the config UI. |
 | `web_ui::config_db` | `backend/src/web_ui/config_db.rs` | `ConfigDb` — PostgreSQL-backed configuration persistence using `sqlx`. Auto-creates `config`, `config_history`, and `schema_version` tables. Provides `get/set/get_all`, `load_into_config()` overlay, `save_initial_setup()`, `save_oauth_setup()`, and `get_history()` with automatic pruning (keeps last 1000 entries). All writes are transactional. |
-| `web_ui::sse` | `backend/src/web_ui/sse.rs` | Server-Sent Event streams for the Web UI. `metrics_stream` pushes metrics snapshots every 1 second. `logs_stream` pushes new log entries every 500ms. Both include 15-second keep-alive pings. |
 | `web_ui::copilot_auth` | `backend/src/web_ui/copilot_auth.rs` | GitHub Copilot OAuth flow. Two-step process: GitHub OAuth for user authorization, then Copilot-specific token exchange via `copilot_internal/v2/token`. Stores Copilot token + base URL in DB and `copilot_token_cache`. |
 | `web_ui::qwen_auth` | `backend/src/web_ui/qwen_auth.rs` | Qwen Coder device flow (RFC 8628). Endpoints for initiating device authorization, polling for token, checking status, and disconnecting. Uses `qwen_device_pending` DashMap for in-flight flows (10-min TTL, 10k cap). |
+| `web_ui::password_auth` | `backend/src/web_ui/password_auth.rs` | Password authentication with mandatory TOTP 2FA. Handles login (`POST /auth/login`), 2FA verification (`POST /auth/login/2fa`), TOTP setup/verify, password change, recovery codes (8 alphanumeric, SHA-256 hashed), and admin user creation/password reset. Includes per-email rate limiting (5 attempts, 15-min lockout). |
+| `web_ui::usage` | `backend/src/web_ui/usage.rs` | Usage tracking endpoints. Per-user usage (`GET /usage`) and admin usage views (`GET /admin/usage`, `GET /admin/usage/users`) with date range filtering and group-by (day/model/provider). |
+| `web_ui::admin_pool` | `backend/src/web_ui/admin_pool.rs` | Admin provider pool management. CRUD endpoints for shared provider accounts (`GET/POST /admin/pool`, `DELETE/PATCH /admin/pool/:id`). Rate limit monitoring (`GET /providers/rate-limits`). Per-user provider account management. |
+| `web_ui::model_registry` | `backend/src/web_ui/model_registry.rs` | Model registry data layer. Manages admin-configured model entries in PostgreSQL. |
+| `web_ui::model_registry_handlers` | `backend/src/web_ui/model_registry_handlers.rs` | Model registry HTTP handlers. CRUD endpoints for model registry entries (`GET/PATCH/DELETE /models/registry`, `POST /models/registry/populate`). |
+| `web_ui::crypto` | `backend/src/web_ui/crypto.rs` | Encryption utilities. AES-256-GCM encryption for sensitive configuration values stored in PostgreSQL. Uses `CONFIG_ENCRYPTION_KEY` environment variable. |
 | `web_ui::provider_oauth` | `backend/src/web_ui/provider_oauth.rs` | Provider OAuth relay for Anthropic (PKCE flow). Defines `TokenExchanger` trait (mockable for tests), `ProviderOAuthPendingState`, and OAuth config per provider. Handles authorization redirect, code exchange, and token storage in `user_provider_tokens`. |
 
 ### Guardrails
@@ -205,14 +205,15 @@ graph TD
 |--------|---------|-------------|
 | `providers` | `backend/src/providers/mod.rs` | Module root. Re-exports all provider implementations, the registry, trait, and types. |
 | `providers::traits` | `backend/src/providers/traits.rs` | `Provider` trait — the uniform interface all AI providers implement. Defines `execute_openai()`, `stream_openai()`, `execute_anthropic()`, `stream_anthropic()` methods. Each provider handles both OpenAI-format and Anthropic-format inputs. |
-| `providers::types` | `backend/src/providers/types.rs` | Type definitions: `ProviderId` enum (Kiro, Anthropic, OpenAI, Gemini, Copilot, Qwen), `ProviderCredentials` (provider + access_token + optional base_url), `ProviderContext` (per-request credentials + model), `ProviderResponse`, `ProviderStreamItem`. |
+| `providers::types` | `backend/src/providers/types.rs` | Type definitions: `ProviderId` enum (Kiro, Anthropic, OpenAICodex, Copilot, Qwen, Custom), `ProviderCredentials` (provider + access_token + optional base_url), `ProviderContext` (per-request credentials + model), `ProviderResponse`, `ProviderStreamItem`. |
 | `providers::registry` | `backend/src/providers/registry.rs` | `ProviderRegistry` — resolves which provider to use for a given user + model. Caches per-user provider credentials in memory (5-minute TTL). Handles transparent token refresh for OAuth-based providers with per-(user, provider) mutexes to prevent refresh storms. |
 | `providers::kiro` | `backend/src/providers/kiro.rs` | Kiro provider — the default. Routes requests through the format converter pipeline (OpenAI/Anthropic → Kiro) and streaming pipeline (AWS Event Stream → SSE). Uses `KiroHttpClient` and `AuthManager` for token management. |
 | `providers::anthropic` | `backend/src/providers/anthropic.rs` | Anthropic provider — direct relay to `api.anthropic.com`. Passes OpenAI-format requests through conversion, relays Anthropic-format requests natively. |
-| `providers::openai` | `backend/src/providers/openai.rs` | OpenAI provider — direct relay to `api.openai.com`. Relays OpenAI-format requests natively, converts Anthropic-format requests. |
-| `providers::gemini` | `backend/src/providers/gemini.rs` | Gemini provider — direct relay to `generativelanguage.googleapis.com`. Handles format conversion for both OpenAI and Anthropic inputs. |
+| `providers::openai_codex` | `backend/src/providers/openai_codex.rs` | OpenAI Codex provider — direct relay to `api.openai.com`. Relays OpenAI-format requests natively, converts Anthropic-format requests. |
 | `providers::copilot` | `backend/src/providers/copilot.rs` | Copilot provider — relay to GitHub Copilot API. Uses Copilot-specific headers (Editor-Version, Editor-Plugin-Version, Copilot-Integration-Id). Base URL from token exchange (may vary for enterprise). |
-| `providers::qwen` | `backend/src/providers/qwen.rs` | Qwen provider — relay to `chat.qwen.ai`. Handles Qwen-specific API format and authentication. |
+| `providers::qwen` | `backend/src/providers/qwen.rs` | Qwen provider — relay to `dashscope-intl.aliyuncs.com/compatible-mode`. Handles Qwen-specific API format and authentication. |
+| `providers::custom` | `backend/src/providers/custom.rs` | Custom provider — relay to a user-configured endpoint. Supports any OpenAI-compatible API with custom base URL and API key. |
+| `providers::rate_limiter` | `backend/src/providers/rate_limiter.rs` | Rate limiting infrastructure for multi-account load balancing. Tracks per-account rate limits and distributes requests across provider accounts. |
 
 ### Benchmarking
 
@@ -237,32 +238,27 @@ graph TD
 
 ### AppState
 
-All request handlers receive shared application state via Axum's `State` extractor. The `AppState` struct (defined in `backend/src/routes/mod.rs`) contains:
+All request handlers receive shared application state via Axum's `State` extractor. The `AppState` struct (defined in `backend/src/routes/state.rs`) contains:
 
-- `config: Arc<RwLock<Config>>` — runtime configuration (hot-reloadable via Web UI)
+- `proxy_api_key_hash: Option<[u8; 32]>` — pre-hashed API key for proxy-only mode (constant-time comparison)
+- `model_cache: ModelCache` — cached model list
 - `auth_manager: Arc<tokio::sync::RwLock<AuthManager>>` — Kiro token management
 - `http_client: Arc<KiroHttpClient>` — connection-pooled HTTP client
-- `model_cache: ModelCache` — cached model list
 - `resolver: ModelResolver` — model name alias resolution
-- `metrics: Arc<MetricsCollector>` — request/latency/token tracking
-- `log_buffer: Arc<Mutex<VecDeque<LogEntry>>>` — recent logs for Web UI SSE streaming
-- `config_db: Option<Arc<ConfigDb>>` — PostgreSQL config persistence
+- `config: Arc<RwLock<Config>>` — runtime configuration (hot-reloadable via Web UI)
 - `setup_complete: Arc<AtomicBool>` — setup wizard state
-- `session_cache: Arc<DashMap<Uuid, SessionInfo>>` — in-memory Google SSO sessions
+- `config_db: Option<Arc<ConfigDb>>` — PostgreSQL config persistence
+- `session_cache: Arc<DashMap<Uuid, SessionInfo>>` — in-memory sessions (Google SSO + password auth)
 - `api_key_cache: Arc<DashMap<String, (Uuid, Uuid)>>` — API key hash → (user_id, key_id)
 - `kiro_token_cache: Arc<DashMap<Uuid, (String, String, Instant)>>` — per-user Kiro tokens (4-min TTL)
 - `oauth_pending: Arc<DashMap<String, OAuthPendingState>>` — PKCE state (10-min TTL, 10k cap)
 - `guardrails_engine: Option<Arc<GuardrailsEngine>>` — Content validation engine (None when disabled or no DB)
 - `provider_registry: Arc<ProviderRegistry>` — resolves provider + credentials per user/model (5-min credential cache)
-- `anthropic_provider: Arc<AnthropicProvider>` — direct Anthropic API provider
-- `openai_provider: Arc<OpenAIProvider>` — direct OpenAI API provider
-- `gemini_provider: Arc<GeminiProvider>` — direct Gemini API provider
-- `copilot_provider: Arc<CopilotProvider>` — direct GitHub Copilot API provider
-- `qwen_provider: Arc<QwenProvider>` — direct Qwen Coder API provider
+- `providers: ProviderMap` — all providers (including Kiro), keyed by `ProviderId`
 - `provider_oauth_pending: Arc<DashMap<String, ProviderOAuthPendingState>>` — PKCE state for provider OAuth relay (separate from Google SSO)
 - `token_exchanger: Arc<dyn TokenExchanger>` — OAuth token exchange abstraction (mockable for tests)
-- `copilot_token_cache: Arc<DashMap<Uuid, (String, String, Instant)>>` — per-user Copilot tokens (token, base_url, cached_at)
-- `qwen_device_pending: QwenDevicePendingMap` — pending Qwen device flow states (10-min TTL, 10k cap)
+- `login_rate_limiter: Arc<DashMap<String, (u32, Instant)>>` — per-email rate limiting for password login (5 attempts, 15-min lockout)
+- `rate_tracker: Arc<RateLimitTracker>` — per-account rate-limit tracker for multi-account load balancing
 
 ### Request Guard
 

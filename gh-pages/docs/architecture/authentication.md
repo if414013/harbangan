@@ -11,9 +11,9 @@ permalink: /architecture/authentication/
 
 Kiro Gateway has three layers of authentication:
 
-1. **Client authentication** — API keys for proxy endpoints (`/v1/*`), Google SSO for the web UI (`/_ui/api/*`)
-2. **Provider authentication** — Per-user credentials for each AI provider (Kiro, Anthropic, OpenAI, Gemini, Copilot, Qwen)
-3. **Provider OAuth flows** — Web UI flows for connecting provider accounts (GitHub OAuth for Copilot, device flow for Qwen, PKCE relay for Anthropic)
+1. **Client authentication** — API keys for proxy endpoints (`/v1/*`), Google SSO or password+TOTP for the web UI (`/_ui/api/*`)
+2. **Provider authentication** — Per-user credentials for each AI provider (Kiro, Anthropic, OpenAI Codex, Copilot, Qwen, Custom)
+3. **Provider OAuth flows** — Web UI flows for connecting provider accounts (PKCE relay for Anthropic/OpenAI, GitHub OAuth for Copilot, device flow for Qwen)
 
 The deployment mode determines which features are active:
 
@@ -136,7 +136,7 @@ flowchart TB
         PROV_CACHE -->|Miss| LOAD_CREDS["Load from DB +<br/>refresh if expiring"]
         LOAD_CREDS --> SELECT
         SELECT --> KIRO_PATH["Kiro: AWS SSO OIDC"]
-        SELECT --> DIRECT_PATH["Direct: Anthropic/OpenAI/<br/>Gemini/Copilot/Qwen"]
+        SELECT --> DIRECT_PATH["Direct: Anthropic/OpenAI Codex/<br/>Copilot/Qwen/Custom"]
     end
 
     subgraph BackendAuth["Kiro Token Management"]
@@ -237,10 +237,11 @@ sequenceDiagram
 
 Sessions are managed by `backend/src/web_ui/session.rs`:
 
-- **Session cookie**: `kgw_session` — HttpOnly, Secure, SameSite=Lax, 24-hour TTL
+- **Session cookie**: `kgw_session` — HttpOnly, Secure, SameSite=Strict, 24-hour TTL
 - **CSRF cookie**: Separate cookie for CSRF token validation on mutation requests
-- **Session storage**: `session_cache: Arc<DashMap<Uuid, SessionInfo>>` — in-memory, not persisted across restarts
-- **SessionInfo** contains: user ID, email, role (Admin/User), expiry timestamp
+- **Session storage**: `session_cache: Arc<DashMap<Uuid, SessionInfo>>` — in-memory, backed by PostgreSQL for persistence across restarts
+- **SessionInfo** contains: user ID, email, role (Admin/User), expiry timestamp, auth method, TOTP status, must-change-password flag
+- **Sliding expiry**: Sessions automatically extend when more than 12 hours have passed since creation
 
 ### CSRF Protection
 
@@ -254,15 +255,57 @@ All mutation endpoints (POST, PUT, DELETE) under `/_ui/api/*` require a valid CS
 | Role | Capabilities |
 |------|-------------|
 | Admin | Full access: manage users, update config, manage domain allowlist, manage guardrail profiles/rules, all user capabilities |
-| User | View metrics, manage own API keys, manage own Kiro credentials |
+| User | Manage own API keys, manage own provider credentials, view usage |
 
-The first user to complete Google SSO setup is automatically assigned the Admin role.
+The first user to sign in (via Google SSO or password auth) is automatically assigned the Admin role.
+
+### Login Rate Limiting
+
+Password login attempts are rate-limited per email address to prevent brute-force attacks:
+
+- **Limit**: 5 failed attempts within a 15-minute window
+- **Response**: `423 Account Locked` with `retry_after_secs` field
+- **Tracking**: In-memory `DashMap<String, (u32, Instant)>` keyed by email
+- **Reset**: Counter resets after 15 minutes of no failed attempts
 
 ### Admin-Only Feature Routes
 
 The following feature admin routes follow the same session + CSRF pattern as other Web UI mutation endpoints:
 
-- **Guardrails** (`/_ui/api/guardrails/*`) — CRUD for guardrail profiles and rules, test endpoint, CEL validation. All admin-only with session + CSRF on mutations.
+- **Guardrails** (`/_ui/api/guardrails/*`) — CRUD for guardrail profiles and rules, test endpoint, CEL validation
+- **User management** (`/_ui/api/users/*`) — List users, update roles, delete users
+- **Admin user creation** (`POST /_ui/api/admin/users/create`) — Create users with password auth
+- **Password reset** (`POST /_ui/api/admin/users/:id/reset-password`) — Reset user password (forces `must_change_password`)
+- **Usage** (`/_ui/api/admin/usage/*`) — Global usage stats and per-user breakdown
+- **Config** (`PUT /_ui/api/config`) — Update runtime configuration
+
+---
+
+## Password + TOTP 2FA Authentication
+
+Implemented in `backend/src/web_ui/password_auth.rs`. This is an alternative to Google SSO for environments where Google OAuth is not available.
+
+### Login Flow
+
+1. `POST /_ui/api/auth/login` with `{email, password}` — Argon2 password verification
+2. If TOTP is enabled: returns `{needs_2fa: true, login_token: uuid}` — pending 2FA token stored in DB (5-minute TTL)
+3. `POST /_ui/api/auth/login/2fa` with `{login_token, code}` — verifies TOTP code (30s window, 1 skew tolerance) or recovery code
+4. On success: creates session, sets `kgw_session` + CSRF cookies
+
+### 2FA Setup
+
+All password users must enable TOTP 2FA. The `SessionGate` forces redirect to `/_ui/setup-2fa` for password users without TOTP enabled.
+
+1. `GET /_ui/api/auth/2fa/setup` — generates TOTP secret + QR URI (otpauth:// format)
+2. `POST /_ui/api/auth/2fa/verify` — verifies a TOTP code and enables 2FA
+3. On success: generates 8 single-use recovery codes (SHA-256 hashed in DB)
+
+### Recovery Codes
+
+- 8 alphanumeric codes generated on 2FA setup
+- SHA-256 hashed and stored in `totp_recovery_codes` table
+- Single-use: marked as `used` after successful verification
+- Can be used instead of TOTP code during login
 
 ---
 

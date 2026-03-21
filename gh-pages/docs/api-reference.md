@@ -53,9 +53,14 @@ x-api-key: YOUR_API_KEY
 
 API keys are created per-user via the web dashboard at `/_ui/`. When a request arrives, the gateway SHA-256 hashes the key, looks up the associated user in cache/DB, and uses that user's Kiro credentials to proxy the request.
 
-### Google SSO (for `/_ui/api/*` web UI endpoints)
+### Session Auth (for `/_ui/api/*` web UI endpoints)
 
-Web UI endpoints use Google SSO session authentication. After signing in via Google OAuth, a session cookie (`kgw_session`, 24-hour TTL) authenticates subsequent requests. Mutation endpoints additionally require a CSRF token. See the [Web Dashboard](web-ui.html) docs for details.
+Web UI endpoints use session-based authentication. Two login methods are supported, configurable via the admin UI:
+
+- **Google SSO** — PKCE + OpenID Connect flow via Google OAuth
+- **Password + TOTP 2FA** — Argon2 password hashing with mandatory TOTP-based two-factor authentication
+
+After signing in, a session cookie (`kgw_session`, 24-hour TTL) authenticates subsequent requests. Mutation endpoints additionally require a CSRF token. See the [Web Dashboard](web-ui.html) docs for details.
 
 ### Unauthenticated Endpoints
 
@@ -63,9 +68,11 @@ Web UI endpoints use Google SSO session authentication. After signing in via Goo
 |----------|---------|
 | `GET /` | Root status check (for load balancers) |
 | `GET /health` | Health check |
-| `GET /_ui/api/status` | Gateway status |
-| `GET /_ui/api/auth/google` | Google SSO login |
-| `GET /_ui/api/auth/google/callback` | OAuth callback |
+| `GET /_ui/api/status` | Gateway status (includes which auth methods are enabled) |
+| `GET /_ui/api/auth/google` | Google SSO login redirect |
+| `GET /_ui/api/auth/google/callback` | Google OAuth callback |
+| `POST /_ui/api/auth/login` | Password login (returns session or 2FA challenge) |
+| `POST /_ui/api/auth/login/2fa` | TOTP 2FA verification (completes password login) |
 
 ### Authentication Errors
 
@@ -84,7 +91,7 @@ If API key authentication fails:
 
 ### Setup-Only Mode
 
-On first run (no admin user in the database), the gateway blocks all `/v1/*` proxy endpoints with `503 Service Unavailable` and only serves the web UI for initial setup. Complete setup by signing in with Google at `/_ui/`.
+On first run (no admin user in the database), the gateway blocks all `/v1/*` proxy endpoints with `503 Service Unavailable` and only serves the web UI for initial setup. Complete setup by signing in at `/_ui/` (via Google SSO or password auth, depending on configuration).
 
 ```json
 {
@@ -608,41 +615,62 @@ All web UI API endpoints are under `/_ui/api/`. See the [Web Dashboard](web-ui.h
 | `GET` | `/_ui/api/status` | Gateway status and setup state |
 | `GET` | `/_ui/api/auth/google` | Initiate Google SSO |
 | `GET` | `/_ui/api/auth/google/callback` | OAuth callback |
+| `POST` | `/_ui/api/auth/login` | Password login |
+| `POST` | `/_ui/api/auth/login/2fa` | TOTP 2FA verification |
+| `GET` | `/_ui/api/providers/:provider/relay-script` | Provider OAuth relay script |
+| `POST` | `/_ui/api/providers/:provider/relay` | Provider OAuth relay callback |
 
 ### Session-Authenticated (requires `kgw_session` cookie)
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/_ui/api/auth/me` | Current user info |
-| `GET` | `/_ui/api/metrics` | Metrics snapshot |
 | `GET` | `/_ui/api/system` | System info |
 | `GET` | `/_ui/api/models` | Available models |
-| `GET` | `/_ui/api/logs` | Log buffer |
-| `GET` | `/_ui/api/config` | Current config |
-| `GET` | `/_ui/api/config/schema` | Config schema |
-| `GET` | `/_ui/api/config/history` | Config change history |
-| `GET` | `/_ui/api/stream/metrics` | SSE metrics stream |
-| `GET` | `/_ui/api/stream/logs` | SSE log stream |
+| `GET` | `/_ui/api/usage` | Per-user usage stats |
+| `GET` | `/_ui/api/auth/google/link` | Google account linking redirect |
+| `GET` | `/_ui/api/auth/2fa/setup` | TOTP 2FA setup (generate secret + QR) |
+| `POST` | `/_ui/api/auth/2fa/verify` | Enable TOTP 2FA |
+| `POST` | `/_ui/api/auth/password/change` | Change password |
+| `GET` | `/_ui/api/providers/registry` | Provider registry |
+| `GET` | `/_ui/api/providers/status` | Provider connection status |
+| `GET` | `/_ui/api/providers/:provider/connect` | Initiate provider OAuth |
+| `DELETE` | `/_ui/api/providers/:provider` | Disconnect provider |
+| `GET` | `/_ui/api/providers/priority` | Get provider priority |
+| `POST` | `/_ui/api/providers/priority` | Update provider priority |
+| `GET` | `/_ui/api/providers/:provider/accounts` | List user provider accounts |
+| `GET` | `/_ui/api/providers/rate-limits` | Provider rate limit info |
+| `GET` | `/_ui/api/models/registry` | Model registry list |
+| `PATCH` | `/_ui/api/models/registry/:id` | Toggle model enabled/disabled |
+| `DELETE` | `/_ui/api/models/registry/:id` | Delete registry model |
+| `POST` | `/_ui/api/models/registry/populate` | Auto-populate models from providers |
 
 ### Mutations (Session + CSRF Token)
 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/_ui/api/auth/logout` | End session |
-| `*` | `/_ui/api/kiro/*` | Kiro token management |
-| `*` | `/_ui/api/keys/*` | API key management |
-| `*` | `/_ui/api/copilot/*` | GitHub Copilot OAuth (connect/callback/status/disconnect) |
-| `*` | `/_ui/api/qwen/*` | Qwen Coder device flow (connect/poll/status/disconnect) |
-| `*` | `/_ui/api/providers/*` | Provider OAuth relay and priority management |
+| `*` | `/_ui/api/kiro/*` | Kiro token management (status/setup/poll/delete) |
+| `*` | `/_ui/api/keys/*` | API key management (list/create/delete) |
+| `*` | `/_ui/api/copilot/*` | GitHub Copilot device flow (device-code/device-poll/status/disconnect) |
+| `*` | `/_ui/api/providers/qwen/*` | Qwen device flow (device-code/device-poll/status/disconnect) |
 
 ### Admin-Only (Session + CSRF + Admin Role)
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/_ui/api/config` | Get configuration |
 | `PUT` | `/_ui/api/config` | Update configuration |
-| `*` | `/_ui/api/domains/*` | Domain allowlist |
-| `*` | `/_ui/api/users/*` | User management |
-| `*` | `/_ui/api/admin/guardrails/*` | Guardrails profile/rule management |
+| `GET` | `/_ui/api/config/schema` | Config field metadata |
+| `GET` | `/_ui/api/config/history` | Config change history |
+| `*` | `/_ui/api/domains/*` | Domain allowlist (list/add/remove) |
+| `*` | `/_ui/api/users/*` | User management (list/detail/role/delete) |
+| `POST` | `/_ui/api/admin/users/create` | Create user with password |
+| `POST` | `/_ui/api/admin/users/:id/reset-password` | Reset user password |
+| `GET` | `/_ui/api/admin/usage` | Global usage stats |
+| `GET` | `/_ui/api/admin/usage/users` | Per-user usage breakdown |
+| `*` | `/_ui/api/admin/pool/*` | Provider pool accounts (CRUD) |
+| `*` | `/_ui/api/guardrails/*` | Guardrails profile/rule management + test/validate |
 
 ---
 

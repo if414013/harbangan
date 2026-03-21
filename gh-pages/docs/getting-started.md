@@ -27,12 +27,12 @@ Key capabilities:
 - Bidirectional format translation (OpenAI/Anthropic to Kiro and back)
 - Streaming responses via Server-Sent Events (SSE)
 - Two deployment modes: **Proxy-Only Mode** (single user) and **Full Deployment** (multi-user)
-- Kiro (AWS CodeWhisperer) as the AI backend — in Proxy-Only Mode this is the sole provider
+- Multiple AI providers: Kiro (AWS CodeWhisperer), Anthropic, OpenAI Codex, GitHub Copilot, Qwen, Custom
 - Multi-user support with Google SSO and per-user API keys (Full Deployment)
 - Role-based access control (Admin / User)
-- Web dashboard for configuration, monitoring, and log streaming
+- Web dashboard for configuration and usage tracking
 - Content guardrails via AWS Bedrock with CEL rule engine
-- MCP Gateway for connecting external tool servers
+- Multi-provider support in both deployment modes (env vars in Proxy-Only, Admin UI in Full Deployment)
 - Per-user credential management with automatic token refresh
 - Model alias resolution (use familiar model names like `claude-sonnet-4`)
 
@@ -46,7 +46,7 @@ Harbangan supports two deployment modes:
 |:---|:---|:---|
 | **Docker Compose file** | `docker-compose.gateway.yml` | `docker-compose.yml` |
 | **Containers** | 1 (backend only) | 3 (backend, db, frontend) |
-| **Authentication** | Single `PROXY_API_KEY` | Per-user API keys + Google SSO |
+| **Authentication** | Single `PROXY_API_KEY` | Per-user API keys + Google SSO / Password+TOTP |
 | **Kiro credentials** | Device code flow on first boot | Per-user via Web UI |
 | **Database** | None | PostgreSQL |
 | **Web UI** | No | Yes |
@@ -56,7 +56,7 @@ Harbangan supports two deployment modes:
 
 ## Proxy-Only Mode
 
-The fastest way to get started. Runs a single backend container with no database, web UI, or TLS. **Supports Kiro (AWS CodeWhisperer) only.**
+The fastest way to get started. Runs a single backend container with no database, web UI, or TLS. Supports all providers via environment variables.
 
 ### Prerequisites
 
@@ -143,13 +143,13 @@ Multi-user mode with PostgreSQL, Google SSO, per-user API keys, and web dashboar
 | Docker | 20.10+ | `docker --version` |
 | Docker Compose | 2.0+ (V2 plugin) | `docker compose version` |
 
-You also need:
+Optionally, if you want Google SSO (can also use password auth):
 
-- **Google OAuth credentials** (Client ID + Client Secret) from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). Create an OAuth 2.0 Client ID with the authorized redirect URI set to `http://localhost:9999/_ui/api/auth/google/callback`.
+- **Google OAuth credentials** (Client ID + Client Secret) from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). These are configured via the Admin UI after first login, not via environment variables.
 
 ### Installation
 
-The Full Deployment runs via docker-compose with three services: PostgreSQL, Rust backend, and Vite frontend dev server.
+The Full Deployment runs via docker-compose with three services: PostgreSQL, Rust backend, and frontend (nginx serving the React SPA).
 
 ### Step 1: Clone the repository
 
@@ -164,17 +164,19 @@ cd harbangan
 cp .env.example .env
 ```
 
-Edit `.env` and fill in all values:
+Edit `.env` and set the required values:
 
 ```bash
-# PostgreSQL password
+# PostgreSQL password (required)
 POSTGRES_PASSWORD=your_secure_password_here
 
-# Google SSO (required)
-GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_CALLBACK_URL=http://localhost:9999/_ui/api/auth/google/callback
+# Optional: seed an admin user for password-based login (first-run only)
+# INITIAL_ADMIN_EMAIL=admin@example.com
+# INITIAL_ADMIN_PASSWORD=changeme
+# INITIAL_ADMIN_TOTP_SECRET=JBSWY3DPEHPK3PXP
 ```
+
+> **Note:** Google SSO is configured via the Admin UI after initial login, not via environment variables. You can use password auth for the first login by setting the `INITIAL_ADMIN_*` variables above.
 
 ### Step 3: Start all services
 
@@ -207,21 +209,29 @@ On first launch, the gateway starts in **setup-only mode**. The `/v1/*` proxy en
 
 Navigate to `http://localhost:5173/_ui/` in your browser.
 
-### Step 2: Sign in with Google
+### Step 2: Sign in
 
-Click **Sign in with Google** to authenticate via Google SSO. The first user to sign in is automatically granted the **Admin** role.
+Sign in using one of the available methods:
+- **Password auth** — if you set `INITIAL_ADMIN_EMAIL` and `INITIAL_ADMIN_PASSWORD`, use those credentials. You'll be prompted to set up TOTP 2FA on first login.
+- **Google SSO** — if Google SSO has been configured via the Admin UI.
+
+The first user to sign in is automatically granted the **Admin** role.
 
 ### Step 3: Add provider credentials
 
-After signing in, navigate to the **Profile** page to connect your **Kiro (AWS)** credentials. This uses an OAuth device code flow to authenticate with AWS SSO and store a refresh token. The first token refresh runs on-demand when you add your credentials.
+Navigate to the **Providers** page to connect your AI provider credentials:
+- **Kiro (AWS)** — OAuth device code flow to authenticate with AWS SSO
+- **Anthropic** / **OpenAI** — PKCE OAuth relay
+- **GitHub Copilot** — GitHub device code flow
+- **Qwen** — Device code flow
 
 ### Step 4: Create an API key
 
-Navigate to the API Keys section in the Web UI and create a personal API key. This key is what you'll use in `Authorization: Bearer <key>` headers when making API calls.
+Navigate to the **Profile** page and create a personal API key in the API Keys section. This key is what you'll use in `Authorization: Bearer <key>` headers when making API calls.
 
 ### Step 5: Invite users (optional)
 
-As an admin, you can manage users and roles from the Web UI. Additional users sign in via Google SSO and can be granted Admin or User roles.
+As an admin, you can manage users from the Admin page. Create users with password auth, or enable Google SSO and manage domain allowlists for team access.
 
 ---
 
@@ -230,7 +240,7 @@ As an admin, you can manage users and roles from the Web UI. Additional users si
 ```mermaid
 sequenceDiagram
     participant User as User / Browser
-    participant FE as Frontend (Vite)
+    participant FE as Frontend (nginx)
     participant GW as Backend API
     participant DB as PostgreSQL
     participant Google as Google SSO
@@ -321,13 +331,14 @@ curl -X POST http://localhost:9999/v1/messages \
 
 ### Check the Web UI dashboard
 
-Open `http://localhost:9999/_ui/` to see:
+Open `http://localhost:5173/_ui/` to see:
 
-- Profile page with Kiro credential management (AWS SSO device code flow)
+- Profile page with API key management and security settings
+- Provider management — connect Kiro, Anthropic, OpenAI, Copilot, Qwen credentials
+- Usage tracking — token usage by day, model, and provider
 - Configuration management (admin-only)
-- MCP client management (admin-only)
 - Content guardrails configuration (admin-only)
-- User and API key management (admin-only)
+- User management and domain allowlist (admin-only)
 
 ---
 

@@ -9,9 +9,9 @@ permalink: /architecture/streaming/
 # Streaming and Event Parsing
 {: .no_toc }
 
-The Kiro API returns all responses — streaming and non-streaming — in AWS Event Stream binary format. This page covers how the gateway parses that binary protocol, extracts meaningful events, processes thinking blocks, detects truncation, and formats the output as Server-Sent Events (SSE) for OpenAI and Anthropic clients.
+The Kiro API returns responses as a text-based stream containing JSON event objects. This page covers how the gateway parses that stream, extracts meaningful events, processes thinking blocks, detects truncation, and formats the output as Server-Sent Events (SSE) for OpenAI and Anthropic clients.
 
-This streaming pipeline is specific to the Kiro provider path. When requests are routed to direct providers (Anthropic, OpenAI, Gemini, Copilot, Qwen) via the `ProviderRegistry`, the provider's `stream_openai()` / `stream_anthropic()` trait methods handle streaming natively — the response SSE stream is relayed directly to the client without binary parsing or format conversion.
+This streaming pipeline is specific to the Kiro provider path. When requests are routed to direct providers (Anthropic, OpenAI Codex, Copilot, Qwen, Custom) via the `ProviderRegistry`, the provider's `stream_openai()` / `stream_anthropic()` trait methods handle streaming natively — the response SSE stream is parsed by `streaming/sse.rs` and relayed to the client. Cross-format streaming (e.g., OpenAI SSE → Anthropic events) is handled by `streaming/cross_format.rs`.
 {: .note }
 
 ## Table of Contents
@@ -30,18 +30,23 @@ flowchart TD
         RAW["Raw HTTP response body<br/><i>Content-Type: application/vnd.amazon.eventstream</i>"]
     end
 
-    subgraph BinaryParsing["Binary Frame Parsing"]
+    subgraph TextParsing["SseParser — Text-Based JSON Extraction"]
         RAW --> CHUNK["Read bytes from stream"]
-        CHUNK --> FRAME["Parse AWS Event Stream frame<br/><i>Total length, headers length,<br/>prelude CRC, message CRC</i>"]
-        FRAME --> HEADERS["Extract event headers<br/><i>:event-type, :content-type</i>"]
-        HEADERS --> PAYLOAD["Extract JSON payload"]
+        CHUNK --> BUFFER["Append to text buffer"]
+        BUFFER --> PATTERN["Pattern match against<br/>known JSON prefixes:<br/>{\"content\":, {\"name\":,<br/>{\"usage\":, {\"stop\":, etc."]
+        PATTERN --> BRACE["Find matching closing<br/>brace (brace counting)"]
+        BRACE --> PARSE_JSON["Parse extracted JSON"]
     end
 
     subgraph EventExtraction["Event Extraction"]
-        PAYLOAD --> TYPE{":event-type?"}
-        TYPE -->|"assistantResponseEvent"| PARSE_JSON["Parse assistantResponseEvent JSON"]
-        TYPE -->|other| SKIP["Skip / log"]
-        PARSE_JSON --> KIRO_EVENT["Build KiroEvent"]
+        PARSE_JSON --> TYPE{"JSON field?"}
+        TYPE -->|"content"| KIRO_CONTENT["KiroEvent (content)"]
+        TYPE -->|"name/input"| KIRO_TOOL["KiroEvent (tool_use)"]
+        TYPE -->|"usage"| KIRO_USAGE["KiroEvent (usage)"]
+        TYPE -->|"stop"| KIRO_STOP["Stream complete"]
+        KIRO_CONTENT --> KIRO_EVENT["Build KiroEvent"]
+        KIRO_TOOL --> KIRO_EVENT
+        KIRO_USAGE --> KIRO_EVENT
     end
 
     subgraph ThinkingProcessing["Thinking Block Processing"]
@@ -70,39 +75,38 @@ flowchart TD
 
 ---
 
-## AWS Event Stream Binary Format
+## SseParser — Text-Based Stream Parsing
 
-The Kiro API uses Amazon's Event Stream encoding, a binary framing protocol. Each frame has the following structure:
+The Kiro API streams responses as a text stream containing embedded JSON objects. The `SseParser` (`src/streaming/mod.rs`) extracts events using pattern matching and brace counting — not binary frame parsing.
 
-```
-┌──────────────────────────────────────────────────┐
-│ Prelude (12 bytes)                               │
-│   ├─ Total byte length (4 bytes, big-endian)     │
-│   ├─ Headers byte length (4 bytes, big-endian)   │
-│   └─ Prelude CRC (4 bytes, CRC-32)              │
-├──────────────────────────────────────────────────┤
-│ Headers (variable length)                        │
-│   Each header:                                   │
-│   ├─ Name length (1 byte)                        │
-│   ├─ Name (UTF-8 string)                         │
-│   ├─ Value type (1 byte, 7 = string)             │
-│   ├─ Value length (2 bytes, big-endian)          │
-│   └─ Value (UTF-8 string)                        │
-├──────────────────────────────────────────────────┤
-│ Payload (variable length)                        │
-│   JSON-encoded event data                        │
-├──────────────────────────────────────────────────┤
-│ Message CRC (4 bytes, CRC-32)                    │
-└──────────────────────────────────────────────────┘
-```
+### How It Works
 
-The `parse_aws_event_stream()` function in `src/streaming/mod.rs` handles this binary parsing. It reads frames from the byte stream, validates CRCs, extracts headers (particularly `:event-type`), and yields the JSON payload for `assistantResponseEvent` frames.
+1. **Buffer accumulation**: Raw bytes are converted to text and appended to an internal string buffer
+2. **Pattern matching**: The parser scans the buffer for known JSON prefixes in priority order:
+   - `{"content":` — text content
+   - `{"name":` — tool use name
+   - `{"input":` — tool use arguments
+   - `{"stop":` — stream end signal
+   - `{"followupPrompt":` — follow-up prompt
+   - `{"usage":` — token usage stats
+   - `{"contextUsagePercentage":` — context window usage
+3. **Brace counting**: Starting from the matched position, `find_matching_brace()` counts `{`/`}` pairs to find the complete JSON object boundary
+4. **JSON extraction**: The complete JSON string is parsed with `serde_json` and yielded as an event
+5. **Buffer cleanup**: Consumed bytes are removed from the buffer; remaining bytes await more data
+
+### Tool Call Accumulation
+
+Tool calls arrive as separate `name` and `input` events. The `ToolCallAccumulator` collects fragments and assembles complete `ToolUse` objects with `tool_use_id`, `name`, and `input` fields.
+
+### Direct Provider Streaming
+
+For non-Kiro providers, `streaming/sse.rs` provides a standard SSE parser (`parse_sse_stream()`) that handles `data: {json}\n\n` format, including the `data: [DONE]` sentinel. `streaming/cross_format.rs` handles cross-format translation (e.g., OpenAI SSE chunks → Anthropic stream events).
 
 ---
 
 ## KiroEvent Variants
 
-After parsing the binary frame, the JSON payload is converted into a `KiroEvent` struct. The `event_type` field determines what data the event carries:
+After extracting JSON events from the stream, they are converted into `KiroEvent` structs. The `event_type` field determines what data the event carries:
 
 | Event Type | Description | Key Fields |
 |-----------|-------------|------------|
@@ -111,7 +115,6 @@ After parsing the binary frame, the JSON payload is converted into a `KiroEvent`
 | `tool_use` | Tool call from the model | `tool_use: {tool_use_id, name, input}` |
 | `usage` | Token usage statistics | `usage: {input_tokens, output_tokens}` |
 | `context_usage` | Context window utilization | `context_usage_percentage: f64` |
-| `error` | Error from the API | `content: String` (error message) |
 
 ```mermaid
 classDiagram
@@ -296,7 +299,7 @@ This creates a self-healing loop: truncated responses are detected, and the next
 
 ## Non-Streaming Response Collection
 
-For non-streaming requests, the gateway still receives an AWS Event Stream from the Kiro API. The `collect_openai_response()` and `collect_anthropic_response()` functions consume the entire stream and aggregate it:
+For non-streaming requests, the gateway still receives a stream from the Kiro API. The `collect_openai_response()` and `collect_anthropic_response()` functions consume the entire stream and aggregate it:
 
 ```mermaid
 flowchart LR
@@ -320,7 +323,9 @@ Tool call deduplication (`deduplicate_tool_calls()`) handles a quirk of the Kiro
 | `stream_kiro_to_anthropic()` | `streaming/mod.rs` | Convert Kiro stream to Anthropic SSE format |
 | `collect_openai_response()` | `streaming/mod.rs` | Aggregate stream into single OpenAI JSON response |
 | `collect_anthropic_response()` | `streaming/mod.rs` | Aggregate stream into single Anthropic JSON response |
-| `parse_aws_event_stream()` | `streaming/mod.rs` | Parse binary AWS Event Stream frames |
+| `parse_kiro_stream()` | `streaming/mod.rs` | Parse Kiro text stream into KiroEvents via SseParser |
+| `parse_sse_stream()` | `streaming/sse.rs` | Parse standard SSE format for direct providers |
+| `OpenAIToAnthropicState` | `streaming/cross_format.rs` | Translate OpenAI SSE chunks to Anthropic stream events |
 | `deduplicate_tool_calls()` | `streaming/mod.rs` | Remove duplicate tool calls from collected stream |
 | `ThinkingParser::feed()` | `thinking_parser.rs` | Process a content chunk through the thinking FSM |
 | `ThinkingParser::finalize()` | `thinking_parser.rs` | Flush remaining buffers when stream ends |

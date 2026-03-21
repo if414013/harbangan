@@ -146,7 +146,7 @@ sequenceDiagram
             OutConverter-->>Client: Single JSON response
         end
 
-    else Direct provider (Anthropic, OpenAI, Gemini, Copilot, Qwen)
+    else Direct provider (Anthropic, OpenAI Codex, Copilot, Qwen, Custom)
         Handler->>DirectAPI: Relay request with provider credentials
         alt Streaming mode
             DirectAPI-->>SSE: Provider SSE stream
@@ -243,12 +243,12 @@ Each user can configure multiple providers with priority ordering. The registry 
 |----------|-----------|-------------|
 | Kiro (default) | AWS SSO OIDC refresh token | `codewhisperer.{region}.amazonaws.com` |
 | Anthropic | OAuth PKCE relay | `api.anthropic.com` |
-| OpenAI | API key (stored) | `api.openai.com` |
-| Gemini | API key (stored) | `generativelanguage.googleapis.com` |
+| OpenAI Codex | API key (stored) | `api.openai.com` |
 | Copilot | GitHub OAuth → Copilot token | `api.githubcopilot.com` |
-| Qwen | Device flow (RFC 8628) | `chat.qwen.ai` |
+| Qwen | Device flow (RFC 8628) | `dashscope-intl.aliyuncs.com/compatible-mode` |
+| Custom | API key (stored) | User-configured endpoint |
 
-For the Kiro provider, the request continues through the format conversion and streaming pipeline. For direct providers (Anthropic, OpenAI, Gemini, Copilot, Qwen), the `Provider` trait implementation handles the request natively — relaying it to the provider's API and streaming the response back to the client.
+For the Kiro provider, the request continues through the format conversion and streaming pipeline. For direct providers (Anthropic, OpenAI Codex, Copilot, Qwen, Custom), the `Provider` trait implementation handles the request natively — relaying it to the provider's API and streaming the response back to the client.
 
 ### Step 7: Truncation Recovery Injection
 

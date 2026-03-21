@@ -9,7 +9,7 @@ permalink: /architecture/converters/
 # Format Translation System
 {: .no_toc }
 
-The converter modules handle bidirectional conversion between OpenAI, Anthropic, and Kiro API formats — covering messages, tool calls, images, system prompts, and streaming events. These converters are used when requests are routed to the Kiro provider (the default). When requests are routed to direct providers (Anthropic, OpenAI, Gemini, Copilot, Qwen), the `Provider` trait implementation handles format translation natively, bypassing the converter pipeline.
+The converter modules handle bidirectional conversion between OpenAI, Anthropic, and Kiro API formats — covering messages, tool calls, images, system prompts, and streaming events. These converters are used when requests are routed to the Kiro provider (the default). Additionally, cross-format converters (`openai_to_anthropic.rs`, `anthropic_to_openai.rs`) handle format translation when routing between direct providers (e.g., an OpenAI-format request routed to the Anthropic provider).
 
 This page documents the converter architecture, the unified intermediate representation, and field-level mapping details.
 
@@ -85,12 +85,16 @@ flowchart TD
         A2K["anthropic_to_kiro.rs<br/><i>Anthropic → Kiro</i>"]
         K2O["kiro_to_openai.rs<br/><i>Kiro → OpenAI SSE</i>"]
         K2A["kiro_to_anthropic.rs<br/><i>Kiro → Anthropic SSE</i>"]
+        O2A["openai_to_anthropic.rs<br/><i>OpenAI → Anthropic</i>"]
+        A2O["anthropic_to_openai.rs<br/><i>Anthropic → OpenAI</i>"]
     end
 
     O2K --> CORE
     A2K --> CORE
     K2O --> CORE
     K2A --> CORE
+    O2A --> CORE
+    A2O --> CORE
 ```
 
 | File | Direction | Responsibility |
@@ -100,6 +104,8 @@ flowchart TD
 | `anthropic_to_kiro.rs` | Inbound | Parse `AnthropicMessagesRequest`, handle content block arrays, convert `AnthropicMessage` → `UnifiedMessage`, build Kiro payload |
 | `kiro_to_openai.rs` | Outbound | Format `KiroEvent` as OpenAI SSE chunks, build non-streaming response JSON |
 | `kiro_to_anthropic.rs` | Outbound | Format `KiroEvent` as Anthropic SSE events, build non-streaming response JSON |
+| `openai_to_anthropic.rs` | Cross-format | Convert OpenAI `ChatCompletionRequest` → Anthropic `AnthropicMessagesRequest` (used when routing OpenAI-format requests to the Anthropic provider) |
+| `anthropic_to_openai.rs` | Cross-format | Convert Anthropic `AnthropicMessagesRequest` → OpenAI `ChatCompletionRequest` (used when routing Anthropic-format requests to OpenAI-compatible providers) |
 
 ---
 

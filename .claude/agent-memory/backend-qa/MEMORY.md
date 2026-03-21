@@ -1,9 +1,12 @@
 # Backend QA Memory
 
 ## Test Count Baseline
-- As of 2026-03-12: 779 tests pass (`cargo test --lib`, 10.68s)
-- Previous: 747 tests (2026-03-08)
-- Qwen provider tests added: 71 new tests across 5 files
+- As of 2026-03-21: 931 tests pass (`cargo test --lib`, 15.81s)
+- Previous: 779 tests (2026-03-12), 747 (2026-03-08)
+- 63 files with `#[cfg(test)]` blocks, 63 `mod tests` blocks
+- ~803 `#[test]` + ~133 `#[tokio::test]` annotations
+- 1 integration test file: `backend/tests/integration_test.rs` (requires `test-utils` feature)
+- Bench module added: `backend/src/bench/` (runner, metrics, mock_server, report)
 
 ## Gotchas
 - f32 temperature values lose precision through serde_json (0.7 becomes 0.699999988079071). Use `as_f64()` + epsilon comparison, not `assert_eq!` against float literals.

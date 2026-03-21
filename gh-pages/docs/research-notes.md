@@ -157,8 +157,11 @@ As of v1.0.8, the gateway supports multiple AI providers beyond the original Kir
 | Provider | Auth Method | Env Vars Required | Notes |
 |---|---|---|---|
 | **Kiro** (default) | AWS SSO device code flow | None (built-in) | Original provider, always available |
+| **Anthropic** | PKCE OAuth relay | `ANTHROPIC_OAUTH_CLIENT_ID` (via Admin UI) | Direct API access |
+| **OpenAI Codex** | PKCE OAuth relay | `OPENAI_OAUTH_CLIENT_ID` (via Admin UI) | Direct API access |
 | **GitHub Copilot** | GitHub OAuth (authorization code) | `GITHUB_COPILOT_CLIENT_ID`, `GITHUB_COPILOT_CLIENT_SECRET`, `GITHUB_COPILOT_CALLBACK_URL` | Requires a registered GitHub OAuth App |
 | **Qwen Coder** | Device code flow | `QWEN_OAUTH_CLIENT_ID` (optional, default public ID provided) | No client secret required |
+| **Custom** | API key | `CUSTOM_PROVIDER_URL`, `CUSTOM_PROVIDER_KEY`, `CUSTOM_PROVIDER_MODELS` (proxy mode) or via Admin UI | Any OpenAI-compatible endpoint |
 
 ### Architecture Decisions
 
@@ -168,9 +171,11 @@ As of v1.0.8, the gateway supports multiple AI providers beyond the original Kir
 
 **Provider registry pattern.** Providers are registered in `backend/src/providers/registry.rs` using a `ProviderRegistry`. Each provider implements a common trait for credential resolution and request proxying. Adding a new provider requires implementing the trait and registering it.
 
-**OAuth relay for Copilot.** The Copilot OAuth flow uses a relay pattern: the backend initiates the GitHub OAuth redirect, and the callback is handled at `/_ui/api/copilot/callback`. The relay token mechanism (`provider_oauth.rs`) securely bridges the OAuth flow between the browser and backend.
+**OAuth relay for Anthropic/OpenAI.** These providers use a PKCE-based OAuth relay pattern (`provider_oauth.rs`). The backend generates a relay script that securely bridges the OAuth flow between the browser and backend.
 
-**Device code flow for Qwen.** Similar to the Kiro device code flow, Qwen uses a polling-based device authorization. The frontend polls `/_ui/api/qwen/poll` until the user completes authorization in their browser.
+**GitHub device flow for Copilot.** Copilot uses a GitHub device code flow: the backend requests a device code, the frontend displays it, and polls `/_ui/api/copilot/device-poll` until the user authorizes via GitHub.
+
+**Device code flow for Qwen.** Similar to the Kiro device code flow, Qwen uses a polling-based device authorization (RFC 8628). The frontend polls `/_ui/api/providers/qwen/device-poll` until the user completes authorization in their browser. The Qwen API endpoint is `https://dashscope-intl.aliyuncs.com/compatible-mode`.
 
 ### Impact on Request Flow
 
@@ -179,6 +184,6 @@ The request flow now includes a provider resolution step:
 1. API key auth → resolve user
 2. Check user's provider priority list
 3. Get credentials for highest-priority available provider
-4. Convert request to provider's format (Kiro, Copilot, or Qwen)
+4. Convert request to provider's format (Kiro, Anthropic, OpenAI Codex, Copilot, Qwen, or Custom)
 5. Proxy to provider API
 6. Convert response back to OpenAI/Anthropic format

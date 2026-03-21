@@ -11,7 +11,7 @@ permalink: /architecture/
 
 Harbangan is an AI proxy gateway that exposes OpenAI and Anthropic-compatible APIs backed by Kiro (AWS CodeWhisperer). It supports two deployment modes:
 
-- **Proxy-Only Mode** (`docker-compose.gateway.yml`) — A single backend container with no database or web UI. **Kiro-only.** Uses a single `PROXY_API_KEY` for authentication and an AWS SSO device code flow for Kiro credentials. Best for personal use.
+- **Proxy-Only Mode** (`docker-compose.gateway.yml`) — A single backend container with no database or web UI. Supports all providers (Kiro, Anthropic, OpenAI Codex, Copilot, Qwen, Custom) via environment variables. Uses a single `PROXY_API_KEY` for authentication. Best for personal use.
 - **Full Deployment** (`docker-compose.yml`) — Three docker-compose services: PostgreSQL database, Rust backend (plain HTTP), and Vite frontend dev server. Supports multi-user with Google SSO, per-user API keys, and per-user Kiro credential management. Best for teams and development. Production targets Kubernetes.
 
 Both modes share the same Rust backend binary — `GATEWAY_MODE=proxy` activates the proxy-only path.
@@ -73,10 +73,10 @@ flowchart TB
                 REGISTRY["ProviderRegistry<br/><i>Per-user credential cache (5-min TTL)</i>"]
                 KIRO_P["KiroProvider<br/><i>Default: AWS CodeWhisperer</i>"]
                 ANTHRO_P["AnthropicProvider<br/><i>Direct Anthropic API</i>"]
-                OPENAI_P["OpenAIProvider<br/><i>Direct OpenAI API</i>"]
-                GEMINI_P["GeminiProvider<br/><i>Direct Gemini API</i>"]
+                OPENAI_P["OpenAICodexProvider<br/><i>Direct OpenAI API</i>"]
                 COPILOT_P["CopilotProvider<br/><i>GitHub Copilot API</i>"]
                 QWEN_P["QwenProvider<br/><i>Qwen Coder API</i>"]
+                CUSTOM_P["CustomProvider<br/><i>User-configured API</i>"]
             end
 
             subgraph Convert["Format Converters"]
@@ -106,9 +106,9 @@ flowchart TB
         BEDROCK["AWS Bedrock<br/><i>bedrock-runtime.{region}.amazonaws.com</i>"]
         ANTHROPIC_API["Anthropic API<br/><i>api.anthropic.com</i>"]
         OPENAI_API["OpenAI API<br/><i>api.openai.com</i>"]
-        GEMINI_API["Gemini API<br/><i>generativelanguage.googleapis.com</i>"]
         COPILOT_API["GitHub Copilot API<br/><i>api.githubcopilot.com</i>"]
-        QWEN_API["Qwen API<br/><i>chat.qwen.ai</i>"]
+        QWEN_API["Qwen API<br/><i>dashscope-intl.aliyuncs.com</i>"]
+        CUSTOM_API["Custom API<br/><i>User-configured endpoint</i>"]
     end
 
     OAI --> CORS
@@ -125,9 +125,9 @@ flowchart TB
     REGISTRY --> KIRO_P
     REGISTRY --> ANTHRO_P
     REGISTRY --> OPENAI_P
-    REGISTRY --> GEMINI_P
     REGISTRY --> COPILOT_P
     REGISTRY --> QWEN_P
+    REGISTRY --> CUSTOM_P
 
     KIRO_P --> O2K
     KIRO_P --> A2K
@@ -138,9 +138,9 @@ flowchart TB
 
     ANTHRO_P --> ANTHROPIC_API
     OPENAI_P --> OPENAI_API
-    GEMINI_P --> GEMINI_API
     COPILOT_P --> COPILOT_API
     QWEN_P --> QWEN_API
+    CUSTOM_P --> CUSTOM_API
 
     KIRO --> PARSER
     PARSER --> THINK
@@ -208,6 +208,7 @@ All Axum route handlers share a single `AppState` struct via Axum's state extrac
 ```mermaid
 classDiagram
     class AppState {
+        +Option~[u8; 32]~ proxy_api_key_hash
         +ModelCache model_cache
         +Arc~RwLock~AuthManager~~ auth_manager
         +Arc~KiroHttpClient~ http_client
@@ -221,15 +222,11 @@ classDiagram
         +Arc~DashMap~ oauth_pending
         +Option~Arc~GuardrailsEngine~~ guardrails_engine
         +Arc~ProviderRegistry~ provider_registry
-        +Arc~AnthropicProvider~ anthropic_provider
-        +Arc~OpenAIProvider~ openai_provider
-        +Arc~GeminiProvider~ gemini_provider
-        +Arc~CopilotProvider~ copilot_provider
-        +Arc~QwenProvider~ qwen_provider
+        +ProviderMap providers
         +Arc~DashMap~ provider_oauth_pending
         +Arc~dyn TokenExchanger~ token_exchanger
-        +Arc~DashMap~ copilot_token_cache
-        +QwenDevicePendingMap qwen_device_pending
+        +Arc~DashMap~ login_rate_limiter
+        +Arc~RateLimitTracker~ rate_tracker
     }
 
     class ModelCache {
@@ -297,14 +294,15 @@ Key design decisions for AppState:
 - `config` uses `std::sync::RwLock` since config reads are synchronous and fast.
 - `model_cache` uses `DashMap` internally for lock-free concurrent reads.
 - `setup_complete` is an `AtomicBool` that gates API routes — when `false`, only the Web UI and health endpoints are accessible.
-- `session_cache` maps session UUIDs to `SessionInfo` for Google SSO web UI sessions.
+- `session_cache` maps session UUIDs to `SessionInfo` for web UI sessions (Google SSO and password auth).
 - `api_key_cache` maps SHA-256 hashed API keys to `(user_id, key_id)` tuples for fast per-user auth lookup.
 - `kiro_token_cache` stores per-user Kiro access tokens with a 4-minute TTL.
 - `oauth_pending` stores PKCE state during OAuth flows with a 10-minute TTL and 10k capacity cap.
-- `provider_registry` resolves which provider (Kiro, Anthropic, OpenAI, Gemini, Copilot, Qwen) to use for a given user + model, with a 5-minute credential cache and proactive token refresh.
+- `provider_registry` resolves which provider (Kiro, Anthropic, OpenAI Codex, Copilot, Qwen, Custom) to use for a given user + model, with a 5-minute credential cache and proactive token refresh.
+- `providers` is a `ProviderMap` (HashMap keyed by `ProviderId`) holding all non-Kiro provider implementations.
 - `provider_oauth_pending` stores PKCE state for provider OAuth relay flows (Anthropic), separate from Google SSO's `oauth_pending`.
-- `copilot_token_cache` stores per-user Copilot API tokens with base URL and timestamp.
-- `qwen_device_pending` stores in-progress Qwen device flow states (device_code → pending state).
+- `login_rate_limiter` tracks per-email login attempt counts for password auth rate limiting (5 attempts, 15-min lockout).
+- `rate_tracker` tracks per-account rate limits for multi-account load balancing across providers.
 
 ---
 
@@ -386,7 +384,7 @@ flowchart TD
 
 ### 1. Multi-Provider Protocol Translation
 
-The gateway does not implement its own LLM logic. It is a protocol translator and provider router: it accepts requests in OpenAI or Anthropic format, resolves the target provider via the `ProviderRegistry`, and either translates to the Kiro wire format (for the default Kiro provider) or relays directly to the provider's native API (Anthropic, OpenAI, Gemini, Copilot, Qwen). The `Provider` trait (`providers/traits.rs`) defines a uniform interface that all providers implement, supporting both OpenAI-format and Anthropic-format inputs. The `converters/core.rs` module defines a `UnifiedMessage` type that serves as the intermediate representation for Kiro-bound requests.
+The gateway does not implement its own LLM logic. It is a protocol translator and provider router: it accepts requests in OpenAI or Anthropic format, resolves the target provider via the `ProviderRegistry`, and either translates to the Kiro wire format (for the default Kiro provider) or relays directly to the provider's native API (Anthropic, OpenAI Codex, Copilot, Qwen, Custom). The `Provider` trait (`providers/traits.rs`) defines a uniform interface that all providers implement, supporting both OpenAI-format and Anthropic-format inputs. The `converters/core.rs` module defines a `UnifiedMessage` type that serves as the intermediate representation for Kiro-bound requests.
 
 ### 2. Plain HTTP Backend
 
@@ -431,7 +429,7 @@ Datadog APM is zero-overhead when not configured. When `DD_AGENT_HOST` is set, t
 | `backend/src/resolver.rs` | Model name normalization and resolution pipeline |
 | `backend/src/auth/` | OAuth token lifecycle (manager, credentials, refresh, oauth, types) |
 | `backend/src/http_client.rs` | Connection-pooled HTTP client with retry + backoff |
-| `backend/src/routes/mod.rs` | Axum route handlers and AppState definition |
+| `backend/src/routes/` | Axum route handlers (`mod.rs`, `openai.rs`, `anthropic.rs`, `pipeline.rs`) and AppState (`state.rs`) |
 | `backend/src/streaming/mod.rs` | AWS Event Stream parser, SSE formatters |
 | `backend/src/thinking_parser.rs` | FSM for extracting `<thinking>` blocks from streams |
 | `backend/src/converters/` | Bidirectional format translation (OpenAI/Anthropic/Kiro) |
@@ -442,8 +440,8 @@ Datadog APM is zero-overhead when not configured. When `DD_AGENT_HOST` is set, t
 | `backend/src/metrics/` | Request latency, token usage, and error tracking |
 | `backend/src/log_capture.rs` | Tracing capture layer for web UI SSE log streaming |
 | `backend/src/guardrails/` | Content validation: CEL rule engine, AWS Bedrock guardrails, profiles/rules CRUD |
-| `backend/src/providers/` | Multi-provider system: `Provider` trait, `ProviderRegistry` (credential cache + routing), implementations for Kiro, Anthropic, OpenAI, Gemini, Copilot, Qwen |
-| `backend/src/web_ui/` | Web UI API: Google SSO, sessions, per-user API keys, Kiro tokens, config, users |
+| `backend/src/providers/` | Multi-provider system: `Provider` trait, `ProviderRegistry` (credential cache + routing), implementations for Kiro, Anthropic, OpenAI Codex, Copilot, Qwen, Custom, plus rate limiter |
+| `backend/src/web_ui/` | Web UI API: Google SSO, password auth + TOTP 2FA, sessions, per-user API keys, Kiro tokens, config, users, usage tracking, admin pool, model registry, encryption |
 | `backend/src/web_ui/copilot_auth.rs` | GitHub Copilot OAuth flow (GitHub OAuth → Copilot token exchange) |
 | `backend/src/web_ui/qwen_auth.rs` | Qwen Coder device flow (RFC 8628) |
 | `backend/src/web_ui/provider_oauth.rs` | Provider OAuth relay (Anthropic PKCE flow, token exchange trait) |

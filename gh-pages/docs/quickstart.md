@@ -23,7 +23,7 @@ Get Harbangan running and make your first API call in under 5 minutes using Dock
 
 ## Proxy-Only Mode (Fastest)
 
-A single container with no PostgreSQL or Google SSO. Authenticates via a single `PROXY_API_KEY`. **Supports Kiro (AWS CodeWhisperer) only** — no Copilot or Qwen in this mode.
+A single container with no PostgreSQL or Google SSO. Authenticates via a single `PROXY_API_KEY`. Supports all providers (Kiro, Anthropic, OpenAI, Copilot, Qwen, Custom) via environment variables.
 
 ### 1. Clone and configure
 
@@ -94,16 +94,17 @@ cd harbangan
 cp .env.example .env
 ```
 
-Edit `.env` and fill in your values:
+Edit `.env`:
 
 ```bash
 POSTGRES_PASSWORD=change-me
-GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_CALLBACK_URL=http://localhost:9999/_ui/api/auth/google/callback
+
+# Optional: seed admin for password login (first-run only)
+# INITIAL_ADMIN_EMAIL=admin@example.com
+# INITIAL_ADMIN_PASSWORD=changeme
 ```
 
-You need a **Google OAuth Client ID** from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) with the redirect URI set to your callback URL above.
+> Google SSO is configured via the Admin UI after first login, not via env vars. Use the `INITIAL_ADMIN_*` vars above for password-based first login.
 
 ### 2. Start with Docker Compose
 
@@ -111,7 +112,7 @@ You need a **Google OAuth Client ID** from the [Google Cloud Console](https://co
 docker compose up -d --build
 ```
 
-This starts three services: PostgreSQL, the Rust backend, and the Vite frontend. The first build takes a few minutes.
+This starts three services: PostgreSQL, the Rust backend, and the frontend (nginx serving the React SPA). The first build takes a few minutes.
 
 Watch the logs:
 
@@ -123,18 +124,18 @@ Wait until you see:
 
 ```
 Setup not complete — starting in setup-only mode
-Server listening on http://0.0.0.0:8000
+Server listening on http://0.0.0.0:9999
 ```
 
-### 4. Complete setup via Web UI
+### 3. Complete setup via Web UI
 
-Open `https://your-domain.com/_ui/` in your browser.
+Open `http://localhost:5173/_ui/` in your browser (or `https://your-domain.com/_ui/` in production).
 
-1. Click **Sign in with Google** — the first user gets the Admin role
+1. Sign in — the first user gets the Admin role (via Google SSO or password auth)
 2. Connect your **Kiro credentials** on the Profile page via AWS SSO device code flow
 3. Create a **personal API key** in the API Keys section
 
-### 5. Verify it works
+### 4. Verify it works
 
 ```bash
 # Health check
@@ -146,7 +147,7 @@ curl -H "Authorization: Bearer YOUR_API_KEY" \
   https://your-domain.com/v1/models
 ```
 
-### 6. Make your first API call
+### 5. Make your first API call
 
 #### OpenAI format
 

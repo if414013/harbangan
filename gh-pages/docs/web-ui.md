@@ -6,19 +6,21 @@ nav_order: 10
 
 # Web Dashboard
 
-The Kiro Gateway includes a web dashboard served as a React single-page application (SPA) at `/_ui/`. It provides a browser-based interface for initial setup, user management, configuration, real-time metrics monitoring, and log streaming.
+Harbangan includes a web dashboard served as a React single-page application (SPA) at `/_ui/`. It provides a browser-based interface for initial setup, user management, provider connections, configuration, usage tracking, and content guardrails.
 
 ---
 
 ## Overview
 
-The frontend is a React 19 SPA built with Vite and TypeScript. In development, the Vite dev server serves the SPA and proxies API requests to the Rust backend. Authentication uses Google SSO with PKCE for web UI access, and per-user API keys for programmatic access.
+The frontend is a React 19 SPA built with Vite and TypeScript. In development, the Vite dev server serves the SPA and proxies API requests to the Rust backend. Authentication supports Google SSO (PKCE) and password + TOTP 2FA for web UI access, and per-user API keys for programmatic access.
 
 ```mermaid
 flowchart TB
     subgraph Browser["Browser (React SPA)"]
         Login[Login Page]
         Profile[Profile Page]
+        Providers[Providers Page]
+        Usage[Usage Page]
         Config[Config Manager]
         Admin[Admin Panel]
         Guardrails[Guardrails Config]
@@ -34,6 +36,8 @@ flowchart TB
             StatusAPI[GET /status]
             GoogleAuth[GET /auth/google]
             GoogleCB[GET /auth/google/callback]
+            PasswordLogin[POST /auth/login]
+            Login2FA[POST /auth/login/2fa]
         end
         subgraph SessionAPI["Session-Authenticated API"]
             AuthMe[GET /auth/me]
@@ -41,15 +45,22 @@ flowchart TB
             SchemaAPI[GET /config/schema]
             SystemAPI[GET /system]
             ModelsAPI[GET /models]
+            UsageAPI[GET /usage]
             KiroRoutes[Kiro token mgmt]
             KeyRoutes[API key mgmt]
             CopilotRoutes[Copilot OAuth]
             QwenRoutes[Qwen device flow]
             ProviderPriority[Provider priority]
+            TwoFA[2FA setup/verify]
+            PasswordChange[Password change]
+            ModelRegistry[Model registry]
         end
         subgraph AdminAPI["Admin API (+ CSRF)"]
             ConfigWrite[PUT /config]
             UserMgmt[User Management]
+            UserCreate[POST /admin/users/create]
+            AdminUsage[GET /admin/usage]
+            AdminPool[Admin provider pool]
             DomainAllow[Domain Allowlist]
             GuardrailsAdmin[Guardrails CRUD]
         end
@@ -59,14 +70,22 @@ flowchart TB
     Static --> Browser
     Proxy --> Backend
     Login --> GoogleAuth
-    Profile --> KiroRoutes
-    Profile --> CopilotRoutes
-    Profile --> QwenRoutes
-    Profile --> ProviderPriority
+    Login --> PasswordLogin
     Profile --> KeyRoutes
+    Profile --> TwoFA
+    Profile --> PasswordChange
+    Providers --> KiroRoutes
+    Providers --> CopilotRoutes
+    Providers --> QwenRoutes
+    Providers --> ProviderPriority
+    Providers --> ModelRegistry
+    Usage --> UsageAPI
     Config --> ConfigRead
     Config --> ConfigWrite
     Admin --> UserMgmt
+    Admin --> UserCreate
+    Admin --> AdminUsage
+    Admin --> AdminPool
     Guardrails --> GuardrailsAdmin
 ```
 
@@ -86,15 +105,26 @@ In development, access via `http://localhost:5173/_ui/`. The Vite dev server pro
 
 ## Authentication
 
-The web dashboard uses **Google SSO** with PKCE (Proof Key for Code Exchange) and OpenID Connect for authentication. There is no password or API key login for the web UI.
+The web dashboard supports two authentication methods, configurable via the admin panel:
 
-### Login Flow
+- **Google SSO** (default) — PKCE (Proof Key for Code Exchange) with OpenID Connect
+- **Password + mandatory TOTP 2FA** — Argon2 password hashing with mandatory TOTP-based two-factor authentication, recovery codes, and per-email rate limiting (5 attempts, 15-minute lockout)
+
+### Login Flow (Google SSO)
 
 1. Navigate to `/_ui/` — the SPA redirects unauthenticated users to the login page
 2. Click "Sign in with Google" — initiates the PKCE flow
 3. Authenticate with your Google account — the OAuth callback returns to the gateway
 4. A session cookie (`kgw_session`) is set with a 24-hour TTL
 5. A CSRF token cookie is also set for mutation protection
+
+### Login Flow (Password + 2FA)
+
+1. Navigate to `/_ui/` — the SPA redirects unauthenticated users to the login page
+2. Enter email and password — `POST /_ui/api/auth/login`
+3. If valid, the server returns a pending 2FA token
+4. Enter TOTP code from authenticator app (or a recovery code) — `POST /_ui/api/auth/login/2fa`
+5. A session cookie (`kgw_session`) is set with a 24-hour TTL
 
 ### Roles
 
@@ -105,7 +135,7 @@ The gateway supports two user roles:
 | **Admin** | Full access: view metrics/logs, manage configuration, manage users, manage domain allowlist, manage own API keys and Kiro tokens |
 | **User** | Standard access: view metrics/logs, view configuration, manage own API keys and Kiro tokens |
 
-The first user to complete Google SSO setup is automatically assigned the **Admin** role.
+The first user to sign in (via either method) is automatically assigned the **Admin** role.
 
 ### Session Management
 
@@ -123,15 +153,46 @@ The Web UI is organized into the following pages, accessible via the sidebar nav
 
 ### Profile (`/_ui/profile`)
 
-The default landing page after login. Each user manages their own credentials and settings here:
+The default landing page after login. Each user manages their account and security here:
 
-- **Provider Credentials** — Connect and manage AI provider accounts:
-  - **Kiro (AWS)** — Connect via AWS SSO device code flow. Shows connection status and allows disconnect/reconnect.
-  - **GitHub Copilot** — Connect via GitHub OAuth (only available if `GITHUB_COPILOT_CLIENT_ID` is configured server-side). Shows connection status.
-  - **Qwen Coder** — Connect via device code flow (only available if `QWEN_OAUTH_CLIENT_ID` is configured). Shows device code URL for browser authorization.
-- **Provider Priority** — Drag-and-drop reordering of provider fallback priority. The gateway uses the first provider with valid credentials.
+- **Account Info** — Displays name, email, and role.
 - **API Keys** — Create, list, and revoke personal API keys for programmatic access to `/v1/*` endpoints.
-- **Kiro Token Management** — Legacy per-user Kiro token management (device code flow).
+- **Security** — Account security management:
+  - **Google Account Linking** — Link a Google account for SSO login (available for password-authenticated users).
+  - **2FA Setup** — Set up or manage TOTP-based two-factor authentication.
+  - **Password Management** — Change password (for password-authenticated users).
+
+### Providers (`/_ui/providers`)
+
+Multi-provider management with three tabs:
+
+- **Status** — Provider health cards showing connection status for each configured provider.
+- **Connections** — Connect and manage AI provider accounts via OAuth relay or device code flows (Kiro, Anthropic, OpenAI, Copilot, Qwen). Per-user provider priority ordering via `/_ui/api/providers/priority`.
+- **Models** — Model registry management. Enable/disable models, populate from providers, delete entries.
+
+### Usage (`/_ui/usage`)
+
+Token usage tracking and analytics:
+
+- **Personal Usage** — View your own usage statistics grouped by day, model, or provider.
+- **Date Range Filter** — Filter usage by date range (default: last 30 days).
+- **Admin Views** — Admins can view global usage statistics and per-user breakdowns.
+
+### TOTP Setup (`/_ui/setup-2fa`)
+
+TOTP two-factor authentication setup wizard:
+
+- Generates a TOTP secret and displays a QR code for scanning with an authenticator app.
+- Requires verification of a TOTP code before enabling 2FA.
+- Generates 8 recovery codes (displayed once, stored as SHA-256 hashes).
+- Forced setup on first login for password-authenticated users.
+
+### Password Change (`/_ui/change-password`)
+
+Password change form for password-authenticated users:
+
+- Requires current password and new password.
+- Forced change when an admin resets a user's password.
 
 ### Configuration (`/_ui/config`) — Admin Only
 
@@ -155,11 +216,14 @@ User and access management:
 
 - **User List** — View all registered users with their roles, status, and last login.
 - **User Detail** (`/_ui/admin/users/:userId`) — View individual user details, change roles (Admin/User), manage user status.
+- **Create User** — Create password-authenticated users with initial credentials (`POST /_ui/api/admin/users/create`).
+- **Reset Password** — Force-reset a user's password (`POST /_ui/api/admin/users/:id/reset-password`).
+- **Provider Pool** — Manage shared provider accounts (admin pool). Add, remove, enable/disable shared API keys.
 - **Domain Allowlist** — Restrict Google SSO sign-in to specific email domains.
 
 ### Login (`/_ui/login`)
 
-Google SSO login page with PKCE flow. Unauthenticated users are redirected here automatically.
+Login page supporting Google SSO (PKCE flow) and password + TOTP 2FA. Unauthenticated users are redirected here automatically. The available login methods depend on admin configuration.
 
 ---
 
@@ -195,7 +259,7 @@ sequenceDiagram
     Note over User,UI: Setup complete
     UI->>GW: GET /_ui/api/status
     GW-->>UI: {setup_complete: true}
-    UI->>User: Show dashboard
+    UI->>User: Show profile page
 ```
 
 ### Step-by-Step Walkthrough
@@ -257,10 +321,13 @@ Each user manages their own Kiro (AWS CodeWhisperer) credentials. When a request
 
 ### Multi-Provider Credentials
 
-In addition to Kiro, users can connect GitHub Copilot and Qwen Coder accounts on the Profile page:
+Users manage provider connections on the **Providers page** (`/_ui/providers`):
 
+- **Kiro (AWS)** — Connect via AWS SSO device code flow.
+- **Anthropic** — Connect via OAuth PKCE relay.
 - **GitHub Copilot** — OAuth authorization code flow. Requires server-side configuration (`GITHUB_COPILOT_CLIENT_ID`, `GITHUB_COPILOT_CLIENT_SECRET`, `GITHUB_COPILOT_CALLBACK_URL`).
 - **Qwen Coder** — Device code flow. Requires `QWEN_OAUTH_CLIENT_ID` in server configuration.
+- **Custom** — User-configured endpoint with API key.
 - **Provider Priority** — Users set a priority order for provider fallback. The gateway routes requests to the highest-priority provider with valid credentials.
 
 ### Domain Allowlist (Admin)
@@ -273,31 +340,7 @@ Admins can view all users, change roles (admin/user), and remove users through t
 
 ---
 
-## Real-Time Metrics
-
-The metrics dashboard provides live monitoring of gateway performance via Server-Sent Events (SSE).
-
-### Metrics Stream
-
-Connect to `GET /_ui/api/stream/metrics` (requires session auth) to receive metrics snapshots every 1 second. Each event contains:
-
-```json
-{
-  "total_requests": 1542,
-  "active_requests": 3,
-  "total_tokens_in": 245000,
-  "total_tokens_out": 189000,
-  "avg_latency_ms": 1250,
-  "error_count": 12,
-  "models": {
-    "claude-sonnet-4-20250514": {
-      "requests": 800,
-      "tokens_in": 150000,
-      "tokens_out": 120000
-    }
-  }
-}
-```
+## System & Model Information
 
 ### System Information
 
@@ -308,36 +351,9 @@ The `GET /_ui/api/system` endpoint provides process-level system metrics:
 
 ### Available Models
 
-The `GET /_ui/api/models` endpoint returns the list of models currently available through the Kiro API backend, useful for verifying that authentication is working and seeing which models you can use.
+The `GET /_ui/api/models` endpoint returns the list of models currently available through configured providers, useful for verifying that authentication is working and seeing which models you can use.
 
----
-
-## Log Streaming
-
-The log viewer provides real-time log streaming via SSE at `GET /_ui/api/stream/logs`.
-
-### How It Works
-
-The gateway captures logs via a tracing layer (`log_capture` module) into an in-memory buffer (`log_buffer` in AppState). The SSE endpoint polls this buffer and emits new entries. Each log event contains an array of new entries:
-
-```json
-[
-  {
-    "timestamp": "2026-03-01T12:00:00.000Z",
-    "level": "INFO",
-    "message": "Request completed: model=claude-sonnet-4-20250514 tokens=1500 latency=1.2s"
-  },
-  {
-    "timestamp": "2026-03-01T12:00:01.000Z",
-    "level": "DEBUG",
-    "message": "Token refresh: expires_in=3600s"
-  }
-]
-```
-
-### Historical Logs
-
-The `GET /_ui/api/logs` endpoint returns the current contents of the log buffer as a JSON array, useful for loading initial log history when the dashboard first opens.
+> **Note:** The previous real-time metrics streaming (`GET /_ui/api/stream/metrics`) and log streaming (`GET /_ui/api/stream/logs`) endpoints have been removed. Metrics and observability are now handled via Datadog APM/OTLP integration. Usage tracking is available via the Usage page and `/_ui/api/usage` endpoints.
 
 ---
 
@@ -412,23 +428,27 @@ All web UI API endpoints are nested under `/_ui/api/`.
 | `GET` | `/_ui/api/status` | Gateway status (includes `setup_complete` flag) |
 | `GET` | `/_ui/api/auth/google` | Initiate Google SSO PKCE flow |
 | `GET` | `/_ui/api/auth/google/callback` | Google OAuth callback handler |
+| `POST` | `/_ui/api/auth/login` | Password login (returns pending 2FA token) |
+| `POST` | `/_ui/api/auth/login/2fa` | Complete login with TOTP code or recovery code |
 
 ### Session-Authenticated Endpoints
 
-These require a valid `kgw_session` cookie (obtained via Google SSO).
+These require a valid `kgw_session` cookie (obtained via Google SSO or password login).
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/_ui/api/auth/me` | Current user info and session status |
-| `GET` | `/_ui/api/metrics` | Current metrics snapshot |
+| `GET` | `/_ui/api/auth/google/link` | Link Google account to existing user |
+| `GET` | `/_ui/api/auth/2fa/setup` | Initiate TOTP 2FA setup (returns secret + QR URL) |
+| `POST` | `/_ui/api/auth/2fa/verify` | Verify TOTP code to enable 2FA |
+| `POST` | `/_ui/api/auth/password/change` | Change password (requires current password) |
 | `GET` | `/_ui/api/system` | System info (CPU, memory, uptime) |
 | `GET` | `/_ui/api/models` | List available models |
-| `GET` | `/_ui/api/logs` | Get log buffer contents |
+| `GET` | `/_ui/api/usage` | Personal usage statistics |
 | `GET` | `/_ui/api/config` | Get current configuration |
 | `GET` | `/_ui/api/config/schema` | Configuration field schema |
 | `GET` | `/_ui/api/config/history` | Configuration change history |
-| `GET` | `/_ui/api/stream/metrics` | SSE metrics stream |
-| `GET` | `/_ui/api/stream/logs` | SSE log stream |
+| `GET` | `/_ui/api/providers/rate-limits` | Provider rate limit monitoring |
 
 ### Mutation Endpoints (Session + CSRF Token)
 
@@ -441,7 +461,8 @@ These require a valid session and CSRF token.
 | `*` | `/_ui/api/keys/*` | API key management (per-user) |
 | `*` | `/_ui/api/copilot/*` | GitHub Copilot OAuth connect/disconnect (per-user) |
 | `*` | `/_ui/api/qwen/*` | Qwen Coder device flow connect/disconnect (per-user) |
-| `*` | `/_ui/api/providers/*` | Provider OAuth relay and priority management (per-user) |
+| `*` | `/_ui/api/providers/*` | Provider OAuth relay, priority management, and account management (per-user) |
+| `*` | `/_ui/api/models/registry/*` | Model registry CRUD (GET, PATCH, DELETE, POST populate) |
 
 ### Admin-Only Endpoints (Session + CSRF + Admin Role)
 
@@ -450,6 +471,11 @@ These require a valid session and CSRF token.
 | `PUT` | `/_ui/api/config` | Update gateway configuration |
 | `*` | `/_ui/api/domains/*` | Domain allowlist management |
 | `*` | `/_ui/api/users/*` | User management |
+| `POST` | `/_ui/api/admin/users/create` | Create password-authenticated user |
+| `POST` | `/_ui/api/admin/users/:id/reset-password` | Reset user's password |
+| `GET` | `/_ui/api/admin/usage` | Global usage statistics |
+| `GET` | `/_ui/api/admin/usage/users` | Per-user usage breakdown |
+| `*` | `/_ui/api/admin/pool/*` | Provider pool account management |
 | `*` | `/_ui/api/admin/guardrails/*` | Guardrails profile/rule management |
 
 ---
@@ -471,5 +497,11 @@ The web UI is implemented across several Rust modules in `backend/src/web_ui/`:
 - **`users.rs`** — User management (admin)
 - **`config_api.rs`** — Configuration validation, change classification, and field descriptions
 - **`config_db.rs`** — PostgreSQL persistence layer for configuration key-value storage
+- **`password_auth.rs`** — Password authentication with mandatory TOTP 2FA, rate limiting, recovery codes, admin user creation/password reset
+- **`usage.rs`** — Usage tracking endpoints (personal and admin views)
+- **`admin_pool.rs`** — Admin provider pool account management and rate limit monitoring
+- **`model_registry.rs`** — Model registry data layer (PostgreSQL)
+- **`model_registry_handlers.rs`** — Model registry HTTP handlers (CRUD endpoints)
+- **`crypto.rs`** — AES-256-GCM encryption for sensitive config values
 
 The React frontend source lives in `frontend/` (Vite + TypeScript). In development, the Vite dev server serves the SPA and proxies API requests to the backend.
