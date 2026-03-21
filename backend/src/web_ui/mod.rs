@@ -24,7 +24,7 @@ use axum::extract::State;
 use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::json;
 
@@ -70,9 +70,6 @@ pub fn web_ui_routes(state: AppState) -> Router {
         // Read-only (GET)
         .route("/system", get(routes::get_system_info))
         .route("/models", get(routes::get_models))
-        .route("/config", get(routes::get_config))
-        .route("/config/schema", get(routes::get_config_schema))
-        .route("/config/history", get(routes::get_config_history))
         .route("/auth/me", get(google_auth::auth_me))
         // (logout moved to its own group — no session required)
         // Stream 3: per-user Kiro token + API key routes
@@ -117,7 +114,12 @@ pub fn web_ui_routes(state: AppState) -> Router {
     // Config update + domain allowlist management require admin role.
     // Nested at /_ui/api (same prefix) so PUT /_ui/api/config stays at the same URL.
     let admin_api_routes = Router::new()
-        .route("/config", put(routes::update_config))
+        .route(
+            "/config",
+            get(routes::get_config).put(routes::update_config),
+        )
+        .route("/config/schema", get(routes::get_config_schema))
+        .route("/config/history", get(routes::get_config_history))
         .merge(config_api::domain_routes())
         .merge(config_api::user_routes())
         .merge(crate::guardrails::api::guardrails_routes())

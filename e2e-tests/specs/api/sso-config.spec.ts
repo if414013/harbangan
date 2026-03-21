@@ -598,3 +598,148 @@ test.describe('SSO Config API — auth toggle guard', () => {
     expect(typeof status.auth_password_enabled).toBe('boolean');
   });
 });
+
+// ── Cross-field auth toggle rejection (CR-R03) ─────────────────────
+
+test.describe('SSO Config API — cross-field auth toggle rejection', () => {
+  test('rejects disabling both auth methods simultaneously', async ({ request }) => {
+    const { csrfToken } = await adminLogin(request);
+
+    const res = await request.put('/_ui/api/config', {
+      data: { auth_google_enabled: false, auth_password_enabled: false },
+      headers: csrf(csrfToken),
+    });
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/cannot disable both/i);
+  });
+
+  test('rejects disabling password auth when SSO is not fully configured', async ({ request }) => {
+    const { csrfToken } = await adminLogin(request);
+
+    // Ensure SSO creds are empty (not fully configured)
+    await request.put('/_ui/api/config', {
+      data: { google_client_id: '', google_client_secret: '', google_callback_url: '' },
+      headers: csrf(csrfToken),
+    });
+
+    // Try to disable password auth — should fail since SSO isn't configured
+    const { csrfToken: csrf2 } = await adminLogin(request);
+    const res = await request.put('/_ui/api/config', {
+      data: { auth_password_enabled: false },
+      headers: csrf(csrf2),
+    });
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/cannot disable password auth/i);
+  });
+
+  test('rejects disabling password when SSO enabled but not configured', async ({ request }) => {
+    const { csrfToken } = await adminLogin(request);
+
+    // Enable SSO toggle but leave creds empty
+    await request.put('/_ui/api/config', {
+      data: {
+        google_client_id: '',
+        google_client_secret: '',
+        google_callback_url: '',
+        auth_google_enabled: true,
+      },
+      headers: csrf(csrfToken),
+    });
+
+    // Try to disable password — should fail (SSO toggle on but not configured)
+    const { csrfToken: csrf2 } = await adminLogin(request);
+    const res = await request.put('/_ui/api/config', {
+      data: { auth_password_enabled: false },
+      headers: csrf(csrf2),
+    });
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/cannot disable password auth/i);
+  });
+
+  test('allows disabling password when SSO is fully configured and enabled', async ({ request }) => {
+    const { csrfToken } = await adminLogin(request);
+
+    // Set up full SSO config
+    await request.put('/_ui/api/config', {
+      data: {
+        google_client_id: `guard-test-${Date.now()}`,
+        google_client_secret: 'guard-test-secret-long-enough',
+        google_callback_url: 'http://localhost:9999/_ui/api/auth/google/callback',
+        auth_google_enabled: true,
+      },
+      headers: csrf(csrfToken),
+    });
+
+    // Now disabling password should succeed
+    const { csrfToken: csrf2 } = await adminLogin(request);
+    const res = await request.put('/_ui/api/config', {
+      data: { auth_password_enabled: false },
+      headers: csrf(csrf2),
+    });
+    expect(res.status()).toBe(200);
+
+    // Restore password auth
+    const { csrfToken: csrf3 } = await adminLogin(request);
+    await request.put('/_ui/api/config', {
+      data: { auth_password_enabled: true },
+      headers: csrf(csrf3),
+    });
+  });
+
+  test('rejects clearing SSO credentials when password auth is disabled', async ({ request }) => {
+    const { csrfToken } = await adminLogin(request);
+
+    // Set up full SSO config and disable password
+    await request.put('/_ui/api/config', {
+      data: {
+        google_client_id: `clear-test-${Date.now()}`,
+        google_client_secret: 'clear-test-secret-long-enough',
+        google_callback_url: 'http://localhost:9999/_ui/api/auth/google/callback',
+        auth_google_enabled: true,
+      },
+      headers: csrf(csrfToken),
+    });
+    const { csrfToken: csrf2 } = await adminLogin(request);
+    await request.put('/_ui/api/config', {
+      data: { auth_password_enabled: false },
+      headers: csrf(csrf2),
+    });
+
+    // Try to clear google_client_id — should fail
+    const { csrfToken: csrf3 } = await adminLogin(request);
+    const res = await request.put('/_ui/api/config', {
+      data: { google_client_id: '' },
+      headers: csrf(csrf3),
+    });
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/cannot clear.*google/i);
+
+    // Restore password auth for cleanup
+    const { csrfToken: csrf4 } = await adminLogin(request);
+    await request.put('/_ui/api/config', {
+      data: { auth_password_enabled: true },
+      headers: csrf(csrf4),
+    });
+  });
+
+  test('allows clearing SSO credentials when password auth is enabled', async ({ request }) => {
+    const { csrfToken } = await adminLogin(request);
+
+    // Ensure password is enabled, then clear SSO creds — should succeed
+    await request.put('/_ui/api/config', {
+      data: { auth_password_enabled: true },
+      headers: csrf(csrfToken),
+    });
+
+    const { csrfToken: csrf2 } = await adminLogin(request);
+    const res = await request.put('/_ui/api/config', {
+      data: { google_client_id: '', google_client_secret: '', google_callback_url: '' },
+      headers: csrf(csrf2),
+    });
+    expect(res.status()).toBe(200);
+  });
+});

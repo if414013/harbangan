@@ -632,9 +632,7 @@ mod tests {
             provider_registry: Arc::new(crate::providers::registry::ProviderRegistry::new()),
             providers: crate::providers::build_provider_map(http_client, auth_manager, config_arc),
             provider_oauth_pending: Arc::new(dashmap::DashMap::new()),
-            token_exchanger: Arc::new(
-                crate::web_ui::provider_oauth::HttpTokenExchanger::new(),
-            ),
+            token_exchanger: Arc::new(crate::web_ui::provider_oauth::HttpTokenExchanger::new()),
             login_rate_limiter: Arc::new(dashmap::DashMap::new()),
             rate_tracker: Arc::new(crate::providers::rate_limiter::RateLimitTracker::new()),
         }
@@ -643,8 +641,11 @@ mod tests {
     #[test]
     fn test_apply_config_field_google_client_id() {
         let state = create_test_state();
-        let result =
-            apply_config_field(&state, "google_client_id", &json!("my-client-id.apps.google"));
+        let result = apply_config_field(
+            &state,
+            "google_client_id",
+            &json!("my-client-id.apps.google"),
+        );
         assert!(result);
         let config = state.config.read().unwrap();
         assert_eq!(config.google_client_id, "my-client-id.apps.google");
@@ -688,8 +689,7 @@ mod tests {
         // Pre-set a real secret
         state.config.write().unwrap().google_client_secret = "GOCSPX-real-secret".to_string();
         // Apply a masked sentinel (dots prefix) — should be a no-op
-        let result =
-            apply_config_field(&state, "google_client_secret", &json!("••••cret"));
+        let result = apply_config_field(&state, "google_client_secret", &json!("••••cret"));
         assert!(result); // returns true (success, not failure)
         let config = state.config.read().unwrap();
         // Secret must remain unchanged
@@ -700,8 +700,7 @@ mod tests {
     fn test_apply_config_field_google_client_secret_sentinel_xxxx_skipped() {
         let state = create_test_state();
         state.config.write().unwrap().google_client_secret = "GOCSPX-real-secret".to_string();
-        let result =
-            apply_config_field(&state, "google_client_secret", &json!("xxxxcret"));
+        let result = apply_config_field(&state, "google_client_secret", &json!("xxxxcret"));
         assert!(result);
         let config = state.config.read().unwrap();
         assert_eq!(config.google_client_secret, "GOCSPX-real-secret");

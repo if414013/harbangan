@@ -165,23 +165,14 @@ pub(crate) fn extract_csrf_cookie(headers: &axum::http::HeaderMap) -> Option<Str
 /// GET /_ui/api/auth/google — redirect to Google consent screen.
 // TODO: Add rate limiting on OAuth endpoints (tower::limit) as future work.
 pub async fn google_auth_redirect(State(state): State<AppState>) -> Result<Response, ApiError> {
-    // Enforce auth_google_enabled toggle
-    if let Some(ref db) = state.config_db {
-        let enabled = db
-            .get("auth_google_enabled")
-            .await
-            .unwrap_or(None)
-            .map(|v| v == "true")
-            .unwrap_or(false);
-        if !enabled {
+    let (client_id, client_secret, callback_url) = {
+        let config = state.config.read().unwrap_or_else(|p| p.into_inner());
+        // Enforce auth_google_enabled toggle (cached in Config struct)
+        if !config.auth_google_enabled {
             return Err(ApiError::Forbidden(
                 "Google SSO authentication is disabled".to_string(),
             ));
         }
-    }
-
-    let (client_id, client_secret, callback_url) = {
-        let config = state.config.read().unwrap_or_else(|p| p.into_inner());
         (
             config.google_client_id.clone(),
             config.google_client_secret.clone(),
@@ -263,6 +254,17 @@ pub async fn google_link_redirect(
     State(state): State<AppState>,
     request: Request<Body>,
 ) -> Result<Response, ApiError> {
+    // Enforce auth_google_enabled toggle
+    let google_enabled = {
+        let config = state.config.read().unwrap_or_else(|p| p.into_inner());
+        config.auth_google_enabled
+    };
+    if !google_enabled {
+        return Err(ApiError::Forbidden(
+            "Google SSO authentication is disabled".to_string(),
+        ));
+    }
+
     let session = request
         .extensions()
         .get::<SessionInfo>()
@@ -341,21 +343,12 @@ pub async fn google_auth_callback(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<CallbackQuery>,
 ) -> Result<Response, ApiError> {
-    // Enforce auth_google_enabled toggle
-    if let Some(ref db) = state.config_db {
-        let enabled = db
-            .get("auth_google_enabled")
-            .await
-            .unwrap_or(None)
-            .map(|v| v == "true")
-            .unwrap_or(false);
-        if !enabled {
-            return redirect_login_error("google_sso_disabled");
-        }
-    }
-
     let (client_id, client_secret, callback_url) = {
         let config = state.config.read().unwrap_or_else(|p| p.into_inner());
+        // Enforce auth_google_enabled toggle (cached in Config struct)
+        if !config.auth_google_enabled {
+            return redirect_login_error("google_sso_disabled");
+        }
         (
             config.google_client_id.clone(),
             config.google_client_secret.clone(),
