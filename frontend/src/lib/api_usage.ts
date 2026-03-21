@@ -17,6 +17,19 @@ export interface UserUsageRecord {
   request_count: number;
 }
 
+interface UsageResponseWrapper {
+  start_date: string;
+  end_date: string;
+  group_by: string;
+  data: UsageRecord[];
+}
+
+interface UserUsageResponseWrapper {
+  start_date: string;
+  end_date: string;
+  data: UserUsageRecord[];
+}
+
 export async function fetchUsage(params: {
   start_date?: string;
   end_date?: string;
@@ -26,7 +39,10 @@ export async function fetchUsage(params: {
   if (params.start_date) searchParams.set("start_date", params.start_date);
   if (params.end_date) searchParams.set("end_date", params.end_date);
   if (params.group_by) searchParams.set("group_by", params.group_by);
-  return apiFetch(`/usage?${searchParams.toString()}`);
+  const res = await apiFetch<UsageResponseWrapper>(
+    `/usage?${searchParams.toString()}`,
+  );
+  return res.data;
 }
 
 export async function fetchAdminUsage(params: {
@@ -38,7 +54,10 @@ export async function fetchAdminUsage(params: {
   if (params.start_date) searchParams.set("start_date", params.start_date);
   if (params.end_date) searchParams.set("end_date", params.end_date);
   if (params.group_by) searchParams.set("group_by", params.group_by);
-  return apiFetch(`/admin/usage?${searchParams.toString()}`);
+  const res = await apiFetch<UsageResponseWrapper>(
+    `/admin/usage?${searchParams.toString()}`,
+  );
+  return res.data;
 }
 
 export async function fetchAdminUsageByUsers(params: {
@@ -48,5 +67,8 @@ export async function fetchAdminUsageByUsers(params: {
   const searchParams = new URLSearchParams();
   if (params.start_date) searchParams.set("start_date", params.start_date);
   if (params.end_date) searchParams.set("end_date", params.end_date);
-  return apiFetch(`/admin/usage/users?${searchParams.toString()}`);
+  const res = await apiFetch<UserUsageResponseWrapper>(
+    `/admin/usage/users?${searchParams.toString()}`,
+  );
+  return res.data;
 }
