@@ -17,7 +17,7 @@ In Batak Toba culture, the *harbangan* is the gate of the traditional house — 
 
 This gateway embodies the same philosophy:
 
-- **Cosmic boundary** — The *harbangan* separates the three realms of Batak cosmology. This gateway sits at the boundary between your client code and multiple provider backends (Kiro, Copilot, Qwen), translating between OpenAI and Anthropic formats on either side.
+- **Cosmic boundary** — The *harbangan* separates the three realms of Batak cosmology. This gateway sits at the boundary between your client code and multiple provider backends (Kiro, Copilot), translating between OpenAI and Anthropic formats on either side.
 - **Guardian of social order** — The Batak gate enforces *Dalihan Na Tolu*, the three-pillar kinship system that governs who may enter and how. Harbangan enforces multi-user RBAC: Google SSO, per-user API keys, admin/user roles, and domain allowlisting decide what passes through.
 - **Ritual transition** — Crossing a *harbangan* signals a shift in status. Requests crossing this gateway undergo their own transformation: format conversion, content guardrails (CEL rules + AWS Bedrock), and MCP tool injection before reaching the other side.
 - **Openness as moral virtue** — In Batak ethics, a gate that is always open signals generosity and communal spirit. This one is open source, and in proxy-only mode, a single container is all you need to open the gate.
@@ -57,7 +57,6 @@ Requires per-user OAuth tokens configured in the Web UI. Use the `provider/model
 | Anthropic | `anthropic/` | Claude family (direct API, bypasses Kiro) |
 | OpenAI Codex | `openai_codex/` | `gpt-4`, `o1-*`, `o3-*`, `o4-*`, `chatgpt-*` |
 | GitHub Copilot | `copilot/` | Copilot models |
-| Qwen | `qwen/` | `qwen-*`, `qwen3-*`, `qwq-*` |
 
 > Direct providers bypass Kiro entirely and require full deployment with PostgreSQL. See [Client Setup](https://if414013.github.io/harbangan/docs/client-setup) for configuration details.
 

@@ -653,7 +653,6 @@ All web UI API endpoints are under `/_ui/api/`. See the [Web Dashboard](web-ui.h
 | `*` | `/_ui/api/kiro/*` | Kiro token management (status/setup/poll/delete) |
 | `*` | `/_ui/api/keys/*` | API key management (list/create/delete) |
 | `*` | `/_ui/api/copilot/*` | GitHub Copilot device flow (device-code/device-poll/status/disconnect) |
-| `*` | `/_ui/api/providers/qwen/*` | Qwen device flow (device-code/device-poll/status/disconnect) |
 
 ### Admin-Only (Session + CSRF + Admin Role)
 

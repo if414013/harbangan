@@ -419,6 +419,17 @@ impl ConfigDb {
             self.migrate_to_v21().await?;
         }
 
+        // Re-read max version after v21 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 22 {
+            self.migrate_to_v22().await?;
+        }
+
         Ok(())
     }
 
@@ -1019,7 +1030,6 @@ impl ConfigDb {
                 "http_max_retries" => {
                     parse_ranged!(key, value, config.http_max_retries, u32, 0, 10);
                 }
-                "qwen_oauth_client_id" => config.qwen_oauth_client_id = value.clone(),
                 "anthropic_oauth_client_id" => config.anthropic_oauth_client_id = value.clone(),
                 "openai_oauth_client_id" => config.openai_oauth_client_id = value.clone(),
                 "google_client_id" => config.google_client_id = value.clone(),
@@ -3008,6 +3018,64 @@ impl ConfigDb {
         Ok(())
     }
 
+    // v22: Remove all Qwen provider data.
+    // The Qwen Coder provider is being fully removed from Harbangan.
+    // This migration purges any remaining Qwen rows from provider tables.
+    async fn migrate_to_v22(&self) -> Result<()> {
+        tracing::info!("Running database migration to version 22 (remove qwen provider data)...");
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v22 migration transaction")?;
+
+        // ── Delete Qwen rows from all provider tables ──────────
+
+        sqlx::query("DELETE FROM user_provider_tokens WHERE provider_id = 'qwen'")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to delete qwen from user_provider_tokens")?;
+
+        sqlx::query("DELETE FROM model_routes WHERE provider_id = 'qwen'")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to delete qwen from model_routes")?;
+
+        sqlx::query("DELETE FROM model_registry WHERE provider_id = 'qwen'")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to delete qwen from model_registry")?;
+
+        sqlx::query("DELETE FROM user_provider_priority WHERE provider_id = 'qwen'")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to delete qwen from user_provider_priority")?;
+
+        sqlx::query("DELETE FROM admin_provider_pool WHERE provider_id = 'qwen'")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to delete qwen from admin_provider_pool")?;
+
+        sqlx::query("DELETE FROM config WHERE key = 'qwen_oauth_client_id'")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to delete qwen_oauth_client_id from config")?;
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(22_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 22")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit v22 migration")?;
+
+        tracing::info!("Database migration to version 22 complete");
+        Ok(())
+    }
+
     // ── Model Registry ───────────────────────────────────────────
 
     /// Get all models in the registry.
@@ -3587,7 +3655,7 @@ impl ConfigDb {
         Ok(result.rows_affected())
     }
 
-    /// Set the base_url for a user's provider token (e.g. Qwen resource_url).
+    /// Set the base_url for a user's provider token.
     #[allow(dead_code)]
     pub async fn set_user_provider_base_url(
         &self,

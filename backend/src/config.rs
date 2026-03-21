@@ -20,8 +20,6 @@ pub struct ProxyConfig {
     pub openai_base_url: Option<String>,
     pub copilot_token: Option<String>,
     pub copilot_base_url: Option<String>,
-    pub qwen_token: Option<String>,
-    pub qwen_base_url: Option<String>,
     pub custom_provider_url: Option<String>,
     pub custom_provider_key: Option<String>,
     pub custom_provider_models: Option<String>,
@@ -81,8 +79,6 @@ pub struct Config {
 
     // Provider OAuth client IDs (defaults for public device-flow / PKCE clients)
     #[allow(dead_code)]
-    pub qwen_oauth_client_id: String,
-    #[allow(dead_code)]
     pub anthropic_oauth_client_id: String,
     #[allow(dead_code)]
     pub openai_oauth_client_id: String,
@@ -129,7 +125,6 @@ impl std::fmt::Debug for Config {
             .field("gateway_mode", &self.gateway_mode)
             .field("proxy", &self.proxy.as_ref().map(|_| "[REDACTED]"))
             .field("database_url", &self.database_url)
-            .field("qwen_oauth_client_id", &self.qwen_oauth_client_id)
             .field("anthropic_oauth_client_id", &self.anthropic_oauth_client_id)
             .field("openai_oauth_client_id", &self.openai_oauth_client_id)
             .field("google_client_id", &self.google_client_id)
@@ -194,7 +189,6 @@ impl Config {
             gateway_mode: GatewayMode::Full,
             proxy: None,
             database_url: None,
-            qwen_oauth_client_id: String::new(),
             anthropic_oauth_client_id: String::new(),
             openai_oauth_client_id: String::new(),
             google_client_id: String::new(),
@@ -246,8 +240,6 @@ impl Config {
                 openai_base_url: std::env::var("OPENAI_BASE_URL").ok(),
                 copilot_token: std::env::var("COPILOT_TOKEN").ok(),
                 copilot_base_url: std::env::var("COPILOT_BASE_URL").ok(),
-                qwen_token: std::env::var("QWEN_TOKEN").ok(),
-                qwen_base_url: std::env::var("QWEN_BASE_URL").ok(),
                 custom_provider_url: std::env::var("CUSTOM_PROVIDER_URL").ok(),
                 custom_provider_key: std::env::var("CUSTOM_PROVIDER_KEY").ok(),
                 custom_provider_models: std::env::var("CUSTOM_PROVIDER_MODELS").ok(),
@@ -267,9 +259,6 @@ impl Config {
         }
 
         // Provider OAuth client IDs (env var override for backward compat)
-        if let Ok(v) = std::env::var("QWEN_OAUTH_CLIENT_ID") {
-            config.qwen_oauth_client_id = v;
-        }
         if let Ok(v) = std::env::var("ANTHROPIC_OAUTH_CLIENT_ID") {
             config.anthropic_oauth_client_id = v;
         }
@@ -546,8 +535,6 @@ mod tests {
         assert!(proxy.openai_base_url.is_none());
         assert!(proxy.copilot_token.is_none());
         assert!(proxy.copilot_base_url.is_none());
-        assert!(proxy.qwen_token.is_none());
-        assert!(proxy.qwen_base_url.is_none());
         assert!(proxy.custom_provider_url.is_none());
         assert!(proxy.custom_provider_key.is_none());
         assert!(proxy.custom_provider_models.is_none());
@@ -566,8 +553,6 @@ mod tests {
             openai_base_url: Some("https://api.openai.com/v1".to_string()),
             copilot_token: Some("cop-tok-test".to_string()),
             copilot_base_url: Some("https://api.githubcopilot.com".to_string()),
-            qwen_token: Some("qwen-tok-test".to_string()),
-            qwen_base_url: Some("https://qwen.example.com".to_string()),
             custom_provider_url: Some("http://localhost:11434/v1".to_string()),
             custom_provider_key: Some("custom-key-test".to_string()),
             custom_provider_models: Some("llama3,codellama,deepseek-r1".to_string()),
@@ -582,11 +567,6 @@ mod tests {
         assert_eq!(
             proxy.copilot_base_url.as_deref(),
             Some("https://api.githubcopilot.com")
-        );
-        assert_eq!(proxy.qwen_token.as_deref(), Some("qwen-tok-test"));
-        assert_eq!(
-            proxy.qwen_base_url.as_deref(),
-            Some("https://qwen.example.com")
         );
         assert_eq!(
             proxy.custom_provider_url.as_deref(),
@@ -634,7 +614,6 @@ mod tests {
         assert!(proxy.anthropic_api_key.is_some());
         assert!(proxy.openai_api_key.is_none());
         assert!(proxy.copilot_token.is_none());
-        assert!(proxy.qwen_token.is_none());
         assert!(proxy.custom_provider_url.is_some());
         assert!(proxy.custom_provider_key.is_none());
     }

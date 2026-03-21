@@ -23,7 +23,7 @@ Get Harbangan running and make your first API call in under 5 minutes using Dock
 
 ## Proxy-Only Mode (Fastest)
 
-A single container with no PostgreSQL or Google SSO. Authenticates via a single `PROXY_API_KEY`. Supports all providers (Kiro, Anthropic, OpenAI, Copilot, Qwen, Custom) via environment variables.
+A single container with no PostgreSQL or Google SSO. Authenticates via a single `PROXY_API_KEY`. Supports all providers (Kiro, Anthropic, OpenAI, Copilot, Custom) via environment variables.
 
 ### 1. Clone and configure
 

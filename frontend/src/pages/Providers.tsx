@@ -14,7 +14,6 @@ import {
   populateModels,
   apiFetch,
   getCopilotStatus,
-  getQwenStatus,
 } from "../lib/api";
 import type {
   ProvidersStatusResponse,
@@ -53,7 +52,6 @@ export function Providers() {
   const [rateLimits, setRateLimits] = useState<RateLimitInfo[]>([]);
   const [kiroConnected, setKiroConnected] = useState(false);
   const [copilotConnected, setCopilotConnected] = useState(false);
-  const [qwenConnected, setQwenConnected] = useState(false);
   const [confirmState, setConfirmState] = useState<{
     action: () => void;
     title: string;
@@ -127,9 +125,6 @@ export function Providers() {
       .catch(() => {});
     getCopilotStatus()
       .then((s) => setCopilotConnected(s.connected && !s.expired))
-      .catch(() => {});
-    getQwenStatus()
-      .then((s) => setQwenConnected(s.connected && !s.expired))
       .catch(() => {});
   }
 
@@ -235,7 +230,6 @@ export function Providers() {
           rateLimits={rateLimits}
           kiroConnected={kiroConnected}
           copilotConnected={copilotConnected}
-          qwenConnected={qwenConnected}
           onNavigate={handleNavigateToConnections}
           allProviders={allProviders}
           registry={registry}

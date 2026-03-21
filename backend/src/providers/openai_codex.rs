@@ -174,7 +174,7 @@ impl Provider for OpenAICodexProvider {
 
 /// Convert an OpenAI API non-streaming response body → Anthropic messages response JSON.
 ///
-/// Public so that other OpenAI-compatible providers (Copilot, Qwen) can reuse this.
+/// Public so that other OpenAI-compatible providers (Copilot) can reuse this.
 pub fn openai_response_to_anthropic(model: &str, body: &Value) -> Value {
     let text = body
         .get("choices")

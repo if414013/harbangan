@@ -95,7 +95,6 @@ const mockRegistry = {
     { id: 'anthropic', display_name: 'Anthropic', category: 'oauth_relay', supports_pool: true },
     { id: 'openai_codex', display_name: 'OpenAI Codex', category: 'oauth_relay', supports_pool: true },
     { id: 'copilot', display_name: 'Copilot', category: 'device_code', supports_pool: true },
-    { id: 'qwen', display_name: 'Qwen', category: 'device_code', supports_pool: true },
   ],
 }
 
@@ -148,7 +147,6 @@ test.describe('Admin page — provider pool', () => {
     await expect(providerSelect.locator('option[value="openai_codex"]')).toBeAttached()
     await expect(providerSelect.locator('option[value="kiro"]')).toBeAttached()
     await expect(providerSelect.locator('option[value="copilot"]')).toBeAttached()
-    await expect(providerSelect.locator('option[value="qwen"]')).toBeAttached()
   })
 })
 

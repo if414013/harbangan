@@ -10,7 +10,6 @@ pub mod model_registry_handlers;
 pub mod password_auth;
 pub mod provider_oauth;
 pub mod provider_priority;
-pub mod qwen_auth;
 pub mod routes;
 pub mod session;
 pub mod usage;
@@ -79,8 +78,6 @@ pub fn web_ui_routes(state: AppState) -> Router {
         .merge(provider_oauth::provider_oauth_routes())
         // Copilot: GitHub OAuth connect/callback/status/disconnect
         .merge(copilot_auth::copilot_routes())
-        // Qwen: device flow connect/poll/status/disconnect
-        .merge(qwen_auth::qwen_auth_routes())
         // Provider priority management
         .merge(provider_priority::provider_priority_routes())
         // Multi-account: per-user account management + rate limits

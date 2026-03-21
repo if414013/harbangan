@@ -110,7 +110,7 @@ impl ModelResolver {
     ///
     /// Returns `false` for:
     /// - Prefixed models (e.g. "anthropic/claude-opus-4-6")
-    /// - Models with a known direct-provider prefix (e.g. "gpt-5", "qwen-coder")
+    /// - Models with a known direct-provider prefix (e.g. "gpt-5", "claude-sonnet-4")
     ///
     /// Returns `true` for Claude models and unknown models that default to Kiro.
     #[allow(dead_code)]

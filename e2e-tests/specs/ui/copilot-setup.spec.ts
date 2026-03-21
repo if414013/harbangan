@@ -82,9 +82,6 @@ async function mockProvidersPageDeps(page: Page) {
   await page.route('**/_ui/api/providers/status', route =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ providers: {} }) })
   )
-  await page.route('**/_ui/api/providers/qwen/status', route =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ connected: false, expired: false }) })
-  )
   await page.route('**/_ui/api/models/registry', route =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ models: [] }) })
   )

@@ -85,7 +85,6 @@ fn create_test_app_state() -> AppState {
         gateway_mode: harbangan::config::GatewayMode::Full,
         proxy: None,
         database_url: None,
-        qwen_oauth_client_id: String::new(),
         anthropic_oauth_client_id: String::new(),
         openai_oauth_client_id: String::new(),
         google_client_id: String::new(),

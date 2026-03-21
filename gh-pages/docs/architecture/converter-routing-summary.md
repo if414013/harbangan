@@ -21,7 +21,6 @@ flowchart LR
         OaiP["OpenAI"]
         GeminiP["Gemini"]
         CopilotP["Copilot"]
-        QwenP["Qwen"]
     end
 
     subgraph KiroPath["Kiro path (default)"]

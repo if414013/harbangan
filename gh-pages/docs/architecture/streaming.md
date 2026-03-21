@@ -11,7 +11,7 @@ permalink: /architecture/streaming/
 
 The Kiro API returns responses as a text-based stream containing JSON event objects. This page covers how the gateway parses that stream, extracts meaningful events, processes thinking blocks, detects truncation, and formats the output as Server-Sent Events (SSE) for OpenAI and Anthropic clients.
 
-This streaming pipeline is specific to the Kiro provider path. When requests are routed to direct providers (Anthropic, OpenAI Codex, Copilot, Qwen, Custom) via the `ProviderRegistry`, the provider's `stream_openai()` / `stream_anthropic()` trait methods handle streaming natively — the response SSE stream is parsed by `streaming/sse.rs` and relayed to the client. Cross-format streaming (e.g., OpenAI SSE → Anthropic events) is handled by `streaming/cross_format.rs`.
+This streaming pipeline is specific to the Kiro provider path. When requests are routed to direct providers (Anthropic, OpenAI Codex, Copilot, Custom) via the `ProviderRegistry`, the provider's `stream_openai()` / `stream_anthropic()` trait methods handle streaming natively — the response SSE stream is parsed by `streaming/sse.rs` and relayed to the client. Cross-format streaming (e.g., OpenAI SSE → Anthropic events) is handled by `streaming/cross_format.rs`.
 {: .note }
 
 ## Table of Contents

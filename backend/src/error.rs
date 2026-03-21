@@ -494,7 +494,7 @@ mod tests {
     #[tokio::test]
     async fn test_rate_limited_returns_429_with_retry_after() {
         let err = ApiError::RateLimited {
-            provider: "qwen".to_string(),
+            provider: "anthropic".to_string(),
             retry_after_secs: 42,
         };
         let response = err.into_response();

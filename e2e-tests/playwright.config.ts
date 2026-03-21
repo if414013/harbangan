@@ -89,7 +89,7 @@ export default defineConfig({
       testDir: './specs/ui',
       testMatch: [
         'dashboard.spec.ts', 'profile.spec.ts', 'navigation.spec.ts',
-        'provider-oauth.spec.ts', 'copilot-setup.spec.ts', 'qwen-setup.spec.ts',
+        'provider-oauth.spec.ts', 'copilot-setup.spec.ts',
         'totp-setup.spec.ts', 'password-change.spec.ts',
         'usage.spec.ts',
       ],

@@ -5,7 +5,6 @@ import { useToast } from "./useToast";
 const OAUTH_FIELDS = [
   { key: "anthropic_oauth_client_id", label: "Anthropic OAuth Client ID" },
   { key: "openai_oauth_client_id", label: "OpenAI OAuth Client ID" },
-  { key: "qwen_oauth_client_id", label: "Qwen OAuth Client ID" },
 ] as const;
 
 export function OAuthSettings() {

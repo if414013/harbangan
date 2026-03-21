@@ -25,8 +25,8 @@ Your configuration depends on your deployment mode:
 | | Proxy-Only | Full Deployment |
 |---|---|---|
 | **API Key** | `PROXY_API_KEY` from `.env.proxy` | Personal key from Web UI (`/_ui/`) |
-| **Providers** | Kiro only | Kiro + Anthropic, OpenAI Codex, Copilot, Qwen |
-| **Models** | `claude-*` names, `auto` | + `anthropic/`, `openai_codex/`, `copilot/`, `qwen/` prefixes |
+| **Providers** | Kiro only | Kiro + Anthropic, OpenAI Codex, Copilot |
+| **Models** | `claude-*` names, `auto` | + `anthropic/`, `openai_codex/`, `copilot/` prefixes |
 | **Web UI** | Not available | Available at `/_ui/` for OAuth setup |
 
 ---
@@ -275,7 +275,6 @@ Prefix with the provider name to bypass Kiro and route to a direct API:
 |-------------|-----------|
 | `anthropic/claude-opus-4-6` | Anthropic API directly |
 | `openai_codex/gpt-4` | OpenAI Codex |
-| `qwen/qwen-coder` | Qwen |
 | `copilot/gpt-4` | GitHub Copilot |
 
 Direct providers require per-user OAuth tokens configured in the Web UI **Providers** page. Without OAuth tokens, requests fall back to Kiro automatically.

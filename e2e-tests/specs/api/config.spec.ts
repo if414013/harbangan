@@ -61,13 +61,11 @@ test.describe('Config API — provider OAuth fields', () => {
     expect(body).toHaveProperty('config');
     const config = body.config;
 
-    // All three provider OAuth client ID fields must be present
-    expect(config).toHaveProperty('qwen_oauth_client_id');
+    // Both provider OAuth client ID fields must be present
     expect(config).toHaveProperty('anthropic_oauth_client_id');
     expect(config).toHaveProperty('openai_oauth_client_id');
 
     // Values should be strings (possibly empty default)
-    expect(typeof config.qwen_oauth_client_id).toBe('string');
     expect(typeof config.anthropic_oauth_client_id).toBe('string');
     expect(typeof config.openai_oauth_client_id).toBe('string');
   });
@@ -83,7 +81,7 @@ test.describe('Config API — provider OAuth fields', () => {
     const fields = body.fields;
 
     // Each provider OAuth field should have schema metadata
-    for (const key of ['qwen_oauth_client_id', 'anthropic_oauth_client_id', 'openai_oauth_client_id']) {
+    for (const key of ['anthropic_oauth_client_id', 'openai_oauth_client_id']) {
       expect(fields).toHaveProperty(key);
       expect(fields[key]).toHaveProperty('description');
       expect(fields[key]).toHaveProperty('type');
@@ -102,30 +100,29 @@ test.describe('Config API — provider OAuth updates', () => {
 
     const testClientId = `test-e2e-client-${Date.now()}`;
 
-    // Update qwen_oauth_client_id
+    // Update anthropic_oauth_client_id
     const putRes = await request.put('/_ui/api/config', {
-      data: { qwen_oauth_client_id: testClientId },
+      data: { anthropic_oauth_client_id: testClientId },
       headers: { 'x-csrf-token': csrfToken },
     });
     expect(putRes.status()).toBe(200);
     const putBody = await putRes.json();
-    expect(putBody.updated).toContain('qwen_oauth_client_id');
-    expect(putBody.hot_reloaded).toContain('qwen_oauth_client_id');
-    expect(putBody.requires_restart).not.toContain('qwen_oauth_client_id');
+    expect(putBody.updated).toContain('anthropic_oauth_client_id');
+    expect(putBody.hot_reloaded).toContain('anthropic_oauth_client_id');
+    expect(putBody.requires_restart).not.toContain('anthropic_oauth_client_id');
 
     // Verify persisted via GET
     const getRes = await request.get('/_ui/api/config');
     expect(getRes.status()).toBe(200);
     const getBody = await getRes.json();
-    expect(getBody.config.qwen_oauth_client_id).toBe(testClientId);
+    expect(getBody.config.anthropic_oauth_client_id).toBe(testClientId);
   });
 
-  test('PUT /_ui/api/config can update all three provider OAuth IDs at once', async ({ request }) => {
+  test('PUT /_ui/api/config can update both provider OAuth IDs at once', async ({ request }) => {
     const { csrfToken } = await adminLogin(request);
 
     const suffix = Date.now();
     const updates = {
-      qwen_oauth_client_id: `qwen-e2e-${suffix}`,
       anthropic_oauth_client_id: `anthropic-e2e-${suffix}`,
       openai_oauth_client_id: `openai-e2e-${suffix}`,
     };
@@ -137,7 +134,7 @@ test.describe('Config API — provider OAuth updates', () => {
     expect(putRes.status()).toBe(200);
     const putBody = await putRes.json();
 
-    // All three should be hot-reloaded
+    // Both should be hot-reloaded
     for (const key of Object.keys(updates)) {
       expect(putBody.updated).toContain(key);
       expect(putBody.hot_reloaded).toContain(key);
@@ -146,7 +143,6 @@ test.describe('Config API — provider OAuth updates', () => {
     // Verify via GET
     const getRes = await request.get('/_ui/api/config');
     const config = (await getRes.json()).config;
-    expect(config.qwen_oauth_client_id).toBe(updates.qwen_oauth_client_id);
     expect(config.anthropic_oauth_client_id).toBe(updates.anthropic_oauth_client_id);
     expect(config.openai_oauth_client_id).toBe(updates.openai_oauth_client_id);
   });
@@ -160,7 +156,7 @@ test.describe('Config API — provider OAuth validation', () => {
 
     // Newlines
     const res1 = await request.put('/_ui/api/config', {
-      data: { qwen_oauth_client_id: 'id\nwith\nnewlines' },
+      data: { anthropic_oauth_client_id: 'id\nwith\nnewlines' },
       headers: { 'x-csrf-token': csrfToken },
     });
     expect(res1.status()).toBe(400);
@@ -181,7 +177,7 @@ test.describe('Config API — provider OAuth validation', () => {
 
     // Carriage return
     const res4 = await request.put('/_ui/api/config', {
-      data: { qwen_oauth_client_id: 'id\rwith\rcr' },
+      data: { anthropic_oauth_client_id: 'id\rwith\rcr' },
       headers: { 'x-csrf-token': csrfToken },
     });
     expect(res4.status()).toBe(400);
@@ -191,7 +187,7 @@ test.describe('Config API — provider OAuth validation', () => {
     const { csrfToken } = await adminLogin(request);
 
     const response = await request.put('/_ui/api/config', {
-      data: { qwen_oauth_client_id: '' },
+      data: { anthropic_oauth_client_id: '' },
       headers: { 'x-csrf-token': csrfToken },
     });
     // Backend accepts empty string (clears the field) — this is valid behavior

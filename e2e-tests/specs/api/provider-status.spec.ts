@@ -47,7 +47,7 @@ test.describe('Provider Registry — Shape Tests', () => {
 
     expect(body).toHaveProperty('providers');
     expect(Array.isArray(body.providers)).toBe(true);
-    expect(body.providers.length).toBe(5);
+    expect(body.providers.length).toBe(4);
 
     // Each entry must have id, display_name, category, supports_pool
     for (const entry of body.providers) {
@@ -64,7 +64,6 @@ test.describe('Provider Registry — Shape Tests', () => {
     expect(ids).toContain('anthropic');
     expect(ids).toContain('openai_codex');
     expect(ids).toContain('copilot');
-    expect(ids).toContain('qwen');
   });
 
   test('registry providers have correct categories', async ({ request }) => {
@@ -80,7 +79,6 @@ test.describe('Provider Registry — Shape Tests', () => {
     expect(byId.openai_codex.category).toBe('oauth_relay');
     expect(byId.kiro.category).toBe('device_code');
     expect(byId.copilot.category).toBe('device_code');
-    expect(byId.qwen.category).toBe('device_code');
   });
 
   test('all registry providers support pool', async ({ request }) => {

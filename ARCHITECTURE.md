@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Harbangan is a multi-tenant AI gateway that proxies requests to various LLM providers (Kiro/Claude, Anthropic, OpenAI, Copilot, Qwen) with authentication, guardrails, and a Web UI for management.
+Harbangan is a multi-tenant AI gateway that proxies requests to various LLM providers (Kiro/Claude, Anthropic, OpenAI, Copilot) with authentication, guardrails, and a Web UI for management.
 
 ## Deployment Modes
 
@@ -124,7 +124,6 @@ graph TB
                 ANTHRO["Anthropic Direct"]
                 OPENAI["OpenAI Codex"]
                 COPILOT["GitHub Copilot"]
-                QWEN["Qwen"]
             end
 
             subgraph "State Management"
@@ -173,7 +172,7 @@ graph TB
     PROVIDERS --> ANTHRO
     PROVIDERS --> OPENAI
     PROVIDERS --> COPILOT
-    PROVIDERS --> QWEN
+
 
     KIRO --> KIRO_API
     GUARDRAILS --> AWS_BEDROCK
@@ -316,7 +315,6 @@ graph TB
             ANTHRO["anthropic.rs"]
             OPENAI["openai_codex.rs"]
             COPILOT["copilot.rs"]
-            QWEN["qwen.rs"]
         end
 
         subgraph "Support Services"
@@ -352,7 +350,7 @@ graph TB
     PROVIDERS --> ANTHRO
     PROVIDERS --> OPENAI
     PROVIDERS --> COPILOT
-    PROVIDERS --> QWEN
+
 
     KIRO --> AUTH
     KIRO --> HTTPCLIENT
@@ -609,7 +607,6 @@ graph LR
         ANTHRO["Anthropic<br/>(Direct)"]
         OPENAI["OpenAI<br/>(Codex)"]
         COPILOT["GitHub Copilot"]
-        QWEN["Alibaba Qwen"]
     end
 
     subgraph "Infrastructure"
@@ -622,7 +619,6 @@ graph LR
     GATEWAY --> ANTHRO
     GATEWAY --> OPENAI
     GATEWAY --> COPILOT
-    GATEWAY --> QWEN
     GATEWAY --> BEDROCK
     GATEWAY --> POSTGRES
     GATEWAY --> DATADOG

@@ -15,8 +15,6 @@ pub enum ProviderId {
     OpenAICodex,
     #[serde(rename = "copilot")]
     Copilot,
-    #[serde(rename = "qwen")]
-    Qwen,
     #[serde(rename = "custom")]
     Custom,
 }
@@ -29,7 +27,6 @@ impl ProviderId {
             ProviderId::Anthropic => "anthropic",
             ProviderId::OpenAICodex => "openai_codex",
             ProviderId::Copilot => "copilot",
-            ProviderId::Qwen => "qwen",
             ProviderId::Custom => "custom",
         }
     }
@@ -41,18 +38,17 @@ impl ProviderId {
             ProviderId::Anthropic => "Anthropic",
             ProviderId::OpenAICodex => "OpenAI Codex",
             ProviderId::Copilot => "Copilot",
-            ProviderId::Qwen => "Qwen",
             ProviderId::Custom => "Custom",
         }
     }
 
     /// Authentication category: how the provider acquires credentials.
-    /// - `"device_code"`: Device authorization flow (Kiro, Copilot, Qwen)
+    /// - `"device_code"`: Device authorization flow (Kiro, Copilot)
     /// - `"oauth_relay"`: API key stored per-user (Anthropic, OpenAI)
     /// - `"custom"`: User-supplied base URL + key
     pub fn category(&self) -> &'static str {
         match self {
-            ProviderId::Kiro | ProviderId::Copilot | ProviderId::Qwen => "device_code",
+            ProviderId::Kiro | ProviderId::Copilot => "device_code",
             ProviderId::Anthropic | ProviderId::OpenAICodex => "oauth_relay",
             ProviderId::Custom => "custom",
         }
@@ -70,7 +66,6 @@ impl ProviderId {
             ProviderId::Anthropic,
             ProviderId::OpenAICodex,
             ProviderId::Copilot,
-            ProviderId::Qwen,
         ]
     }
 
@@ -80,7 +75,6 @@ impl ProviderId {
             ProviderId::Anthropic => Some("https://api.anthropic.com"),
             ProviderId::OpenAICodex => Some("https://api.openai.com"),
             ProviderId::Copilot => Some("https://api.githubcopilot.com"),
-            ProviderId::Qwen => Some("https://dashscope-intl.aliyuncs.com/compatible-mode"),
             ProviderId::Kiro | ProviderId::Custom => None,
         }
     }
@@ -101,7 +95,6 @@ impl std::str::FromStr for ProviderId {
             "anthropic" => Ok(ProviderId::Anthropic),
             "openai_codex" => Ok(ProviderId::OpenAICodex),
             "copilot" => Ok(ProviderId::Copilot),
-            "qwen" => Ok(ProviderId::Qwen),
             "custom" => Ok(ProviderId::Custom),
             other => Err(format!("Unknown provider: {}", other)),
         }
@@ -165,7 +158,6 @@ mod tests {
         assert_eq!(ProviderId::Anthropic.as_str(), "anthropic");
         assert_eq!(ProviderId::OpenAICodex.as_str(), "openai_codex");
         assert_eq!(ProviderId::Copilot.as_str(), "copilot");
-        assert_eq!(ProviderId::Qwen.as_str(), "qwen");
         assert_eq!(ProviderId::Custom.as_str(), "custom");
     }
 
@@ -174,7 +166,6 @@ mod tests {
         assert_eq!(ProviderId::Anthropic.to_string(), "anthropic");
         assert_eq!(ProviderId::OpenAICodex.to_string(), "openai_codex");
         assert_eq!(ProviderId::Copilot.to_string(), "copilot");
-        assert_eq!(ProviderId::Qwen.to_string(), "qwen");
         assert_eq!(ProviderId::Custom.to_string(), "custom");
     }
 
@@ -194,7 +185,6 @@ mod tests {
             ProviderId::from_str("copilot").unwrap(),
             ProviderId::Copilot
         );
-        assert_eq!(ProviderId::from_str("qwen").unwrap(), ProviderId::Qwen);
         assert_eq!(ProviderId::from_str("custom").unwrap(), ProviderId::Custom);
         assert!(ProviderId::from_str("unknown").is_err());
     }
@@ -209,10 +199,6 @@ mod tests {
         let json = serde_json::to_string(&id).unwrap();
         assert_eq!(json, "\"copilot\"");
 
-        let id = ProviderId::Qwen;
-        let json = serde_json::to_string(&id).unwrap();
-        assert_eq!(json, "\"qwen\"");
-
         let id = ProviderId::Custom;
         let json = serde_json::to_string(&id).unwrap();
         assert_eq!(json, "\"custom\"");
@@ -225,9 +211,6 @@ mod tests {
 
         let id: ProviderId = serde_json::from_str("\"copilot\"").unwrap();
         assert_eq!(id, ProviderId::Copilot);
-
-        let id: ProviderId = serde_json::from_str("\"qwen\"").unwrap();
-        assert_eq!(id, ProviderId::Qwen);
 
         let id: ProviderId = serde_json::from_str("\"custom\"").unwrap();
         assert_eq!(id, ProviderId::Custom);
@@ -253,7 +236,6 @@ mod tests {
             ProviderId::Anthropic,
             ProviderId::OpenAICodex,
             ProviderId::Copilot,
-            ProviderId::Qwen,
             ProviderId::Custom,
         ] {
             let json = serde_json::to_string(&id).unwrap();
@@ -303,84 +285,6 @@ mod tests {
         assert!(err.contains("azure"));
     }
 
-    // ── 6.7: Qwen ProviderId additional tests ───────────────────────
-
-    #[test]
-    fn test_provider_id_qwen_as_str() {
-        assert_eq!(ProviderId::Qwen.as_str(), "qwen");
-    }
-
-    #[test]
-    fn test_provider_id_qwen_display() {
-        assert_eq!(format!("{}", ProviderId::Qwen), "qwen");
-    }
-
-    #[test]
-    fn test_provider_id_qwen_from_str() {
-        use std::str::FromStr;
-        assert_eq!(ProviderId::from_str("qwen").unwrap(), ProviderId::Qwen);
-    }
-
-    #[test]
-    fn test_provider_id_qwen_serde_round_trip() {
-        let json = serde_json::to_string(&ProviderId::Qwen).unwrap();
-        assert_eq!(json, "\"qwen\"");
-        let back: ProviderId = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, ProviderId::Qwen);
-    }
-
-    #[test]
-    fn test_provider_id_qwen_hash_eq() {
-        use std::collections::HashSet;
-        let mut set = HashSet::new();
-        set.insert(ProviderId::Qwen);
-        set.insert(ProviderId::Qwen);
-        assert_eq!(set.len(), 1);
-        set.insert(ProviderId::Copilot);
-        assert_eq!(set.len(), 2);
-    }
-
-    #[test]
-    fn test_provider_id_qwen_not_equal_to_others() {
-        assert_ne!(ProviderId::Qwen, ProviderId::Kiro);
-        assert_ne!(ProviderId::Qwen, ProviderId::Anthropic);
-        assert_ne!(ProviderId::Qwen, ProviderId::OpenAICodex);
-        assert_ne!(ProviderId::Qwen, ProviderId::Copilot);
-    }
-
-    #[test]
-    fn test_provider_credentials_qwen_with_base_url() {
-        let creds = ProviderCredentials {
-            provider: ProviderId::Qwen,
-            access_token: "qwen-tok-abc".to_string(),
-            base_url: Some("https://custom.qwen.ai/api".to_string()),
-            account_label: "default".to_string(),
-        };
-        let cloned = creds.clone();
-        assert_eq!(cloned.provider, ProviderId::Qwen);
-        assert_eq!(cloned.access_token, "qwen-tok-abc");
-        assert_eq!(cloned.base_url.unwrap(), "https://custom.qwen.ai/api");
-    }
-
-    #[test]
-    fn test_provider_credentials_qwen_no_base_url() {
-        let creds = ProviderCredentials {
-            provider: ProviderId::Qwen,
-            access_token: "qwen-tok".to_string(),
-            base_url: None,
-            account_label: "default".to_string(),
-        };
-        assert!(creds.base_url.is_none());
-    }
-
-    #[test]
-    fn test_provider_id_qwen_from_str_case_sensitive() {
-        use std::str::FromStr;
-        // "Qwen" (capitalized) should fail — only lowercase "qwen" is valid
-        assert!(ProviderId::from_str("Qwen").is_err());
-        assert!(ProviderId::from_str("QWEN").is_err());
-    }
-
     // ── Metadata methods ──────────────────────────────────────────────
 
     #[test]
@@ -389,7 +293,6 @@ mod tests {
         assert_eq!(ProviderId::Anthropic.display_name(), "Anthropic");
         assert_eq!(ProviderId::OpenAICodex.display_name(), "OpenAI Codex");
         assert_eq!(ProviderId::Copilot.display_name(), "Copilot");
-        assert_eq!(ProviderId::Qwen.display_name(), "Qwen");
         assert_eq!(ProviderId::Custom.display_name(), "Custom");
     }
 
@@ -399,7 +302,6 @@ mod tests {
         assert_eq!(ProviderId::Anthropic.category(), "oauth_relay");
         assert_eq!(ProviderId::OpenAICodex.category(), "oauth_relay");
         assert_eq!(ProviderId::Copilot.category(), "device_code");
-        assert_eq!(ProviderId::Qwen.category(), "device_code");
         assert_eq!(ProviderId::Custom.category(), "custom");
     }
 
@@ -409,20 +311,18 @@ mod tests {
         assert!(ProviderId::Anthropic.supports_pool());
         assert!(ProviderId::OpenAICodex.supports_pool());
         assert!(ProviderId::Copilot.supports_pool());
-        assert!(ProviderId::Qwen.supports_pool());
         assert!(!ProviderId::Custom.supports_pool());
     }
 
     #[test]
     fn test_all_visible_excludes_custom() {
         let visible = ProviderId::all_visible();
-        assert_eq!(visible.len(), 5);
+        assert_eq!(visible.len(), 4);
         assert!(!visible.contains(&ProviderId::Custom));
         assert!(visible.contains(&ProviderId::Kiro));
         assert!(visible.contains(&ProviderId::Anthropic));
         assert!(visible.contains(&ProviderId::OpenAICodex));
         assert!(visible.contains(&ProviderId::Copilot));
-        assert!(visible.contains(&ProviderId::Qwen));
     }
 
     /// Exhaustiveness guard: if a new variant is added to ProviderId,
@@ -436,7 +336,6 @@ mod tests {
             ProviderId::Anthropic,
             ProviderId::OpenAICodex,
             ProviderId::Copilot,
-            ProviderId::Qwen,
         ] {
             assert!(
                 visible.contains(&id),
@@ -464,10 +363,6 @@ mod tests {
         assert_eq!(
             ProviderId::Copilot.default_base_url(),
             Some("https://api.githubcopilot.com")
-        );
-        assert_eq!(
-            ProviderId::Qwen.default_base_url(),
-            Some("https://dashscope-intl.aliyuncs.com/compatible-mode")
         );
         assert_eq!(ProviderId::Kiro.default_base_url(), None);
         assert_eq!(ProviderId::Custom.default_base_url(), None);

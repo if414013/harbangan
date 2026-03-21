@@ -2,7 +2,7 @@
 set -eu
 
 # Proxy-only entrypoint for harbangan backend.
-# Runs device code flows for unconfigured providers (Kiro, Copilot, Qwen),
+# Runs device code flows for unconfigured providers (Kiro, Copilot),
 # caches credentials to /data/tokens.json for reuse across restarts,
 # then launches the gateway binary with the obtained credentials.
 
@@ -14,11 +14,6 @@ OIDC_BASE="https://oidc.${OIDC_REGION}.amazonaws.com"
 # Public OAuth app client ID for GitHub's device flow (not a secret)
 COPILOT_GITHUB_CLIENT_ID="${COPILOT_GITHUB_CLIENT_ID:-Iv1.b507a08c87ecfe98}"
 COPILOT_DEFAULT_BASE_URL="https://api.githubcopilot.com"
-
-# Qwen device flow constants
-QWEN_OAUTH_CLIENT_ID="${QWEN_OAUTH_CLIENT_ID:-f0304373b74a44d2b584a3fb70ca9e56}"
-QWEN_DEVICE_AUTH_URL="https://dashscope.aliyuncs.com/compatible-mode/v1/device/code"
-QWEN_TOKEN_URL="https://dashscope.aliyuncs.com/compatible-mode/v1/device/token"
 
 # ── Skip device flows override ─────────────────────────────────────────
 if [ "${SKIP_DEVICE_FLOWS:-}" = "true" ]; then
@@ -33,7 +28,7 @@ fi
 
 # ── Token cache helpers ──────────────────────────────────────────────
 # The cache is a single JSON object with per-provider keys:
-#   { "kiro": {...}, "copilot": {...}, "qwen": {...} }
+#   { "kiro": {...}, "copilot": {...} }
 
 ensure_cache_dir() {
     mkdir -p "$(dirname "$TOKEN_CACHE")"
@@ -247,20 +242,6 @@ elif CACHED_CP_TK=$(read_cache_field copilot token) && [ -n "$CACHED_CP_TK" ]; t
     export COPILOT_BASE_URL="${CACHED_CP_BASE:-${COPILOT_DEFAULT_BASE_URL}}"
 fi
 
-# ══════════════════════════════════════════════════════════════════════
-# Provider 3: Qwen (device code flow)
-# ══════════════════════════════════════════════════════════════════════
-if [ -n "${QWEN_TOKEN:-}" ]; then
-    echo "→ Qwen token provided via env"
-elif CACHED_QW_TK=$(read_cache_field qwen token) && [ -n "$CACHED_QW_TK" ]; then
-    CACHED_QW_BASE=$(read_cache_field qwen base_url)
-    echo "→ Loaded cached Qwen token"
-    export QWEN_TOKEN="$CACHED_QW_TK"
-    if [ -n "$CACHED_QW_BASE" ]; then
-        export QWEN_BASE_URL="$CACHED_QW_BASE"
-    fi
-fi
-
 # ── Interactive device flows ─────────────────────────────────────────
 # Copilot and Qwen device flows require user interaction. They only run
 # when the token is not set and not cached.
@@ -374,109 +355,9 @@ run_copilot_device_flow() {
     export COPILOT_BASE_URL="$CP_BASE"
 }
 
-run_qwen_device_flow() {
-    echo ""
-    echo "┌─────────────────────────────────────────────────────────┐"
-    echo "│  Qwen — Device Code Authorization                       │"
-    echo "└─────────────────────────────────────────────────────────┘"
-    echo ""
-
-    # Step 1: Request device code
-    echo "→ Requesting Qwen device code..."
-    DEVICE_RESPONSE=$(curl -sf -X POST "${QWEN_DEVICE_AUTH_URL}" \
-        -H "Content-Type: application/json" \
-        -d "{\"client_id\":\"${QWEN_OAUTH_CLIENT_ID}\"}") || {
-        echo "ERROR: Qwen device code request failed" >&2
-        return 1
-    }
-
-    QW_DEVICE_CODE=$(echo "$DEVICE_RESPONSE" | jq -r '.device_code // empty')
-    QW_USER_CODE=$(echo "$DEVICE_RESPONSE" | jq -r '.user_code // empty')
-    QW_VERIFY_URL=$(echo "$DEVICE_RESPONSE" | jq -r '.verification_uri // empty')
-    QW_EXPIRES_IN=$(echo "$DEVICE_RESPONSE" | jq -r '.expires_in // 900')
-    QW_INTERVAL=$(echo "$DEVICE_RESPONSE" | jq -r '.interval // 5')
-
-    if [ -z "$QW_DEVICE_CODE" ] || [ -z "$QW_USER_CODE" ]; then
-        echo "ERROR: Failed to parse Qwen device code response" >&2
-        echo "$DEVICE_RESPONSE" >&2
-        return 1
-    fi
-
-    echo ""
-    echo "╔═══════════════════════════════════════════════════════════╗"
-    echo "║  [Qwen] Open this URL and enter the code:                ║"
-    echo "║                                                          ║"
-    echo "║  URL:  ${QW_VERIFY_URL}"
-    echo "║  Code: ${QW_USER_CODE}"
-    echo "╚═══════════════════════════════════════════════════════════╝"
-    echo ""
-    echo "→ Waiting for Qwen authorization (expires in ${QW_EXPIRES_IN}s)..."
-
-    # Step 2: Poll for token
-    QW_ELAPSED=0
-    QW_ACCESS=""
-    QW_BASE_RESP=""
-    while [ "$QW_ELAPSED" -lt "$QW_EXPIRES_IN" ]; do
-        sleep "$QW_INTERVAL"
-        QW_ELAPSED=$((QW_ELAPSED + QW_INTERVAL))
-
-        QW_RESP=$(curl -s -X POST "${QWEN_TOKEN_URL}" \
-            -H "Content-Type: application/json" \
-            -d "{\"client_id\":\"${QWEN_OAUTH_CLIENT_ID}\",\"device_code\":\"${QW_DEVICE_CODE}\",\"grant_type\":\"urn:ietf:params:oauth:grant-type:device_code\"}")
-
-        QW_ERROR=$(echo "$QW_RESP" | jq -r '.error // empty')
-
-        if [ -z "$QW_ERROR" ] || [ "$QW_ERROR" = "null" ]; then
-            QW_ACCESS=$(echo "$QW_RESP" | jq -r '.access_token // empty')
-            QW_BASE_RESP=$(echo "$QW_RESP" | jq -r '.base_url // empty')
-            if [ -n "$QW_ACCESS" ]; then
-                echo "  Qwen authorization successful"
-                break
-            fi
-        fi
-
-        case "$QW_ERROR" in
-            authorization_pending) continue ;;
-            slow_down) QW_INTERVAL=$((QW_INTERVAL + 5)); continue ;;
-            *)
-                echo "ERROR: Qwen token polling failed: ${QW_ERROR}" >&2
-                return 1
-                ;;
-        esac
-    done
-
-    if [ -z "$QW_ACCESS" ]; then
-        echo "ERROR: Qwen device authorization timed out" >&2
-        return 1
-    fi
-
-    # Cache token
-    if [ -n "$QW_BASE_RESP" ]; then
-        write_cache_provider qwen "$(jq -n \
-            --arg token "$QW_ACCESS" \
-            --arg base_url "$QW_BASE_RESP" \
-            '{token: $token, base_url: $base_url}')"
-    else
-        write_cache_provider qwen "$(jq -n \
-            --arg token "$QW_ACCESS" \
-            '{token: $token}')"
-    fi
-
-    echo "  Qwen credentials cached to ${TOKEN_CACHE}"
-
-    export QWEN_TOKEN="$QW_ACCESS"
-    if [ -n "$QW_BASE_RESP" ]; then
-        export QWEN_BASE_URL="$QW_BASE_RESP"
-    fi
-}
-
 # Run device flows for providers that still need tokens
 if [ -z "${COPILOT_TOKEN:-}" ] && [ "${SKIP_DEVICE_FLOWS:-}" != "true" ]; then
     run_copilot_device_flow || echo "  Skipping Copilot (device flow failed or declined)"
-fi
-
-if [ -z "${QWEN_TOKEN:-}" ] && [ "${SKIP_DEVICE_FLOWS:-}" != "true" ]; then
-    run_qwen_device_flow || echo "  Skipping Qwen (device flow failed or declined)"
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────
@@ -486,7 +367,6 @@ echo "→ Configured providers:"
 [ -n "${ANTHROPIC_API_KEY:-}" ] && echo "  - Anthropic (API key)"
 [ -n "${OPENAI_API_KEY:-}" ] && echo "  - OpenAI (API key)"
 [ -n "${COPILOT_TOKEN:-}" ] && echo "  - Copilot (GitHub)"
-[ -n "${QWEN_TOKEN:-}" ] && echo "  - Qwen"
 [ -n "${CUSTOM_PROVIDER_URL:-}" ] && echo "  - Custom (${CUSTOM_PROVIDER_URL})"
 echo ""
 

@@ -1,6 +1,6 @@
 /// Standard SSE (Server-Sent Events) stream parser for direct provider APIs.
 ///
-/// Used by AnthropicProvider, OpenAICodexProvider, and QwenProvider.
+/// Used by AnthropicProvider and OpenAICodexProvider.
 /// The Kiro provider uses its own AWS Event Stream parser (`streaming/mod.rs`).
 use futures::stream::{Stream, StreamExt};
 use serde_json::Value;

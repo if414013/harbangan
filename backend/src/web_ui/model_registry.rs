@@ -315,19 +315,6 @@ pub async fn populate_provider(
                 None
             }
         }
-        ProviderId::Qwen => {
-            if let Some((api_key, base_url)) = get_admin_pool_credential(db, "qwen").await {
-                let base = base_url
-                    .as_deref()
-                    .or(pid.default_base_url())
-                    .unwrap_or("https://dashscope-intl.aliyuncs.com/compatible-mode");
-                fetch_openai_compatible_models(http_client, "qwen", base, &api_key)
-                    .await
-                    .ok()
-            } else {
-                None
-            }
-        }
         ProviderId::Custom => None,
     };
 

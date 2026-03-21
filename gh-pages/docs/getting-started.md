@@ -27,7 +27,7 @@ Key capabilities:
 - Bidirectional format translation (OpenAI/Anthropic to Kiro and back)
 - Streaming responses via Server-Sent Events (SSE)
 - Two deployment modes: **Proxy-Only Mode** (single user) and **Full Deployment** (multi-user)
-- Multiple AI providers: Kiro (AWS CodeWhisperer), Anthropic, OpenAI Codex, GitHub Copilot, Qwen, Custom
+- Multiple AI providers: Kiro (AWS CodeWhisperer), Anthropic, OpenAI Codex, GitHub Copilot, Custom
 - Multi-user support with Google SSO and per-user API keys (Full Deployment)
 - Role-based access control (Admin / User)
 - Web dashboard for configuration and usage tracking
@@ -223,7 +223,6 @@ Navigate to the **Providers** page to connect your AI provider credentials:
 - **Kiro (AWS)** — OAuth device code flow to authenticate with AWS SSO
 - **Anthropic** / **OpenAI** — PKCE OAuth relay
 - **GitHub Copilot** — GitHub device code flow
-- **Qwen** — Device code flow
 
 ### Step 4: Create an API key
 
@@ -334,7 +333,7 @@ curl -X POST http://localhost:9999/v1/messages \
 Open `http://localhost:5173/_ui/` to see:
 
 - Profile page with API key management and security settings
-- Provider management — connect Kiro, Anthropic, OpenAI, Copilot, Qwen credentials
+- Provider management — connect Kiro, Anthropic, OpenAI, Copilot credentials
 - Usage tracking — token usage by day, model, and provider
 - Configuration management (admin-only)
 - Content guardrails configuration (admin-only)

@@ -15,7 +15,6 @@ interface StatusTabProps {
   rateLimits: RateLimitInfo[];
   kiroConnected: boolean;
   copilotConnected: boolean;
-  qwenConnected: boolean;
   onNavigate: (providerId: string) => void;
   allProviders: string[];
   registry: ProviderRegistryEntry[];
@@ -28,7 +27,6 @@ export function StatusTab({
   rateLimits,
   kiroConnected,
   copilotConnected,
-  qwenConnected,
   onNavigate,
   allProviders,
   registry,
@@ -36,7 +34,6 @@ export function StatusTab({
   function isConnected(id: string): boolean {
     if (id === "kiro") return kiroConnected;
     if (id === "copilot") return copilotConnected;
-    if (id === "qwen") return qwenConnected;
     return providerStatus?.providers[id]?.connected ?? false;
   }
 

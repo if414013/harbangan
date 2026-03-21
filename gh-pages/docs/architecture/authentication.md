@@ -12,8 +12,8 @@ permalink: /architecture/authentication/
 Kiro Gateway has three layers of authentication:
 
 1. **Client authentication** — API keys for proxy endpoints (`/v1/*`), Google SSO or password+TOTP for the web UI (`/_ui/api/*`)
-2. **Provider authentication** — Per-user credentials for each AI provider (Kiro, Anthropic, OpenAI Codex, Copilot, Qwen, Custom)
-3. **Provider OAuth flows** — Web UI flows for connecting provider accounts (PKCE relay for Anthropic/OpenAI, GitHub OAuth for Copilot, device flow for Qwen)
+2. **Provider authentication** — Per-user credentials for each AI provider (Kiro, Anthropic, OpenAI Codex, Copilot, Custom)
+3. **Provider OAuth flows** — Web UI flows for connecting provider accounts (PKCE relay for Anthropic/OpenAI, GitHub OAuth for Copilot)
 
 The deployment mode determines which features are active:
 
@@ -136,7 +136,7 @@ flowchart TB
         PROV_CACHE -->|Miss| LOAD_CREDS["Load from DB +<br/>refresh if expiring"]
         LOAD_CREDS --> SELECT
         SELECT --> KIRO_PATH["Kiro: AWS SSO OIDC"]
-        SELECT --> DIRECT_PATH["Direct: Anthropic/OpenAI Codex/<br/>Copilot/Qwen/Custom"]
+        SELECT --> DIRECT_PATH["Direct: Anthropic/OpenAI Codex/<br/>Copilot/Custom"]
     end
 
     subgraph BackendAuth["Kiro Token Management"]
@@ -392,7 +392,7 @@ All provider tokens are stored per-user in PostgreSQL:
 | Column | Description |
 |--------|-------------|
 | `user_id` | Foreign key to users table |
-| `provider` | Provider identifier (`anthropic`, `openai`, `gemini`, `copilot`, `qwen`) |
+| `provider` | Provider identifier (`anthropic`, `openai`, `copilot`) |
 | `access_token` | Current access token (encrypted at rest) |
 | `refresh_token` | Refresh token for OAuth providers |
 | `expires_at` | Token expiry timestamp |
@@ -441,52 +441,6 @@ sequenceDiagram
 ```
 
 The Copilot token includes a `base_url` from the `endpoints.api` field, which may vary (e.g., `https://api.githubcopilot.com` vs `https://api.business.githubcopilot.com` for enterprise). Tokens are cached in `copilot_token_cache: Arc<DashMap<Uuid, (String, String, Instant)>>` mapping user IDs to `(token, base_url, cached_at)`.
-
-### Qwen Coder Device Flow
-
-Qwen uses RFC 8628 (OAuth Device Authorization Grant) — the user authorizes on a separate device/browser. Implemented in `backend/src/web_ui/qwen_auth.rs`.
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Browser
-    participant Backend as Backend API
-    participant Qwen as Qwen OAuth API
-
-    User->>Browser: Click "Connect Qwen"
-    Browser->>Backend: POST /_ui/api/providers/qwen/device-code
-
-    Backend->>Backend: Generate PKCE code_verifier + code_challenge
-    Backend->>Qwen: POST /api/v1/oauth2/device/code
-    Note over Backend,Qwen: {client_id, code_challenge, code_challenge_method}
-    Qwen-->>Backend: {device_code, user_code, verification_uri, interval}
-
-    Backend->>Backend: Store {device_code, code_verifier, user_id} in qwen_device_pending
-    Backend-->>Browser: {device_code, user_code, verification_uri, interval}
-
-    Note over Browser: Display user_code and verification_uri
-    User->>Qwen: Open verification_uri, enter user_code, authorize
-
-    loop Poll for token (every interval seconds)
-        Browser->>Backend: GET /_ui/api/providers/qwen/device-poll?device_code=...
-        Backend->>Qwen: POST /api/v1/oauth2/token
-        Note over Backend,Qwen: {client_id, device_code, code_verifier,<br/>grant_type: urn:ietf:params:oauth:grant-type:device_code}
-        alt Authorization pending
-            Qwen-->>Backend: {error: "authorization_pending"}
-            Backend-->>Browser: {status: "pending"}
-        else Authorized
-            Qwen-->>Backend: {access_token, refresh_token, expires_in}
-            Backend->>Backend: Store tokens in user_provider_tokens
-            Backend->>Backend: Remove from qwen_device_pending
-            Backend-->>Browser: {status: "complete"}
-        else Expired / Denied
-            Qwen-->>Backend: {error: "expired_token" | "access_denied"}
-            Backend-->>Browser: {status: "error", message: "..."}
-        end
-    end
-```
-
-Pending device flow states are stored in `qwen_device_pending: Arc<DashMap<String, QwenDevicePending>>` with a 10-minute TTL and 10k capacity cap.
 
 ### Anthropic OAuth Relay (PKCE)
 
@@ -579,7 +533,6 @@ flowchart LR
         USERKIRO["user_kiro.rs<br/><i>Per-user Kiro token mgmt</i>"]
         USERS["users.rs<br/><i>User admin (admin-only)</i>"]
         COPILOT["copilot_auth.rs<br/><i>GitHub OAuth → Copilot token</i>"]
-        QWEN["qwen_auth.rs<br/><i>Qwen device flow (RFC 8628)</i>"]
         PROVIDER_OAUTH["provider_oauth.rs<br/><i>Anthropic PKCE relay,<br/>TokenExchanger trait</i>"]
     end
 
@@ -588,7 +541,6 @@ flowchart LR
     SESSION --> USERKIRO
     SESSION --> USERS
     SESSION --> COPILOT
-    SESSION --> QWEN
     SESSION --> PROVIDER_OAUTH
 ```
 
@@ -600,7 +552,7 @@ The authentication system touches the request flow at three points:
 
 1. **Middleware layer** — The `auth_middleware` SHA-256 hashes the client's API key and looks up the user in cache/DB. If valid, it injects the user's identity into the request extensions. This is a fast hash + DashMap lookup, not an OAuth flow.
 
-2. **Provider resolution** — The `ProviderRegistry` resolves which provider to use for the request based on the user's configured credentials and priority. It checks its 5-minute credential cache first, then loads from PostgreSQL on cache miss. For OAuth-based providers (Copilot, Qwen, Anthropic), it proactively refreshes tokens nearing expiry using per-provider mutexes to prevent refresh storms.
+2. **Provider resolution** — The `ProviderRegistry` resolves which provider to use for the request based on the user's configured credentials and priority. It checks its 5-minute credential cache first, then loads from PostgreSQL on cache miss. For OAuth-based providers (Copilot, Anthropic), it proactively refreshes tokens nearing expiry using per-provider mutexes to prevent refresh storms.
 
 3. **Handler layer** — For Kiro-bound requests, the handler retrieves the per-user Kiro access token (from cache or via refresh). For direct providers, the `Provider` trait implementation uses the credentials from the registry to call the provider API directly.
 

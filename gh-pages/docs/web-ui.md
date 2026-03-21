@@ -49,7 +49,6 @@ flowchart TB
             KiroRoutes[Kiro token mgmt]
             KeyRoutes[API key mgmt]
             CopilotRoutes[Copilot OAuth]
-            QwenRoutes[Qwen device flow]
             ProviderPriority[Provider priority]
             TwoFA[2FA setup/verify]
             PasswordChange[Password change]
@@ -76,7 +75,6 @@ flowchart TB
     Profile --> PasswordChange
     Providers --> KiroRoutes
     Providers --> CopilotRoutes
-    Providers --> QwenRoutes
     Providers --> ProviderPriority
     Providers --> ModelRegistry
     Usage --> UsageAPI
@@ -167,7 +165,7 @@ The default landing page after login. Each user manages their account and securi
 Multi-provider management with three tabs:
 
 - **Status** — Provider health cards showing connection status for each configured provider.
-- **Connections** — Connect and manage AI provider accounts via OAuth relay or device code flows (Kiro, Anthropic, OpenAI, Copilot, Qwen). Per-user provider priority ordering via `/_ui/api/providers/priority`.
+- **Connections** — Connect and manage AI provider accounts via OAuth relay or device code flows (Kiro, Anthropic, OpenAI, Copilot). Per-user provider priority ordering via `/_ui/api/providers/priority`.
 - **Models** — Model registry management. Enable/disable models, populate from providers, delete entries.
 
 ### Usage (`/_ui/usage`)
@@ -326,7 +324,6 @@ Users manage provider connections on the **Providers page** (`/_ui/providers`):
 - **Kiro (AWS)** — Connect via AWS SSO device code flow.
 - **Anthropic** — Connect via OAuth PKCE relay.
 - **GitHub Copilot** — OAuth authorization code flow. Requires server-side configuration (`GITHUB_COPILOT_CLIENT_ID`, `GITHUB_COPILOT_CLIENT_SECRET`, `GITHUB_COPILOT_CALLBACK_URL`).
-- **Qwen Coder** — Device code flow. Requires `QWEN_OAUTH_CLIENT_ID` in server configuration.
 - **Custom** — User-configured endpoint with API key.
 - **Provider Priority** — Users set a priority order for provider fallback. The gateway routes requests to the highest-priority provider with valid credentials.
 
@@ -460,7 +457,6 @@ These require a valid session and CSRF token.
 | `*` | `/_ui/api/kiro/*` | Kiro token management (per-user) |
 | `*` | `/_ui/api/keys/*` | API key management (per-user) |
 | `*` | `/_ui/api/copilot/*` | GitHub Copilot OAuth connect/disconnect (per-user) |
-| `*` | `/_ui/api/qwen/*` | Qwen Coder device flow connect/disconnect (per-user) |
 | `*` | `/_ui/api/providers/*` | Provider OAuth relay, priority management, and account management (per-user) |
 | `*` | `/_ui/api/models/registry/*` | Model registry CRUD (GET, PATCH, DELETE, POST populate) |
 
@@ -491,7 +487,6 @@ The web UI is implemented across several Rust modules in `backend/src/web_ui/`:
 - **`api_keys.rs`** — Per-user API key CRUD (create, list, revoke)
 - **`user_kiro.rs`** — Per-user Kiro token management
 - **`copilot_auth.rs`** — GitHub Copilot OAuth connect/callback/status/disconnect
-- **`qwen_auth.rs`** — Qwen Coder device flow connect/poll/status/disconnect
 - **`provider_oauth.rs`** — Multi-provider OAuth relay and public callback routes
 - **`provider_priority.rs`** — Per-user provider priority ordering
 - **`users.rs`** — User management (admin)

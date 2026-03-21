@@ -1,7 +1,6 @@
 import type { ComponentType } from "react";
 import { KiroSetup } from "../../components/KiroSetup";
 import { CopilotSetup } from "../../components/CopilotSetup";
-import { QwenSetup } from "../../components/QwenSetup";
 import { ProviderCard } from "../../components/ProviderCard";
 import { OAuthSettings } from "../../components/OAuthSettings";
 import type {
@@ -13,7 +12,6 @@ import type {
 const DEVICE_CODE_COMPONENTS: Record<string, ComponentType> = {
   kiro: KiroSetup,
   copilot: CopilotSetup,
-  qwen: QwenSetup,
 };
 
 interface ConnectionsTabProps {

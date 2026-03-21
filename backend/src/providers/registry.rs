@@ -113,17 +113,6 @@ impl ProviderRegistry {
                 },
             );
         }
-        if let Some(ref token) = proxy.qwen_token {
-            creds.insert(
-                ProviderId::Qwen,
-                ProviderCredentials {
-                    provider: ProviderId::Qwen,
-                    access_token: token.clone(),
-                    base_url: proxy.qwen_base_url.clone(),
-                    account_label: "proxy".into(),
-                },
-            );
-        }
         if let Some(ref url) = proxy.custom_provider_url {
             creds.insert(
                 ProviderId::Custom,
@@ -176,11 +165,6 @@ impl ProviderRegistry {
             || model.starts_with("chatgpt-")
         {
             Some(ProviderId::OpenAICodex)
-        } else if model.starts_with("qwen-")
-            || model.starts_with("qwen3-")
-            || model.starts_with("qwq-")
-        {
-            Some(ProviderId::Qwen)
         } else {
             None
         }
@@ -460,11 +444,6 @@ impl ProviderRegistry {
             for row in rows {
                 let now = chrono::Utc::now();
                 if row.expires_at > now {
-                    let base_url = if provider_str == "qwen" {
-                        row.base_url.clone()
-                    } else {
-                        None
-                    };
                     let account_id = AccountId {
                         user_id: Some(uid),
                         provider_id: native.clone(),
@@ -473,7 +452,7 @@ impl ProviderRegistry {
                     let creds = ProviderCredentials {
                         provider: native.clone(),
                         access_token: row.access_token.clone(),
-                        base_url,
+                        base_url: None,
                         account_label: row.account_label.clone(),
                     };
                     candidates.push((account_id, creds, native_pri));
@@ -607,15 +586,6 @@ impl ProviderRegistry {
                     let (provider, base_url) = match provider_str {
                         "anthropic" => (ProviderId::Anthropic, None),
                         "openai_codex" => (ProviderId::OpenAICodex, None),
-                        "qwen" => {
-                            // Load base_url from DB for Qwen (set by device flow)
-                            let url = db
-                                .get_user_provider_base_url(user_id, "qwen")
-                                .await
-                                .ok()
-                                .flatten();
-                            (ProviderId::Qwen, url)
-                        }
                         _ => continue,
                     };
                     creds_map.insert(
@@ -733,26 +703,6 @@ mod tests {
         assert_eq!(
             ProviderRegistry::provider_for_model("CLAUDE_SONNET_4_20250514_V1_0"),
             None
-        );
-    }
-
-    #[test]
-    fn test_provider_for_model_qwen() {
-        assert_eq!(
-            ProviderRegistry::provider_for_model("qwen-coder-plus"),
-            Some(ProviderId::Qwen)
-        );
-        assert_eq!(
-            ProviderRegistry::provider_for_model("qwen-vl-plus"),
-            Some(ProviderId::Qwen)
-        );
-        assert_eq!(
-            ProviderRegistry::provider_for_model("qwen3-coder"),
-            Some(ProviderId::Qwen)
-        );
-        assert_eq!(
-            ProviderRegistry::provider_for_model("qwq-32b"),
-            Some(ProviderId::Qwen)
         );
     }
 
@@ -1353,361 +1303,6 @@ mod tests {
         );
     }
 
-    // ── 6.2: Qwen model routing edge cases ──────────────────────────
-
-    #[test]
-    fn test_provider_for_model_qwen_coder_variants() {
-        // All qwen-coder-* models should route to Qwen
-        assert_eq!(
-            ProviderRegistry::provider_for_model("qwen-coder-plus"),
-            Some(ProviderId::Qwen)
-        );
-        assert_eq!(
-            ProviderRegistry::provider_for_model("qwen-coder-plus-latest"),
-            Some(ProviderId::Qwen)
-        );
-        assert_eq!(
-            ProviderRegistry::provider_for_model("qwen-coder-turbo"),
-            Some(ProviderId::Qwen)
-        );
-    }
-
-    #[test]
-    fn test_provider_for_model_qwen_vl_variants() {
-        assert_eq!(
-            ProviderRegistry::provider_for_model("qwen-vl-plus"),
-            Some(ProviderId::Qwen)
-        );
-        assert_eq!(
-            ProviderRegistry::provider_for_model("qwen-vl-max"),
-            Some(ProviderId::Qwen)
-        );
-    }
-
-    #[test]
-    fn test_provider_for_model_qwen3_variants() {
-        assert_eq!(
-            ProviderRegistry::provider_for_model("qwen3-coder"),
-            Some(ProviderId::Qwen)
-        );
-        assert_eq!(
-            ProviderRegistry::provider_for_model("qwen3-235b-a22b"),
-            Some(ProviderId::Qwen)
-        );
-    }
-
-    #[test]
-    fn test_provider_for_model_qwq_variants() {
-        assert_eq!(
-            ProviderRegistry::provider_for_model("qwq-32b"),
-            Some(ProviderId::Qwen)
-        );
-        assert_eq!(
-            ProviderRegistry::provider_for_model("qwq-plus"),
-            Some(ProviderId::Qwen)
-        );
-    }
-
-    #[test]
-    fn test_provider_for_model_qwen_no_collision_with_other_providers() {
-        // "qwen" prefix should NOT match other providers
-        assert_ne!(
-            ProviderRegistry::provider_for_model("qwen-coder-plus"),
-            Some(ProviderId::OpenAICodex)
-        );
-        assert_ne!(
-            ProviderRegistry::provider_for_model("qwen-coder-plus"),
-            Some(ProviderId::Anthropic)
-        );
-        assert_ne!(
-            ProviderRegistry::provider_for_model("qwen-coder-plus"),
-            Some(ProviderId::Copilot)
-        );
-    }
-
-    #[test]
-    fn test_provider_for_model_qwen_without_dash_falls_through() {
-        // "qwen" alone (no dash) should NOT match — prefix is "qwen-"
-        assert_eq!(ProviderRegistry::provider_for_model("qwen"), None);
-        // "qwen2" should NOT match (no "qwen2-" prefix in the code)
-        assert_eq!(ProviderRegistry::provider_for_model("qwen2-72b"), None);
-    }
-
-    // ── 6.7: Registry integration — Qwen cache + resolve ───────────
-
-    #[tokio::test]
-    async fn test_resolve_provider_cache_hit_returns_qwen() {
-        let registry = ProviderRegistry::new();
-        let uid = Uuid::new_v4();
-
-        let mut creds_map = HashMap::new();
-        creds_map.insert(
-            "qwen".to_string(),
-            ProviderCredentials {
-                provider: ProviderId::Qwen,
-                access_token: "qwen-tok-123".to_string(),
-                base_url: Some("https://custom.qwen.ai/api".to_string()),
-                account_label: "default".to_string(),
-            },
-        );
-        registry.cache.insert(
-            uid,
-            CacheEntry {
-                credentials: creds_map,
-                expires_at: HashMap::new(),
-                priority: HashMap::new(),
-                cached_at: Instant::now(),
-            },
-        );
-
-        let (provider, creds) = registry
-            .resolve_provider(Some(uid), "qwen-coder-plus", None)
-            .await;
-        assert_eq!(provider, ProviderId::Qwen);
-        let creds = creds.expect("expected Qwen credentials");
-        assert_eq!(creds.access_token, "qwen-tok-123");
-        assert_eq!(creds.base_url.unwrap(), "https://custom.qwen.ai/api");
-    }
-
-    #[tokio::test]
-    async fn test_resolve_provider_qwen_model_no_token_returns_kiro() {
-        let registry = ProviderRegistry::new();
-        let uid = Uuid::new_v4();
-
-        // Cache with no Qwen credentials
-        registry.cache.insert(
-            uid,
-            CacheEntry {
-                credentials: HashMap::new(),
-                expires_at: HashMap::new(),
-                priority: HashMap::new(),
-                cached_at: Instant::now(),
-            },
-        );
-
-        let (provider, creds) = registry
-            .resolve_provider(Some(uid), "qwen-coder-plus", None)
-            .await;
-        assert_eq!(provider, ProviderId::Kiro);
-        assert!(creds.is_none());
-    }
-
-    #[test]
-    fn test_pick_best_provider_qwen_native_only() {
-        let mut creds = HashMap::new();
-        creds.insert(
-            "qwen".to_string(),
-            ProviderCredentials {
-                provider: ProviderId::Qwen,
-                access_token: "qwen-tok".to_string(),
-                base_url: Some("https://custom.qwen.ai/api".to_string()),
-                account_label: "default".to_string(),
-            },
-        );
-        let priority = HashMap::new();
-        let (provider, c) =
-            ProviderRegistry::pick_best_provider(&ProviderId::Qwen, &creds, &priority);
-        assert_eq!(provider, ProviderId::Qwen);
-        let c = c.unwrap();
-        assert_eq!(c.access_token, "qwen-tok");
-        assert_eq!(c.base_url.unwrap(), "https://custom.qwen.ai/api");
-    }
-
-    #[test]
-    fn test_pick_best_provider_qwen_and_copilot_default_prefers_qwen() {
-        let mut creds = HashMap::new();
-        creds.insert(
-            "qwen".to_string(),
-            ProviderCredentials {
-                provider: ProviderId::Qwen,
-                access_token: "qwen-tok".to_string(),
-                base_url: None,
-                account_label: "default".to_string(),
-            },
-        );
-        creds.insert(
-            "copilot".to_string(),
-            ProviderCredentials {
-                provider: ProviderId::Copilot,
-                access_token: "cop-tok".to_string(),
-                base_url: Some("https://api.githubcopilot.com".to_string()),
-                account_label: "default".to_string(),
-            },
-        );
-        // No priority set — native (qwen) default=0, copilot default=1 → qwen wins
-        let priority = HashMap::new();
-        let (provider, _) =
-            ProviderRegistry::pick_best_provider(&ProviderId::Qwen, &creds, &priority);
-        assert_eq!(provider, ProviderId::Qwen);
-    }
-
-    #[test]
-    fn test_pick_best_provider_copilot_preferred_over_qwen() {
-        let mut creds = HashMap::new();
-        creds.insert(
-            "qwen".to_string(),
-            ProviderCredentials {
-                provider: ProviderId::Qwen,
-                access_token: "qwen-tok".to_string(),
-                base_url: None,
-                account_label: "default".to_string(),
-            },
-        );
-        creds.insert(
-            "copilot".to_string(),
-            ProviderCredentials {
-                provider: ProviderId::Copilot,
-                access_token: "cop-tok".to_string(),
-                base_url: Some("https://api.githubcopilot.com".to_string()),
-                account_label: "default".to_string(),
-            },
-        );
-        let mut priority = HashMap::new();
-        priority.insert("copilot".to_string(), 1);
-        priority.insert("qwen".to_string(), 2);
-        let (provider, c) =
-            ProviderRegistry::pick_best_provider(&ProviderId::Qwen, &creds, &priority);
-        assert_eq!(provider, ProviderId::Copilot);
-        assert_eq!(c.unwrap().access_token, "cop-tok");
-    }
-
-    #[test]
-    fn test_pick_best_provider_copilot_only_for_qwen_model() {
-        // User has only Copilot, requesting a Qwen model
-        let mut creds = HashMap::new();
-        creds.insert(
-            "copilot".to_string(),
-            ProviderCredentials {
-                provider: ProviderId::Copilot,
-                access_token: "cop-tok".to_string(),
-                base_url: Some("https://api.githubcopilot.com".to_string()),
-                account_label: "default".to_string(),
-            },
-        );
-        let priority = HashMap::new();
-        let (provider, _) =
-            ProviderRegistry::pick_best_provider(&ProviderId::Qwen, &creds, &priority);
-        assert_eq!(provider, ProviderId::Copilot);
-    }
-
-    #[tokio::test]
-    async fn test_resolve_provider_qwq_model_routes_to_qwen() {
-        let registry = ProviderRegistry::new();
-        let uid = Uuid::new_v4();
-
-        let mut creds_map = HashMap::new();
-        creds_map.insert(
-            "qwen".to_string(),
-            ProviderCredentials {
-                provider: ProviderId::Qwen,
-                access_token: "qwen-tok".to_string(),
-                base_url: None,
-                account_label: "default".to_string(),
-            },
-        );
-        registry.cache.insert(
-            uid,
-            CacheEntry {
-                credentials: creds_map,
-                expires_at: HashMap::new(),
-                priority: HashMap::new(),
-                cached_at: Instant::now(),
-            },
-        );
-
-        let (provider, _) = registry.resolve_provider(Some(uid), "qwq-32b", None).await;
-        assert_eq!(provider, ProviderId::Qwen);
-    }
-
-    #[tokio::test]
-    async fn test_resolve_provider_qwen3_model_routes_to_qwen() {
-        let registry = ProviderRegistry::new();
-        let uid = Uuid::new_v4();
-
-        let mut creds_map = HashMap::new();
-        creds_map.insert(
-            "qwen".to_string(),
-            ProviderCredentials {
-                provider: ProviderId::Qwen,
-                access_token: "qwen-tok".to_string(),
-                base_url: None,
-                account_label: "default".to_string(),
-            },
-        );
-        registry.cache.insert(
-            uid,
-            CacheEntry {
-                credentials: creds_map,
-                expires_at: HashMap::new(),
-                priority: HashMap::new(),
-                cached_at: Instant::now(),
-            },
-        );
-
-        let (provider, _) = registry
-            .resolve_provider(Some(uid), "qwen3-coder", None)
-            .await;
-        assert_eq!(provider, ProviderId::Qwen);
-    }
-
-    // ── 6.6: Token refresh — Qwen-specific cache behavior ──────────
-
-    #[test]
-    fn test_ensure_fresh_token_cache_fresh_qwen_skips_refresh() {
-        let registry = ProviderRegistry::new();
-        let uid = Uuid::new_v4();
-
-        let mut expires_map = HashMap::new();
-        expires_map.insert("qwen".to_string(), Utc::now() + chrono::Duration::hours(1));
-        let mut creds_map = HashMap::new();
-        creds_map.insert(
-            "qwen".to_string(),
-            ProviderCredentials {
-                provider: ProviderId::Qwen,
-                access_token: "qwen-still-valid".to_string(),
-                base_url: None,
-                account_label: "default".to_string(),
-            },
-        );
-        registry.cache.insert(
-            uid,
-            CacheEntry {
-                credentials: creds_map,
-                expires_at: expires_map,
-                priority: HashMap::new(),
-                cached_at: Instant::now(),
-            },
-        );
-
-        // Verify the cache check logic: Qwen token is fresh
-        let entry = registry.cache.get(&uid).unwrap();
-        let expires_at = entry.expires_at.get("qwen").unwrap();
-        let now = Utc::now();
-        assert!(
-            (*expires_at - now).num_seconds() > REFRESH_BUFFER_SECS,
-            "Qwen token should be considered fresh"
-        );
-    }
-
-    #[test]
-    fn test_refresh_lock_key_qwen_provider() {
-        let registry = ProviderRegistry::new();
-        let uid = Uuid::new_v4();
-
-        registry.refresh_locks.insert(
-            (uid, "qwen".to_string()),
-            Arc::new(tokio::sync::Mutex::new(())),
-        );
-
-        assert!(registry
-            .refresh_locks
-            .contains_key(&(uid, "qwen".to_string())));
-        // Different provider for same user should be separate
-        assert!(!registry
-            .refresh_locks
-            .contains_key(&(uid, "anthropic".to_string())));
-    }
-
     // ── Multi-provider proxy credential tests ─────────────────────────
 
     fn make_proxy_creds() -> HashMap<ProviderId, ProviderCredentials> {
@@ -1812,7 +1407,7 @@ mod tests {
 
     #[test]
     fn test_resolve_from_proxy_creds_provider_not_configured() {
-        // Only Anthropic configured, but model routes to Qwen
+        // Only Anthropic configured, but model routes to OpenAI
         let mut creds = HashMap::new();
         creds.insert(
             ProviderId::Anthropic,
@@ -1824,7 +1419,7 @@ mod tests {
             },
         );
         let registry = ProviderRegistry::new_with_proxy(creds, HashSet::new());
-        let (provider, creds) = registry.resolve_from_proxy_creds("qwen-coder-plus");
+        let (provider, creds) = registry.resolve_from_proxy_creds("gpt-4o");
         assert_eq!(provider, ProviderId::Kiro);
         assert!(creds.is_none());
     }
@@ -1973,8 +1568,6 @@ mod tests {
             openai_base_url: Some("https://openrouter.ai/api".to_string()),
             copilot_token: Some("cop-tok".to_string()),
             copilot_base_url: Some("https://api.githubcopilot.com".to_string()),
-            qwen_token: Some("qwen-tok".to_string()),
-            qwen_base_url: Some("https://qwen.example.com".to_string()),
             custom_provider_url: Some("http://localhost:11434/v1".to_string()),
             custom_provider_key: Some("custom-key".to_string()),
             custom_provider_models: Some("llama3,codellama,deepseek-r1".to_string()),
@@ -1982,11 +1575,10 @@ mod tests {
         };
         let registry = ProviderRegistry::from_proxy_config(&proxy);
         let creds = registry.proxy_credentials().as_ref().unwrap();
-        assert_eq!(creds.len(), 5);
+        assert_eq!(creds.len(), 4);
         assert!(creds.contains_key(&ProviderId::Anthropic));
         assert!(creds.contains_key(&ProviderId::OpenAICodex));
         assert!(creds.contains_key(&ProviderId::Copilot));
-        assert!(creds.contains_key(&ProviderId::Qwen));
         assert!(creds.contains_key(&ProviderId::Custom));
         // Verify base_url propagation
         assert_eq!(

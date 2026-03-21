@@ -195,7 +195,7 @@ mod tests {
         assert!(ProviderId::from_str("openai_codex").is_ok());
         assert!(ProviderId::from_str("gemini").is_err());
         assert!(ProviderId::from_str("copilot").is_ok());
-        assert!(ProviderId::from_str("qwen").is_ok());
+        assert!(ProviderId::from_str("qwen").is_err());
         assert!(ProviderId::from_str("azure").is_err());
     }
 
@@ -206,47 +206,17 @@ mod tests {
         assert!(req.priorities.is_empty());
     }
 
-    // ── 6.7: Qwen in VALID_PROVIDERS ────────────────────────────────
-
     #[test]
     fn test_all_visible_providers_count() {
-        // Ensure we have exactly 5 visible providers (kiro, anthropic, openai_codex, copilot, qwen)
-        assert_eq!(ProviderId::all_visible().len(), 5);
-    }
-
-    #[test]
-    fn test_qwen_priority_serialization() {
-        let p = ProviderPriority {
-            provider_id: "qwen".to_string(),
-            priority: 3,
-        };
-        let json = serde_json::to_value(&p).unwrap();
-        assert_eq!(json["provider_id"], "qwen");
-        assert_eq!(json["priority"], 3);
-    }
-
-    #[test]
-    fn test_qwen_priority_deserialization() {
-        let json = r#"{"provider_id":"qwen","priority":1}"#;
-        let p: ProviderPriority = serde_json::from_str(json).unwrap();
-        assert_eq!(p.provider_id, "qwen");
-        assert_eq!(p.priority, 1);
-    }
-
-    #[test]
-    fn test_update_priority_request_with_qwen() {
-        let json = r#"{"priorities":[{"provider_id":"qwen","priority":1},{"provider_id":"copilot","priority":2},{"provider_id":"kiro","priority":3}]}"#;
-        let req: UpdatePriorityRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.priorities.len(), 3);
-        assert_eq!(req.priorities[0].provider_id, "qwen");
-        assert_eq!(req.priorities[0].priority, 1);
+        // Ensure we have exactly 4 visible providers (kiro, anthropic, openai_codex, copilot)
+        assert_eq!(ProviderId::all_visible().len(), 4);
     }
 
     #[test]
     fn test_invalid_provider_rejected_by_provider_id() {
         use std::str::FromStr;
-        // Verify that made-up providers are rejected
-        assert!(ProviderId::from_str("qwen2").is_err());
+        // Verify that removed or made-up providers are rejected
+        assert!(ProviderId::from_str("qwen").is_err());
         assert!(ProviderId::from_str("qwq").is_err());
         assert!(ProviderId::from_str("dashscope").is_err());
     }

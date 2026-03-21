@@ -68,7 +68,7 @@ pub trait Provider: Send + Sync {
     /// Normalize a non-streaming response for the Anthropic endpoint.
     ///
     /// Called after `execute_anthropic()`. Providers whose native format isn't Anthropic
-    /// (e.g. OpenAI, Copilot, Qwen) override this to convert their response body.
+    /// (e.g. OpenAI, Copilot) override this to convert their response body.
     /// Default: identity (response is already Anthropic format).
     fn normalize_response_for_anthropic(&self, _model: &str, body: Value) -> Value {
         body

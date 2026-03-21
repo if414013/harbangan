@@ -12,7 +12,6 @@ pub mod copilot;
 pub mod custom;
 pub mod kiro;
 pub mod openai_codex;
-pub mod qwen;
 pub mod rate_limiter;
 pub mod registry;
 pub mod traits;
@@ -20,7 +19,7 @@ pub mod types;
 
 /// Convert Anthropic messages format to OpenAI chat completions format.
 ///
-/// Shared by all OpenAI-compatible providers (OpenAICodex, Copilot, Qwen, Custom).
+/// Shared by all OpenAI-compatible providers (OpenAICodex, Copilot, Custom).
 pub fn anthropic_to_openai_body(req: &AnthropicMessagesRequest) -> Value {
     let mut messages: Vec<Value> = Vec::new();
 
@@ -93,10 +92,6 @@ pub fn build_provider_map(
     map.insert(
         ProviderId::Copilot,
         Arc::new(copilot::CopilotProvider::new()) as Arc<dyn Provider>,
-    );
-    map.insert(
-        ProviderId::Qwen,
-        Arc::new(qwen::QwenProvider::new()) as Arc<dyn Provider>,
     );
     map.insert(
         ProviderId::Custom,

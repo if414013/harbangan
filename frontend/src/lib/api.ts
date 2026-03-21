@@ -462,42 +462,6 @@ export function disconnectCopilot() {
   return apiDelete("/copilot/disconnect");
 }
 
-// --- Qwen Types ---
-
-export interface QwenStatus {
-  connected: boolean;
-  expired: boolean;
-}
-
-export interface QwenDeviceCodeResponse {
-  device_code: string;
-  user_code: string;
-  verification_uri: string;
-  verification_uri_complete?: string;
-  expires_in: number;
-  interval: number;
-}
-
-// --- Qwen API ---
-
-export function getQwenStatus() {
-  return apiFetch<QwenStatus>("/providers/qwen/status");
-}
-
-export function startQwenDeviceFlow() {
-  return apiPost<QwenDeviceCodeResponse>("/providers/qwen/device-code");
-}
-
-export function pollQwenDeviceCode(deviceCode: string) {
-  return apiFetch<DevicePollResponse>(
-    `/providers/qwen/device-poll?device_code=${encodeURIComponent(deviceCode)}`,
-  );
-}
-
-export function disconnectQwen() {
-  return apiDelete("/providers/qwen/disconnect");
-}
-
 // --- Auth (Password + 2FA) API ---
 
 export function getStatus() {

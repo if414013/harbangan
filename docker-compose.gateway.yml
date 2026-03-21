@@ -14,8 +14,6 @@
 #   OPENAI_BASE_URL      — OpenAI base URL (default: https://api.openai.com/v1)
 #   COPILOT_TOKEN        — GitHub Copilot token (or obtained via device flow)
 #   COPILOT_BASE_URL     — Copilot API base URL
-#   QWEN_TOKEN           — Qwen token (or obtained via device flow)
-#   QWEN_BASE_URL        — Qwen API base URL
 #   CUSTOM_PROVIDER_URL  — Custom OpenAI-compatible endpoint
 #   CUSTOM_PROVIDER_KEY  — Custom provider API key
 #   CUSTOM_PROVIDER_MODELS — Comma-separated model names for custom provider
@@ -55,8 +53,6 @@ services:
       OPENAI_BASE_URL: "${OPENAI_BASE_URL:-}"
       COPILOT_TOKEN: "${COPILOT_TOKEN:-}"
       COPILOT_BASE_URL: "${COPILOT_BASE_URL:-}"
-      QWEN_TOKEN: "${QWEN_TOKEN:-}"
-      QWEN_BASE_URL: "${QWEN_BASE_URL:-}"
       CUSTOM_PROVIDER_URL: "${CUSTOM_PROVIDER_URL:-}"
       CUSTOM_PROVIDER_KEY: "${CUSTOM_PROVIDER_KEY:-}"
       CUSTOM_PROVIDER_MODELS: "${CUSTOM_PROVIDER_MODELS:-}"

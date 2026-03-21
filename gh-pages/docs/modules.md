@@ -7,7 +7,7 @@ nav_order: 7
 # Module Reference
 {: .no_toc }
 
-Overview of all source modules in the Harbangan codebase, their responsibilities, and how they interconnect. The gateway supports multiple AI providers (Kiro, Anthropic, OpenAI Codex, Copilot, Qwen, Custom) via a `Provider` trait and `ProviderRegistry`.
+Overview of all source modules in the Harbangan codebase, their responsibilities, and how they interconnect. The gateway supports multiple AI providers (Kiro, Anthropic, OpenAI Codex, Copilot, Custom) via a `Provider` trait and `ProviderRegistry`.
 {: .fs-6 .fw-300 }
 
 <details open markdown="block">
@@ -41,7 +41,7 @@ graph TD
     error["error.rs<br/><i>Error types</i>"]
     bench["bench/<br/><i>Benchmarking</i>"]
     guardrails["guardrails/<br/><i>CEL rules + Bedrock<br/>content validation</i>"]
-    providers["providers/<br/><i>Provider trait, registry,<br/>Kiro/Anthropic/OpenAI Codex/<br/>Copilot/Qwen/Custom</i>"]
+    providers["providers/<br/><i>Provider trait, registry,<br/>Kiro/Anthropic/OpenAI Codex/<br/>Copilot/Custom</i>"]
     cost["cost.rs<br/><i>Token cost calculation</i>"]
     datadog["datadog.rs<br/><i>OTLP metrics + tracing</i>"]
 
@@ -178,7 +178,6 @@ graph TD
 | `web_ui::config_api` | `backend/src/web_ui/config_api.rs` | Config field validation and metadata. `classify_config_change()` determines if a field change can be hot-reloaded or requires restart. `validate_config_field()` validates types and ranges. `get_config_field_descriptions()` provides human-readable descriptions for the config UI. |
 | `web_ui::config_db` | `backend/src/web_ui/config_db.rs` | `ConfigDb` — PostgreSQL-backed configuration persistence using `sqlx`. Auto-creates `config`, `config_history`, and `schema_version` tables. Provides `get/set/get_all`, `load_into_config()` overlay, `save_initial_setup()`, `save_oauth_setup()`, and `get_history()` with automatic pruning (keeps last 1000 entries). All writes are transactional. |
 | `web_ui::copilot_auth` | `backend/src/web_ui/copilot_auth.rs` | GitHub Copilot OAuth flow. Two-step process: GitHub OAuth for user authorization, then Copilot-specific token exchange via `copilot_internal/v2/token`. Stores Copilot token + base URL in DB and `copilot_token_cache`. |
-| `web_ui::qwen_auth` | `backend/src/web_ui/qwen_auth.rs` | Qwen Coder device flow (RFC 8628). Endpoints for initiating device authorization, polling for token, checking status, and disconnecting. Uses `qwen_device_pending` DashMap for in-flight flows (10-min TTL, 10k cap). |
 | `web_ui::password_auth` | `backend/src/web_ui/password_auth.rs` | Password authentication with mandatory TOTP 2FA. Handles login (`POST /auth/login`), 2FA verification (`POST /auth/login/2fa`), TOTP setup/verify, password change, recovery codes (8 alphanumeric, SHA-256 hashed), and admin user creation/password reset. Includes per-email rate limiting (5 attempts, 15-min lockout). |
 | `web_ui::usage` | `backend/src/web_ui/usage.rs` | Usage tracking endpoints. Per-user usage (`GET /usage`) and admin usage views (`GET /admin/usage`, `GET /admin/usage/users`) with date range filtering and group-by (day/model/provider). |
 | `web_ui::admin_pool` | `backend/src/web_ui/admin_pool.rs` | Admin provider pool management. CRUD endpoints for shared provider accounts (`GET/POST /admin/pool`, `DELETE/PATCH /admin/pool/:id`). Rate limit monitoring (`GET /providers/rate-limits`). Per-user provider account management. |
@@ -205,13 +204,12 @@ graph TD
 |--------|---------|-------------|
 | `providers` | `backend/src/providers/mod.rs` | Module root. Re-exports all provider implementations, the registry, trait, and types. |
 | `providers::traits` | `backend/src/providers/traits.rs` | `Provider` trait — the uniform interface all AI providers implement. Defines `execute_openai()`, `stream_openai()`, `execute_anthropic()`, `stream_anthropic()` methods. Each provider handles both OpenAI-format and Anthropic-format inputs. |
-| `providers::types` | `backend/src/providers/types.rs` | Type definitions: `ProviderId` enum (Kiro, Anthropic, OpenAICodex, Copilot, Qwen, Custom), `ProviderCredentials` (provider + access_token + optional base_url), `ProviderContext` (per-request credentials + model), `ProviderResponse`, `ProviderStreamItem`. |
+| `providers::types` | `backend/src/providers/types.rs` | Type definitions: `ProviderId` enum (Kiro, Anthropic, OpenAICodex, Copilot, Custom), `ProviderCredentials` (provider + access_token + optional base_url), `ProviderContext` (per-request credentials + model), `ProviderResponse`, `ProviderStreamItem`. |
 | `providers::registry` | `backend/src/providers/registry.rs` | `ProviderRegistry` — resolves which provider to use for a given user + model. Caches per-user provider credentials in memory (5-minute TTL). Handles transparent token refresh for OAuth-based providers with per-(user, provider) mutexes to prevent refresh storms. |
 | `providers::kiro` | `backend/src/providers/kiro.rs` | Kiro provider — the default. Routes requests through the format converter pipeline (OpenAI/Anthropic → Kiro) and streaming pipeline (AWS Event Stream → SSE). Uses `KiroHttpClient` and `AuthManager` for token management. |
 | `providers::anthropic` | `backend/src/providers/anthropic.rs` | Anthropic provider — direct relay to `api.anthropic.com`. Passes OpenAI-format requests through conversion, relays Anthropic-format requests natively. |
 | `providers::openai_codex` | `backend/src/providers/openai_codex.rs` | OpenAI Codex provider — direct relay to `api.openai.com`. Relays OpenAI-format requests natively, converts Anthropic-format requests. |
 | `providers::copilot` | `backend/src/providers/copilot.rs` | Copilot provider — relay to GitHub Copilot API. Uses Copilot-specific headers (Editor-Version, Editor-Plugin-Version, Copilot-Integration-Id). Base URL from token exchange (may vary for enterprise). |
-| `providers::qwen` | `backend/src/providers/qwen.rs` | Qwen provider — relay to `dashscope-intl.aliyuncs.com/compatible-mode`. Handles Qwen-specific API format and authentication. |
 | `providers::custom` | `backend/src/providers/custom.rs` | Custom provider — relay to a user-configured endpoint. Supports any OpenAI-compatible API with custom base URL and API key. |
 | `providers::rate_limiter` | `backend/src/providers/rate_limiter.rs` | Rate limiting infrastructure for multi-account load balancing. Tracks per-account rate limits and distributes requests across provider accounts. |
 

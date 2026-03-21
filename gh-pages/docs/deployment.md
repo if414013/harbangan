@@ -358,7 +358,7 @@ Tables are created automatically on first connection. Key tables include:
 | `users` | User accounts (Google SSO identity, role, status) |
 | `api_keys` | Per-user API keys (SHA-256 hashed, with labels) |
 | `user_kiro_credentials` | Per-user Kiro refresh tokens |
-| `user_provider_credentials` | Per-user provider credentials (Copilot, Qwen) |
+| `user_provider_credentials` | Per-user provider credentials (Copilot) |
 | `user_provider_priority` | Per-user provider priority ordering |
 | `config` | Key-value configuration store |
 | `config_history` | Audit log of configuration changes |

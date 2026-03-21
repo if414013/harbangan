@@ -11,7 +11,7 @@ permalink: /architecture/
 
 Harbangan is an AI proxy gateway that exposes OpenAI and Anthropic-compatible APIs backed by Kiro (AWS CodeWhisperer). It supports two deployment modes:
 
-- **Proxy-Only Mode** (`docker-compose.gateway.yml`) — A single backend container with no database or web UI. Supports all providers (Kiro, Anthropic, OpenAI Codex, Copilot, Qwen, Custom) via environment variables. Uses a single `PROXY_API_KEY` for authentication. Best for personal use.
+- **Proxy-Only Mode** (`docker-compose.gateway.yml`) — A single backend container with no database or web UI. Supports all providers (Kiro, Anthropic, OpenAI Codex, Copilot, Custom) via environment variables. Uses a single `PROXY_API_KEY` for authentication. Best for personal use.
 - **Full Deployment** (`docker-compose.yml`) — Three docker-compose services: PostgreSQL database, Rust backend (plain HTTP), and Vite frontend dev server. Supports multi-user with Google SSO, per-user API keys, and per-user Kiro credential management. Best for teams and development. Production targets Kubernetes.
 
 Both modes share the same Rust backend binary — `GATEWAY_MODE=proxy` activates the proxy-only path.
@@ -75,7 +75,6 @@ flowchart TB
                 ANTHRO_P["AnthropicProvider<br/><i>Direct Anthropic API</i>"]
                 OPENAI_P["OpenAICodexProvider<br/><i>Direct OpenAI API</i>"]
                 COPILOT_P["CopilotProvider<br/><i>GitHub Copilot API</i>"]
-                QWEN_P["QwenProvider<br/><i>Qwen Coder API</i>"]
                 CUSTOM_P["CustomProvider<br/><i>User-configured API</i>"]
             end
 
@@ -107,7 +106,6 @@ flowchart TB
         ANTHROPIC_API["Anthropic API<br/><i>api.anthropic.com</i>"]
         OPENAI_API["OpenAI API<br/><i>api.openai.com</i>"]
         COPILOT_API["GitHub Copilot API<br/><i>api.githubcopilot.com</i>"]
-        QWEN_API["Qwen API<br/><i>dashscope-intl.aliyuncs.com</i>"]
         CUSTOM_API["Custom API<br/><i>User-configured endpoint</i>"]
     end
 
@@ -126,7 +124,6 @@ flowchart TB
     REGISTRY --> ANTHRO_P
     REGISTRY --> OPENAI_P
     REGISTRY --> COPILOT_P
-    REGISTRY --> QWEN_P
     REGISTRY --> CUSTOM_P
 
     KIRO_P --> O2K
@@ -139,7 +136,6 @@ flowchart TB
     ANTHRO_P --> ANTHROPIC_API
     OPENAI_P --> OPENAI_API
     COPILOT_P --> COPILOT_API
-    QWEN_P --> QWEN_API
     CUSTOM_P --> CUSTOM_API
 
     KIRO --> PARSER
@@ -298,7 +294,7 @@ Key design decisions for AppState:
 - `api_key_cache` maps SHA-256 hashed API keys to `(user_id, key_id)` tuples for fast per-user auth lookup.
 - `kiro_token_cache` stores per-user Kiro access tokens with a 4-minute TTL.
 - `oauth_pending` stores PKCE state during OAuth flows with a 10-minute TTL and 10k capacity cap.
-- `provider_registry` resolves which provider (Kiro, Anthropic, OpenAI Codex, Copilot, Qwen, Custom) to use for a given user + model, with a 5-minute credential cache and proactive token refresh.
+- `provider_registry` resolves which provider (Kiro, Anthropic, OpenAI Codex, Copilot, Custom) to use for a given user + model, with a 5-minute credential cache and proactive token refresh.
 - `providers` is a `ProviderMap` (HashMap keyed by `ProviderId`) holding all non-Kiro provider implementations.
 - `provider_oauth_pending` stores PKCE state for provider OAuth relay flows (Anthropic), separate from Google SSO's `oauth_pending`.
 - `login_rate_limiter` tracks per-email login attempt counts for password auth rate limiting (5 attempts, 15-min lockout).
@@ -384,7 +380,7 @@ flowchart TD
 
 ### 1. Multi-Provider Protocol Translation
 
-The gateway does not implement its own LLM logic. It is a protocol translator and provider router: it accepts requests in OpenAI or Anthropic format, resolves the target provider via the `ProviderRegistry`, and either translates to the Kiro wire format (for the default Kiro provider) or relays directly to the provider's native API (Anthropic, OpenAI Codex, Copilot, Qwen, Custom). The `Provider` trait (`providers/traits.rs`) defines a uniform interface that all providers implement, supporting both OpenAI-format and Anthropic-format inputs. The `converters/core.rs` module defines a `UnifiedMessage` type that serves as the intermediate representation for Kiro-bound requests.
+The gateway does not implement its own LLM logic. It is a protocol translator and provider router: it accepts requests in OpenAI or Anthropic format, resolves the target provider via the `ProviderRegistry`, and either translates to the Kiro wire format (for the default Kiro provider) or relays directly to the provider's native API (Anthropic, OpenAI Codex, Copilot, Custom). The `Provider` trait (`providers/traits.rs`) defines a uniform interface that all providers implement, supporting both OpenAI-format and Anthropic-format inputs. The `converters/core.rs` module defines a `UnifiedMessage` type that serves as the intermediate representation for Kiro-bound requests.
 
 ### 2. Plain HTTP Backend
 
@@ -440,8 +436,7 @@ Datadog APM is zero-overhead when not configured. When `DD_AGENT_HOST` is set, t
 | `backend/src/metrics/` | Request latency, token usage, and error tracking |
 | `backend/src/log_capture.rs` | Tracing capture layer for web UI SSE log streaming |
 | `backend/src/guardrails/` | Content validation: CEL rule engine, AWS Bedrock guardrails, profiles/rules CRUD |
-| `backend/src/providers/` | Multi-provider system: `Provider` trait, `ProviderRegistry` (credential cache + routing), implementations for Kiro, Anthropic, OpenAI Codex, Copilot, Qwen, Custom, plus rate limiter |
+| `backend/src/providers/` | Multi-provider system: `Provider` trait, `ProviderRegistry` (credential cache + routing), implementations for Kiro, Anthropic, OpenAI Codex, Copilot, Custom, plus rate limiter |
 | `backend/src/web_ui/` | Web UI API: Google SSO, password auth + TOTP 2FA, sessions, per-user API keys, Kiro tokens, config, users, usage tracking, admin pool, model registry, encryption |
 | `backend/src/web_ui/copilot_auth.rs` | GitHub Copilot OAuth flow (GitHub OAuth → Copilot token exchange) |
-| `backend/src/web_ui/qwen_auth.rs` | Qwen Coder device flow (RFC 8628) |
 | `backend/src/web_ui/provider_oauth.rs` | Provider OAuth relay (Anthropic PKCE flow, token exchange trait) |

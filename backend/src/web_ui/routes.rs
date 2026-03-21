@@ -86,7 +86,6 @@ pub async fn get_config(State(state): State<AppState>) -> Json<Value> {
             "truncation_recovery": config.truncation_recovery,
             "guardrails_enabled": config.guardrails_enabled,
             "tool_description_max_length": config.tool_description_max_length,
-            "qwen_oauth_client_id": config.qwen_oauth_client_id,
             "anthropic_oauth_client_id": config.anthropic_oauth_client_id,
             "openai_oauth_client_id": config.openai_oauth_client_id,
             "google_client_id": config.google_client_id,
@@ -322,10 +321,6 @@ fn apply_config_field(state: &AppState, key: &str, value: &Value) -> bool {
             }
             Err(_) => false,
         },
-        "qwen_oauth_client_id" => {
-            config.qwen_oauth_client_id = value_str;
-            true
-        }
         "anthropic_oauth_client_id" => {
             config.anthropic_oauth_client_id = value_str;
             true

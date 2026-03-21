@@ -8,7 +8,7 @@ nav_order: 1
   <h1>Harbangan</h1>
   <p class="tagline">
     A multi-user Rust proxy gateway. Use OpenAI and Anthropic client libraries with Kiro
-    (and optionally GitHub Copilot and Qwen Coder in Full Deployment). In Proxy-Only Mode,
+    (and optionally GitHub Copilot in Full Deployment). In Proxy-Only Mode,
     Kiro is the sole backend — a single container, no database required.
     Per-user auth, content guardrails, MCP tool gateway, and real-time streaming.
   </p>
@@ -31,7 +31,7 @@ In Batak Toba culture, the *harbangan* is the gate of the traditional house — 
 
 This gateway embodies the same philosophy:
 
-- **Cosmic boundary** — The *harbangan* separates the three realms of Batak cosmology. This gateway sits at the boundary between your client code and provider backends, translating between OpenAI and Anthropic formats on either side. In Proxy-Only Mode, Kiro is the sole backend. In Full Deployment, GitHub Copilot and Qwen Coder can also be connected.
+- **Cosmic boundary** — The *harbangan* separates the three realms of Batak cosmology. This gateway sits at the boundary between your client code and provider backends, translating between OpenAI and Anthropic formats on either side. In Proxy-Only Mode, Kiro is the sole backend. In Full Deployment, GitHub Copilot can also be connected.
 - **Guardian of social order** — The Batak gate enforces *Dalihan Na Tolu*, the three-pillar kinship system that governs who may enter and how. Harbangan enforces multi-user RBAC: Google SSO, per-user API keys, admin/user roles, and domain allowlisting decide what passes through.
 - **Ritual transition** — Crossing a *harbangan* signals a shift in status. Requests crossing this gateway undergo their own transformation: format conversion, content guardrails (CEL rules + AWS Bedrock), and MCP tool injection before reaching the other side.
 - **Openness as moral virtue** — In Batak ethics, a gate that is always open signals generosity and communal spirit. This one is open source, and in proxy-only mode, a single container is all you need to open the gate.
@@ -62,12 +62,10 @@ flowchart TD
     subgraph Providers["Provider Backends"]
         KIRO["Kiro API\n(CodeWhisperer)\n[all modes]"]
         COPILOT["GitHub Copilot\n[Full Deployment only]"]
-        QWEN["Qwen Coder\n[Full Deployment only]"]
     end
 
     subgraph Auth["Authentication"]
         SSO["Google SSO"]
-        DEVICE["Device Code\nOAuth"]
     end
 
     OAI --> MW
@@ -77,14 +75,11 @@ flowchart TD
     MCP_INJ --> CONV
     CONV --> KIRO
     CONV --> COPILOT
-    CONV --> QWEN
     KIRO --> STREAM
     COPILOT --> STREAM
-    QWEN --> STREAM
     STREAM --> OAI
     STREAM --> ANT
     GW -.-> SSO
-    GW -.-> DEVICE
 ```
 
 ## Features
@@ -100,7 +95,7 @@ flowchart TD
   </div>
   <div class="feature-card" data-cat="provider">
     <h3><span class="fc-icon">&#9670;</span> Multi-Provider</h3>
-    <p>Connect to Kiro (AWS CodeWhisperer), GitHub Copilot, and Qwen Coder backends with per-user credentials and automatic token refresh. <em>Copilot and Qwen require Full Deployment.</em></p>
+    <p>Connect to Kiro (AWS CodeWhisperer) and GitHub Copilot backends with per-user credentials and automatic token refresh. <em>Copilot requires Full Deployment.</em></p>
   </div>
   <div class="feature-card" data-cat="core">
     <h3><span class="fc-icon">&sim;</span> Real-time Streaming</h3>

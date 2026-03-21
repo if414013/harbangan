@@ -303,11 +303,6 @@ impl TokenExchanger for HttpTokenExchanger {
         provider: &str,
         refresh_token: &str,
     ) -> Result<TokenExchangeResult, ApiError> {
-        // Qwen uses its own token endpoint with JSON body
-        if provider == "qwen" {
-            return self.refresh_qwen_token(refresh_token).await;
-        }
-
         let app_config = self
             .config
             .read()
@@ -366,71 +361,6 @@ impl TokenExchanger for HttpTokenExchanger {
 }
 
 impl HttpTokenExchanger {
-    /// Refresh a Qwen token via the Qwen OAuth token endpoint.
-    async fn refresh_qwen_token(
-        &self,
-        refresh_token: &str,
-    ) -> Result<TokenExchangeResult, ApiError> {
-        let client_id = self
-            .config
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .qwen_oauth_client_id
-            .clone();
-
-        if client_id.is_empty() {
-            return Err(ApiError::ConfigError(
-                "Qwen OAuth client ID not configured \u{2014} set it via the admin UI".into(),
-            ));
-        }
-
-        let resp = self
-            .client
-            .post("https://chat.qwen.ai/api/v1/oauth2/token")
-            .json(&serde_json::json!({
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-                "client_id": client_id,
-            }))
-            .send()
-            .await
-            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Qwen token refresh failed: {}", e)))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status().as_u16();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(ApiError::Internal(anyhow::anyhow!(
-                "Qwen token refresh returned {}: {}",
-                status,
-                body
-            )));
-        }
-
-        let body: serde_json::Value = resp.json().await.map_err(|e| {
-            ApiError::Internal(anyhow::anyhow!(
-                "Failed to parse Qwen refresh response: {}",
-                e
-            ))
-        })?;
-
-        let access_token = body["access_token"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
-        let new_refresh = body["refresh_token"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
-        let expires_in = body["expires_in"].as_i64().unwrap_or(3600);
-
-        Ok(TokenExchangeResult {
-            access_token,
-            refresh_token: new_refresh,
-            expires_in,
-            email: String::new(),
-        })
-    }
-
     /// Extract email from token response (Anthropic) or id_token JWT (OpenAI).
     async fn extract_email(
         &self,
@@ -993,7 +923,6 @@ mod tests {
         // device_code providers are valid ProviderId but not oauth_relay
         assert!(validate_provider("kiro").is_err());
         assert!(validate_provider("copilot").is_err());
-        assert!(validate_provider("qwen").is_err());
     }
 
     #[test]
@@ -1014,13 +943,12 @@ mod tests {
                 supports_pool: p.supports_pool(),
             })
             .collect::<Vec<_>>();
-        assert_eq!(resp.len(), 5);
+        assert_eq!(resp.len(), 4);
         let ids: Vec<&str> = resp.iter().map(|e| e.id).collect();
         assert!(ids.contains(&"anthropic"));
         assert!(ids.contains(&"openai_codex"));
         assert!(ids.contains(&"kiro"));
         assert!(ids.contains(&"copilot"));
-        assert!(ids.contains(&"qwen"));
         // Verify category values
         let anthropic = resp.iter().find(|e| e.id == "anthropic").unwrap();
         assert_eq!(anthropic.category, "oauth_relay");

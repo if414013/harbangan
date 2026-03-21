@@ -429,7 +429,7 @@ docker compose -f docker-compose.gateway.yml --env-file .env.proxy restart gatew
 ## Provider-Specific Issues
 
 {: .note }
-> Provider-specific issues below apply to **Full Deployment only** (`docker-compose.yml`). Proxy-Only Mode supports Kiro exclusively — there are no Copilot or Qwen providers in proxy mode.
+> Provider-specific issues below apply to **Full Deployment only** (`docker-compose.yml`). Proxy-Only Mode supports Kiro exclusively — there is no Copilot provider in proxy mode.
 
 ### GitHub Copilot
 
@@ -461,31 +461,6 @@ docker compose -f docker-compose.gateway.yml --env-file .env.proxy restart gatew
 - Check that the callback URL in `.env` exactly matches the one registered in the GitHub OAuth App
 - Check backend logs for the specific error: `docker compose logs backend | grep -i copilot`
 
-### Qwen Coder
-
-#### Qwen device flow not starting
-
-**Cause:** The Qwen OAuth client ID is not configured.
-
-**Solutions:**
-- Set `QWEN_OAUTH_CLIENT_ID` in `.env` (default public client ID: `f0304373b74a44d2b584a3fb70ca9e56`)
-- Restart the backend after changing environment variables
-
-#### Qwen rate limiting (429 errors)
-
-**Cause:** The Qwen API has rate limits that may be stricter than Kiro's.
-
-**Solutions:**
-- Reduce request frequency to the Qwen provider
-- Set provider priority in the Profile page to prefer Kiro or Copilot for high-traffic use
-- Check if the Qwen account tier has higher rate limits available
-
-#### Qwen device code expired
-
-**Cause:** The device code flow timed out before the user authorized in the browser.
-
-**Solution:** Go to the Profile page, disconnect Qwen, and start the connect flow again. Complete the browser authorization promptly when the device code URL appears.
-
 ### Provider Priority and Fallback
 
 #### Requests using wrong provider
@@ -504,7 +479,7 @@ docker compose -f docker-compose.gateway.yml --env-file .env.proxy restart gatew
 **Solutions:**
 - Go to the Profile page and check the status of each connected provider
 - Reconnect any providers with expired tokens
-- Ensure at least one provider (Kiro, Copilot, or Qwen) is connected and active
+- Ensure at least one provider (Kiro or Copilot) is connected and active
 
 ---
 

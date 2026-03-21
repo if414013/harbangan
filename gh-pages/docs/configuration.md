@@ -31,7 +31,7 @@ Harbangan has two deployment modes with different configuration models:
 
 Set these in `.env.proxy` (copy from `.env.proxy.example`) and pass via `--env-file .env.proxy` when running `docker compose -f docker-compose.gateway.yml`.
 
-Proxy-Only Mode supports **multiple providers** via environment variables: Kiro (AWS CodeWhisperer), Anthropic, OpenAI Codex, GitHub Copilot, Qwen, and custom OpenAI-compatible endpoints.
+Proxy-Only Mode supports **multiple providers** via environment variables: Kiro (AWS CodeWhisperer), Anthropic, OpenAI Codex, GitHub Copilot, and custom OpenAI-compatible endpoints.
 
 ### Required
 
@@ -57,8 +57,6 @@ Proxy-Only Mode supports **multiple providers** via environment variables: Kiro 
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI API base URL (override for compatible endpoints). |
 | `COPILOT_TOKEN` | _(none)_ | GitHub Copilot token. |
 | `COPILOT_BASE_URL` | `https://api.githubcopilot.com` | Copilot API base URL. |
-| `QWEN_TOKEN` | _(none)_ | Qwen token for Qwen provider access. |
-| `QWEN_BASE_URL` | _(none)_ | Qwen API base URL. |
 | `CUSTOM_PROVIDER_URL` | _(none)_ | Custom OpenAI-compatible endpoint URL. |
 | `CUSTOM_PROVIDER_KEY` | _(none)_ | Custom provider API key. |
 | `CUSTOM_PROVIDER_MODELS` | _(none)_ | Comma-separated model names for custom provider. |
@@ -132,7 +130,6 @@ Google SSO is an optional auth method. You can use password auth exclusively, or
 
 | Variable | Description | Example |
 |:---|:---|:---|
-| `QWEN_OAUTH_CLIENT_ID` | Qwen OAuth client ID (public, not a secret). Default: `f0304373b74a44d2b584a3fb70ca9e56`. | `f0304373b74a44d2b584a3fb70ca9e56` |
 | `GITHUB_COPILOT_CLIENT_ID` | GitHub Copilot OAuth client ID. | _(your app's client ID)_ |
 | `GITHUB_COPILOT_CLIENT_SECRET` | GitHub Copilot OAuth client secret. | _(your app's client secret)_ |
 | `GITHUB_COPILOT_CALLBACK_URL` | GitHub Copilot OAuth callback URL. | `http://localhost:9999/_ui/api/copilot/callback` |
