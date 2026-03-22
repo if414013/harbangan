@@ -195,7 +195,6 @@ mod tests {
         assert!(ProviderId::from_str("openai_codex").is_ok());
         assert!(ProviderId::from_str("gemini").is_err());
         assert!(ProviderId::from_str("copilot").is_ok());
-        assert!(ProviderId::from_str("qwen").is_err());
         assert!(ProviderId::from_str("azure").is_err());
     }
 
@@ -216,8 +215,8 @@ mod tests {
     fn test_invalid_provider_rejected_by_provider_id() {
         use std::str::FromStr;
         // Verify that removed or made-up providers are rejected
-        assert!(ProviderId::from_str("qwen").is_err());
-        assert!(ProviderId::from_str("qwq").is_err());
-        assert!(ProviderId::from_str("dashscope").is_err());
+        assert!(ProviderId::from_str("azure").is_err());
+        assert!(ProviderId::from_str("bedrock").is_err());
+        assert!(ProviderId::from_str("nonexistent").is_err());
     }
 }

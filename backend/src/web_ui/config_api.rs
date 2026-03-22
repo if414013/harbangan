@@ -969,8 +969,8 @@ mod tests {
         // Invalid: non-string
         assert!(validate_config_field("anthropic_oauth_client_id", &json!(123)).is_err());
         assert!(validate_config_field("openai_oauth_client_id", &json!(123)).is_err());
-        // qwen_oauth_client_id is no longer a valid field
-        assert!(validate_config_field("qwen_oauth_client_id", &json!("some-id")).is_err());
+        // Unknown field names are rejected
+        assert!(validate_config_field("nonexistent_field", &json!("some-id")).is_err());
     }
 
     #[test]
