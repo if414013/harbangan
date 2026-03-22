@@ -444,8 +444,8 @@ mod tests {
     #[test]
     fn test_generate_prefixed_id_special_chars() {
         assert_eq!(
-            generate_prefixed_id("qwen", "qwen3-coder-plus"),
-            "qwen/qwen3-coder-plus"
+            generate_prefixed_id("custom", "my-model-v3-plus"),
+            "custom/my-model-v3-plus"
         );
     }
 

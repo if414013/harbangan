@@ -243,7 +243,7 @@ elif CACHED_CP_TK=$(read_cache_field copilot token) && [ -n "$CACHED_CP_TK" ]; t
 fi
 
 # ── Interactive device flows ─────────────────────────────────────────
-# Copilot and Qwen device flows require user interaction. They only run
+# Copilot device flow requires user interaction. It only runs
 # when the token is not set and not cached.
 
 run_copilot_device_flow() {
