@@ -18,9 +18,9 @@ flowchart LR
 
     subgraph Direct["Direct providers"]
         AnthroP["Anthropic"]
-        OaiP["OpenAI"]
-        GeminiP["Gemini"]
+        OaiP["OpenAI Codex"]
         CopilotP["Copilot"]
+        CustomP["Custom"]
     end
 
     subgraph KiroPath["Kiro path (default)"]

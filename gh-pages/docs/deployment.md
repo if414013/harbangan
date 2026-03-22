@@ -34,10 +34,14 @@ Harbangan supports two deployment modes:
 
 ```
 Client (localhost) → gateway container (127.0.0.1:8000, plain HTTP)
-                         └── Kiro API (AWS CodeWhisperer)
+                         ├── Kiro API (AWS CodeWhisperer)
+                         ├── Anthropic API
+                         ├── OpenAI API
+                         ├── GitHub Copilot API
+                         └── Custom OpenAI-compatible endpoint
 ```
 
-A single container running the Rust backend. No database or web UI. **Supports Kiro (AWS CodeWhisperer) only.** Authentication uses a single `PROXY_API_KEY` environment variable. Kiro credentials are obtained via an AWS SSO device code flow on first boot and cached to a Docker volume (`gateway-data:/data/tokens.json`). The port binds to `127.0.0.1` only — not accessible from external networks. The container runs as a non-root user (`appuser`) with a 512MB memory limit.
+A single container running the Rust backend. No database or web UI. **Supports all providers** (Kiro, Anthropic, OpenAI Codex, Copilot, Custom) **via environment variables.** Authentication uses a single `PROXY_API_KEY` environment variable. Kiro credentials are obtained via an AWS SSO device code flow on first boot and cached to a Docker volume (`gateway-data:/data/tokens.json`). Additional providers are configured via API key or token env vars (see [Configuration Reference](configuration.html#proxy-only-mode-environment-variables)). The port binds to `127.0.0.1` only — not accessible from external networks. The container runs as a non-root user (`appuser`) with a 512MB memory limit.
 
 | Service | Image | Purpose |
 |:---|:---|:---|
@@ -142,8 +146,8 @@ graph LR
     end
 
     subgraph Docker["Docker Compose Stack"]
-        subgraph frontend_container["frontend (Vite)"]
-            vite["Vite Dev Server<br/>:5173"]
+        subgraph frontend_container["frontend (nginx)"]
+            vite["nginx<br/>:5173 → :80"]
         end
         subgraph backend_container["backend"]
             gw["Rust API Server<br/>:9999 (HTTP)"]
@@ -178,7 +182,7 @@ graph LR
 |:---|:---|:---|
 | `db` | `postgres:16-alpine` | PostgreSQL database for config, credentials, and user data |
 | `backend` | `harbangan-backend:latest` (built locally) | Rust API server — plain HTTP on port 9999 |
-| `frontend` | `harbangan-frontend:latest` (built locally) | Vite dev server — serves React SPA, proxies API requests to backend |
+| `frontend` | `harbangan-frontend:latest` (built locally) | nginx — serves built React SPA, proxies API requests to backend |
 
 > **Note:** This Docker Compose setup is intended for development. Production deployment targets Kubernetes, where TLS is handled by an Ingress controller.
 
@@ -187,8 +191,8 @@ graph LR
 ## Prerequisites
 
 - Docker Engine 20.10+ and Docker Compose v2
-- **Google OAuth credentials** (Client ID + Client Secret) from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
 - At least 1 GB RAM and 2 GB disk space
+- Optionally, **Google OAuth credentials** if you want Google SSO (can also use password auth exclusively — see [Configuration Reference](configuration.html#google-oauth-setup))
 
 ---
 
@@ -208,14 +212,16 @@ cp .env.example .env
 Edit `.env`:
 
 ```bash
-# PostgreSQL password
+# PostgreSQL password (required)
 POSTGRES_PASSWORD=your_secure_password_here
 
-# Google SSO (required for Web UI authentication)
-GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_CALLBACK_URL=http://localhost:9999/_ui/api/auth/google/callback
+# Optional: seed an admin user for password-based login (first-run only)
+# INITIAL_ADMIN_EMAIL=admin@example.com
+# INITIAL_ADMIN_PASSWORD=changeme
+# INITIAL_ADMIN_TOTP_SECRET=JBSWY3DPEHPK3PXP
 ```
+
+> **Note:** Google SSO is configured via the Admin UI after initial login, not via environment variables. You can use password auth for the first login by setting the `INITIAL_ADMIN_*` variables above.
 
 The following are managed automatically by `docker-compose.yml` — do **not** set them in `.env`:
 
@@ -275,24 +281,32 @@ The `docker-compose.yml` defines three services:
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     volumes:
       - pgdata:/var/lib/postgresql/data
 
   backend:
     build: ./backend
+    restart: on-failure:5
     ports:
       - "9999:9999"
+    env_file:
+      - .env
     environment:
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "9999"
       DATABASE_URL: postgres://kiro:${POSTGRES_PASSWORD}@db:5432/kiro_gateway
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      INITIAL_ADMIN_TOTP_SECRET: ${INITIAL_ADMIN_TOTP_SECRET:-}
     depends_on:
       db: { condition: service_healthy }
 
   frontend:
     build: ./frontend
+    restart: unless-stopped
     ports:
-      - "5173:5173"
+      - "5173:80"
     depends_on:
       backend: { condition: service_healthy }
 ```

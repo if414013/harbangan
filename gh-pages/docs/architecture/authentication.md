@@ -392,7 +392,7 @@ All provider tokens are stored per-user in PostgreSQL:
 | Column | Description |
 |--------|-------------|
 | `user_id` | Foreign key to users table |
-| `provider` | Provider identifier (`anthropic`, `openai`, `copilot`) |
+| `provider` | Provider identifier (`anthropic`, `openai_codex`, `copilot`) |
 | `access_token` | Current access token (encrypted at rest) |
 | `refresh_token` | Refresh token for OAuth providers |
 | `expires_at` | Token expiry timestamp |
@@ -477,9 +477,9 @@ sequenceDiagram
 
 The `TokenExchanger` trait abstracts the token exchange, making it mockable for tests. Provider OAuth pending states are stored separately from Google SSO in `provider_oauth_pending: Arc<DashMap<String, ProviderOAuthPendingState>>`.
 
-### OpenAI and Gemini (API Key Storage)
+### OpenAI Codex (API Key Storage)
 
-OpenAI and Gemini use simple API key authentication — no OAuth flow required. Users enter their API key in the web UI, and it's stored directly in the `user_provider_tokens` table. The key is used as-is in the `Authorization: Bearer {key}` header when making requests to the provider API.
+OpenAI Codex uses simple API key authentication — no OAuth flow required. Users enter their API key in the web UI, and it's stored directly in the `user_provider_tokens` table. The key is used as-is in the `Authorization: Bearer {key}` header when making requests to the provider API.
 
 ---
 

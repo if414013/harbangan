@@ -30,7 +30,7 @@ cd backend && cargo build                        # Debug build
 cd backend && cargo build --release              # Release build
 cd backend && cargo clippy                       # Lint — fix ALL warnings before committing
 cd backend && cargo fmt                          # Format
-cd backend && cargo test --lib                   # Unit tests (395 tests)
+cd backend && cargo test --lib                   # Unit tests (820+ tests)
 cd backend && cargo test --lib <test_name>       # Single test
 cd backend && cargo test --lib <module>::        # All tests in a module
 cd backend && cargo test --lib -- --nocapture    # Show println! output

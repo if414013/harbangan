@@ -174,12 +174,12 @@ These settings are managed through the Web UI at `/_ui/` and stored in PostgreSQ
 
 ## Google OAuth Setup
 
-To use Google SSO for Web UI authentication:
+Google SSO is optional. You can use password authentication exclusively. To enable Google SSO:
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
 2. Create a new **OAuth 2.0 Client ID** (Web application type)
 3. Add the authorized redirect URI: `https://YOUR_DOMAIN/_ui/api/auth/google/callback`
-4. Copy the Client ID and Client Secret into your `.env` file
+4. Sign in to the Admin UI at `/_ui/` and enter the Client ID, Client Secret, and Callback URL in the Configuration page
 
 The gateway uses PKCE + OpenID Connect for the SSO flow. Session cookies (`kgw_session`) have a 24-hour TTL.
 

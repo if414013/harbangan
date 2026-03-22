@@ -123,7 +123,7 @@ flowchart TD
   </div>
   <div class="feature-card" data-cat="feature">
     <h3><span class="fc-icon">&#9654;</span> Proxy-Only Mode</h3>
-    <p>Single-container, Kiro-only deployment with no database or Web UI. AWS SSO device code flow on first start; credentials cached to a Docker volume for automatic restarts.</p>
+    <p>Single-container deployment with no database or Web UI. Supports all providers via environment variables. AWS SSO device code flow for Kiro on first start; credentials cached to a Docker volume for automatic restarts.</p>
   </div>
 </div>
 
@@ -134,7 +134,7 @@ flowchart TD
 git clone https://github.com/if414013/harbangan.git
 cd harbangan
 cp .env.example .env
-# Edit .env with your Google OAuth credentials, etc.
+# Edit .env — set POSTGRES_PASSWORD (and optionally INITIAL_ADMIN_* for password auth)
 
 # Start all services
 docker compose up -d --build
@@ -142,7 +142,7 @@ docker compose up -d --build
 
 Then open `https://your-domain.com/_ui/` to complete setup via Google SSO.
 
-For proxy-only mode (Kiro-only, single container, no database):
+For proxy-only mode (single container, no database):
 
 ```bash
 cp .env.proxy.example .env.proxy

@@ -25,8 +25,8 @@ Your configuration depends on your deployment mode:
 | | Proxy-Only | Full Deployment |
 |---|---|---|
 | **API Key** | `PROXY_API_KEY` from `.env.proxy` | Personal key from Web UI (`/_ui/`) |
-| **Providers** | Kiro only | Kiro + Anthropic, OpenAI Codex, Copilot |
-| **Models** | `claude-*` names, `auto` | + `anthropic/`, `openai_codex/`, `copilot/` prefixes |
+| **Providers** | All providers via env vars | All providers via Web UI OAuth + Admin UI |
+| **Models** | `claude-*` names, `auto`, provider-prefixed | + `anthropic/`, `openai_codex/`, `copilot/` prefixes |
 | **Web UI** | Not available | Available at `/_ui/` for OAuth setup |
 
 ---

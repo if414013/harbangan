@@ -63,7 +63,7 @@ docker compose logs backend
 Common causes:
 - Invalid environment variables in `.env`
 - PostgreSQL not ready (check `docker compose ps` — `db` should be healthy)
-- Missing required environment variables (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`)
+- Missing `POSTGRES_PASSWORD` in `.env`
 
 ### Frontend container won't start
 
@@ -79,10 +79,10 @@ Common causes:
 
 ### "OAuth callback URL mismatch"
 
-**Cause:** The `GOOGLE_CALLBACK_URL` in `.env` doesn't match the authorized redirect URI in your Google Cloud Console.
+**Cause:** The Google OAuth callback URL configured in the Admin UI doesn't match the authorized redirect URI in your Google Cloud Console.
 
 **Solutions:**
-- **Check `.env`:** `GOOGLE_CALLBACK_URL` should be `https://your-domain/_ui/api/auth/google/callback`
+- **Check Admin UI:** Go to `/_ui/` > Admin > Configuration and verify the Google OAuth callback URL is `https://your-domain/_ui/api/auth/google/callback`
 - **Check Google Cloud Console:** Go to APIs & Services > Credentials > Your OAuth Client. The "Authorized redirect URIs" must include the exact same URL.
 - **Protocol matters:** The URL must use `https://`, not `http://`
 - **No trailing slash:** Ensure there's no trailing slash mismatch
@@ -92,10 +92,10 @@ Common causes:
 **Cause:** Missing or incorrect Google OAuth configuration.
 
 **Solutions:**
-- Verify all three Google OAuth variables are set in `.env`:
-  - `GOOGLE_CLIENT_ID`
-  - `GOOGLE_CLIENT_SECRET`
-  - `GOOGLE_CALLBACK_URL`
+- Verify Google OAuth is configured in the Admin UI (Configuration page):
+  - Google Client ID
+  - Google Client Secret
+  - Google Callback URL
 - Check that the OAuth consent screen is configured in Google Cloud Console
 - For development, ensure "Test users" are added if the app is in testing mode
 - Check backend logs for OAuth errors: `docker compose logs backend | grep -i oauth`
@@ -334,7 +334,7 @@ ss -tlnp | grep -E ':(9999|5173)\s'
 ## Proxy-Only Mode Issues
 
 {: .note }
-> Proxy-Only Mode (`docker-compose.gateway.yml`) supports **Kiro (AWS CodeWhisperer) only**. Kiro credentials are cached in the `gateway-data` Docker volume at `/data/tokens.json`.
+> Proxy-Only Mode (`docker-compose.gateway.yml`) supports **all providers** (Kiro, Anthropic, OpenAI Codex, Copilot, Custom) via environment variables. Kiro credentials are cached in the `gateway-data` Docker volume at `/data/tokens.json`. Other providers are configured via API key env vars in `.env.proxy`.
 
 ### "ERROR: PROXY_API_KEY is required"
 
@@ -429,7 +429,7 @@ docker compose -f docker-compose.gateway.yml --env-file .env.proxy restart gatew
 ## Provider-Specific Issues
 
 {: .note }
-> Provider-specific issues below apply to **Full Deployment only** (`docker-compose.yml`). Proxy-Only Mode supports Kiro exclusively — there is no Copilot provider in proxy mode.
+> The OAuth-based provider flows (Copilot connect button, Anthropic OAuth relay) below apply to **Full Deployment only** (`docker-compose.yml`). In Proxy-Only Mode, providers are configured via environment variables instead of OAuth flows.
 
 ### GitHub Copilot
 

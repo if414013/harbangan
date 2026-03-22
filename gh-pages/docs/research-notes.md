@@ -162,6 +162,15 @@ As of v1.0.8, the gateway supports multiple AI providers beyond the original Kir
 | **GitHub Copilot** | GitHub OAuth (authorization code) | `GITHUB_COPILOT_CLIENT_ID`, `GITHUB_COPILOT_CLIENT_SECRET`, `GITHUB_COPILOT_CALLBACK_URL` | Requires a registered GitHub OAuth App |
 | **Custom** | API key | `CUSTOM_PROVIDER_URL`, `CUSTOM_PROVIDER_KEY`, `CUSTOM_PROVIDER_MODELS` (proxy mode) or via Admin UI | Any OpenAI-compatible endpoint |
 
+### Removed Providers
+
+The following providers have been removed from the gateway. Requests using model names associated with these providers are explicitly rejected with a `400 Bad Request` error identifying the removed provider. This is handled by `ProviderRegistry::removed_provider_for_model()` in `backend/src/providers/registry.rs`.
+
+| Removed Provider | Model Prefixes Rejected |
+|---|---|
+| **Gemini** | `gemini-*`, `gemini/*` |
+| **Qwen** | `qwen-*`, `qwen3-*`, `qwq-*`, `qwen/*` |
+
 ### Architecture Decisions
 
 **Per-user provider credentials.** Each user manages their own provider connections via the Profile page. Credentials are stored encrypted in PostgreSQL and cached in memory with TTL-based refresh.
