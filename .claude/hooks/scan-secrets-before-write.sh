@@ -28,13 +28,8 @@ case "$FILE_PATH" in
   *.env.example|*/.env.example) exit 0 ;;
 esac
 
-# Allowlisted values — public, not secrets
-QWEN_PUBLIC_ID="f0304373b74a44d2b584a3fb70ca9e56"
-
-# Remove allowlisted values before scanning
-SANITIZED=$(echo "$CONTENT" | sed "s/$QWEN_PUBLIC_ID//g")
-
 # --- Secret patterns ---
+SANITIZED="$CONTENT"
 FOUND=""
 
 # AWS access key IDs

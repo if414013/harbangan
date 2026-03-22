@@ -27,4 +27,3 @@ Do not `git add` or `git commit` any of these:
 
 - Test fixtures must use obviously fake values (e.g., `test-key-123`, `fake-token`)
 - Never copy production credentials into test files
-- The Qwen OAuth client ID `f0304373b74a44d2b584a3fb70ca9e56` is a public device flow ID, not a secret
