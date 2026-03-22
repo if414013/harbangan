@@ -15,6 +15,7 @@ use super::pipeline::{
     build_kiro_credentials, build_request_context_anthropic, extract_assistant_content_anthropic,
     extract_last_user_message_anthropic, parse_retry_after, read_config, resolve_provider_routing,
     run_input_guardrail_check, run_output_guardrail_check, update_rate_limits,
+    validate_model_provider,
 };
 use super::state::{AppState, UserKiroCreds};
 
@@ -66,6 +67,7 @@ pub(crate) async fn anthropic_messages_handler(
     }
 
     // ── Provider routing ─────────────────────────────────────────────
+    validate_model_provider(&request.model)?;
     let mut routing = resolve_provider_routing(&state, user_creds.as_ref(), &request.model).await;
 
     let mut creds = if routing.provider_id == ProviderId::Kiro {

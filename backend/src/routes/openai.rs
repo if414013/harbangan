@@ -15,6 +15,7 @@ use super::pipeline::{
     build_kiro_credentials, build_request_context_openai, extract_assistant_content,
     extract_last_user_message, parse_retry_after, read_config, resolve_provider_routing,
     run_input_guardrail_check, run_output_guardrail_check, update_rate_limits,
+    validate_model_provider,
 };
 use super::state::{AppState, UserKiroCreds};
 
@@ -105,6 +106,7 @@ pub(crate) async fn chat_completions_handler(
     }
 
     // ── Provider routing ─────────────────────────────────────────────
+    validate_model_provider(&request.model)?;
     let mut routing = resolve_provider_routing(&state, user_creds.as_ref(), &request.model).await;
 
     // Build credentials: for Kiro, derive from user creds / global auth;

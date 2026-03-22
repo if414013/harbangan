@@ -36,6 +36,19 @@ pub(crate) fn resolve_user_id(
         .or(if is_proxy { Some(PROXY_USER_ID) } else { None })
 }
 
+/// Reject model names that belong to providers no longer supported by this gateway.
+///
+/// Call this before `resolve_provider_routing` so clients get a clear 400 error
+/// instead of having their request silently fall through to Kiro.
+pub(crate) fn validate_model_provider(model: &str) -> Result<(), ApiError> {
+    if let Some(removed) = ProviderRegistry::removed_provider_for_model(model) {
+        return Err(ApiError::ValidationError(format!(
+            "The {removed} provider has been removed. Model '{model}' is no longer supported."
+        )));
+    }
+    Ok(())
+}
+
 /// Resolve which provider to route a request to, refreshing OAuth tokens if needed.
 pub(crate) async fn resolve_provider_routing(
     state: &AppState,

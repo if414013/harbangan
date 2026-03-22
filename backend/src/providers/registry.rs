@@ -170,6 +170,25 @@ impl ProviderRegistry {
         }
     }
 
+    /// Check whether a model name belongs to a provider that has been removed.
+    ///
+    /// Returns the removed provider name if the model matches a known-removed
+    /// prefix, so the caller can return an explicit error instead of silently
+    /// routing to Kiro.
+    pub fn removed_provider_for_model(model: &str) -> Option<&'static str> {
+        if model.starts_with("qwen-")
+            || model.starts_with("qwen3-")
+            || model.starts_with("qwq-")
+            || model.starts_with("qwen/")
+        {
+            Some("qwen")
+        } else if model.starts_with("gemini-") || model.starts_with("gemini/") {
+            Some("gemini")
+        } else {
+            None
+        }
+    }
+
     /// Ensure the user's OAuth token for a provider is fresh.
     ///
     /// Call this at the handler level BEFORE `resolve_provider`. If the token
@@ -688,12 +707,55 @@ mod tests {
 
     #[test]
     fn test_provider_for_model_gemini_now_returns_none() {
-        // Gemini provider removed — gemini-* models should return None (fall through to Kiro)
+        // Gemini provider removed — gemini-* models fall through to Kiro via provider_for_model
+        // but are caught by removed_provider_for_model at the route level
         assert_eq!(ProviderRegistry::provider_for_model("gemini-2.5-pro"), None);
         assert_eq!(
             ProviderRegistry::provider_for_model("gemini-2.5-flash"),
             None
         );
+    }
+
+    #[test]
+    fn test_removed_provider_for_model_qwen() {
+        assert_eq!(
+            ProviderRegistry::removed_provider_for_model("qwen-coder-plus"),
+            Some("qwen")
+        );
+        assert_eq!(
+            ProviderRegistry::removed_provider_for_model("qwen3-coder-plus"),
+            Some("qwen")
+        );
+        assert_eq!(
+            ProviderRegistry::removed_provider_for_model("qwq-32b"),
+            Some("qwen")
+        );
+        assert_eq!(
+            ProviderRegistry::removed_provider_for_model("qwen/qwen3-coder-plus"),
+            Some("qwen")
+        );
+    }
+
+    #[test]
+    fn test_removed_provider_for_model_gemini() {
+        assert_eq!(
+            ProviderRegistry::removed_provider_for_model("gemini-2.5-pro"),
+            Some("gemini")
+        );
+        assert_eq!(
+            ProviderRegistry::removed_provider_for_model("gemini/gemini-2.5-flash"),
+            Some("gemini")
+        );
+    }
+
+    #[test]
+    fn test_removed_provider_for_model_active_providers_pass() {
+        assert_eq!(
+            ProviderRegistry::removed_provider_for_model("claude-sonnet-4"),
+            None
+        );
+        assert_eq!(ProviderRegistry::removed_provider_for_model("gpt-4o"), None);
+        assert_eq!(ProviderRegistry::removed_provider_for_model("auto"), None);
     }
 
     #[test]
