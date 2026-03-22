@@ -183,21 +183,27 @@ mod tests {
         assert_eq!(mask_value(""), "****");
     }
 
+    // These tests mutate the CONFIG_ENCRYPTION_KEY env var and must not run
+    // concurrently with each other (env vars are process-global).
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_load_encryption_key_wrong_length() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         std::env::set_var("CONFIG_ENCRYPTION_KEY", BASE64.encode([0u8; 16]));
         let result = load_encryption_key();
+        std::env::remove_var("CONFIG_ENCRYPTION_KEY");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("32 bytes"));
-        std::env::remove_var("CONFIG_ENCRYPTION_KEY");
     }
 
     #[test]
     fn test_load_encryption_key_valid() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         let key_bytes = [0xABu8; 32];
         std::env::set_var("CONFIG_ENCRYPTION_KEY", BASE64.encode(key_bytes));
         let key = load_encryption_key().unwrap();
-        assert_eq!(key.as_slice(), &key_bytes);
         std::env::remove_var("CONFIG_ENCRYPTION_KEY");
+        assert_eq!(key.as_slice(), &key_bytes);
     }
 }
