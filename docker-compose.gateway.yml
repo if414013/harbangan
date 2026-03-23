@@ -4,13 +4,11 @@
 #   PROXY_API_KEY        — API key clients use to authenticate
 #
 # Optional (Kiro):
-#   KIRO_ENABLED         — Set to "false" to skip Kiro auth entirely (default: true)
 #   KIRO_REGION          — Kiro API region (default: us-east-1)
 #   KIRO_SSO_REGION      — SSO OIDC region (default: same as KIRO_REGION)
 #   KIRO_SSO_URL         — SSO issuer URL (auto-derived if omitted)
 #
 # Optional (Copilot):
-#   COPILOT_ENABLED      — Set to "true" to enable Copilot device flow (default: false)
 #   COPILOT_TOKEN        — GitHub Copilot token (or obtained via device flow)
 #   COPILOT_BASE_URL     — Copilot API base URL
 #
@@ -26,6 +24,7 @@
 #   SERVER_PORT          — Listen port (default: 8000)
 #   LOG_LEVEL            — info, debug, warn, error (default: info)
 #   DEBUG_MODE           — off, errors, all (default: off)
+#   SKIP_DEVICE_FLOWS    — Set to "true" to skip all interactive device flows
 #
 # Usage:
 #   docker compose -f docker-compose.gateway.yml --env-file .env.proxy up -d
@@ -51,12 +50,10 @@ services:
       DEBUG_MODE: "${DEBUG_MODE:-off}"
       SKIP_DEVICE_FLOWS: "${SKIP_DEVICE_FLOWS:-}"
       # Kiro (Optional)
-      KIRO_ENABLED: "${KIRO_ENABLED:-true}"
       KIRO_REGION: "${KIRO_REGION:-us-east-1}"
       KIRO_SSO_REGION: "${KIRO_SSO_REGION:-}"
       KIRO_SSO_URL: "${KIRO_SSO_URL:-}"
       # Copilot (Optional)
-      COPILOT_ENABLED: "${COPILOT_ENABLED:-false}"
       COPILOT_TOKEN: "${COPILOT_TOKEN:-}"
       COPILOT_BASE_URL: "${COPILOT_BASE_URL:-}"
       # Anthropic (Optional)
