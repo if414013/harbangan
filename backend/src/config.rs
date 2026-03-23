@@ -231,18 +231,42 @@ impl Config {
         if let Ok(api_key) = std::env::var("PROXY_API_KEY") {
             config.proxy = Some(ProxyConfig {
                 api_key,
-                kiro_refresh_token: std::env::var("KIRO_REFRESH_TOKEN").ok(),
-                kiro_client_id: std::env::var("KIRO_CLIENT_ID").ok(),
-                kiro_client_secret: std::env::var("KIRO_CLIENT_SECRET").ok(),
-                kiro_sso_region: std::env::var("KIRO_SSO_REGION").ok(),
-                anthropic_api_key: std::env::var("ANTHROPIC_API_KEY").ok(),
-                openai_api_key: std::env::var("OPENAI_API_KEY").ok(),
-                openai_base_url: std::env::var("OPENAI_BASE_URL").ok(),
-                copilot_token: std::env::var("COPILOT_TOKEN").ok(),
-                copilot_base_url: std::env::var("COPILOT_BASE_URL").ok(),
-                custom_provider_url: std::env::var("CUSTOM_PROVIDER_URL").ok(),
-                custom_provider_key: std::env::var("CUSTOM_PROVIDER_KEY").ok(),
-                custom_provider_models: std::env::var("CUSTOM_PROVIDER_MODELS").ok(),
+                kiro_refresh_token: std::env::var("KIRO_REFRESH_TOKEN")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                kiro_client_id: std::env::var("KIRO_CLIENT_ID")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                kiro_client_secret: std::env::var("KIRO_CLIENT_SECRET")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                kiro_sso_region: std::env::var("KIRO_SSO_REGION")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                anthropic_api_key: std::env::var("ANTHROPIC_API_KEY")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                openai_api_key: std::env::var("OPENAI_API_KEY")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                openai_base_url: std::env::var("OPENAI_BASE_URL")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                copilot_token: std::env::var("COPILOT_TOKEN")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                copilot_base_url: std::env::var("COPILOT_BASE_URL")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                custom_provider_url: std::env::var("CUSTOM_PROVIDER_URL")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                custom_provider_key: std::env::var("CUSTOM_PROVIDER_KEY")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                custom_provider_models: std::env::var("CUSTOM_PROVIDER_MODELS")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
             });
             // Infer proxy mode when PROXY_API_KEY is set (backward compat)
             config.gateway_mode = GatewayMode::Proxy;
