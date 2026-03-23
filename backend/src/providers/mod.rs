@@ -31,6 +31,15 @@ pub fn anthropic_to_openai_body(req: &AnthropicMessagesRequest) -> Value {
 /// Immutable map of provider ID → provider implementation, built once at startup.
 pub type ProviderMap = Arc<HashMap<ProviderId, Arc<dyn Provider>>>;
 
+fn direct_provider_client_builder(
+    max_connections: usize,
+    connect_timeout_secs: u64,
+) -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .pool_max_idle_per_host(max_connections)
+        .connect_timeout(Duration::from_secs(connect_timeout_secs))
+}
+
 /// Build the provider map with all providers including Kiro.
 ///
 /// Creates a shared `reqwest::Client` with connection pool and timeout settings
@@ -41,15 +50,20 @@ pub fn build_provider_map(
     auth_manager: Arc<tokio::sync::RwLock<crate::auth::AuthManager>>,
     config: Arc<std::sync::RwLock<crate::config::Config>>,
 ) -> ProviderMap {
-    // Build shared reqwest::Client using config values
-    let shared_client = {
+    // Build separate clients so streaming requests use the streaming timeout policy.
+    let (shared_request_client, shared_streaming_client) = {
         let cfg = config.read().unwrap_or_else(|p| p.into_inner());
-        reqwest::Client::builder()
-            .pool_max_idle_per_host(cfg.http_max_connections)
-            .connect_timeout(Duration::from_secs(cfg.http_connect_timeout))
-            .timeout(Duration::from_secs(cfg.http_request_timeout))
-            .build()
-            .expect("Failed to build shared HTTP client")
+        let request_client =
+            direct_provider_client_builder(cfg.http_max_connections, cfg.http_connect_timeout)
+                .timeout(Duration::from_secs(cfg.http_request_timeout))
+                .build()
+                .expect("Failed to build shared request HTTP client");
+        let streaming_client =
+            direct_provider_client_builder(cfg.http_max_connections, cfg.http_connect_timeout)
+                .read_timeout(Duration::from_secs(cfg.streaming_timeout))
+                .build()
+                .expect("Failed to build shared streaming HTTP client");
+        (request_client, streaming_client)
     };
 
     let mut map = HashMap::new();
@@ -59,21 +73,31 @@ pub fn build_provider_map(
     );
     map.insert(
         ProviderId::Anthropic,
-        Arc::new(anthropic::AnthropicProvider::new(shared_client.clone())) as Arc<dyn Provider>,
+        Arc::new(anthropic::AnthropicProvider::new(
+            shared_request_client.clone(),
+            shared_streaming_client.clone(),
+        )) as Arc<dyn Provider>,
     );
     map.insert(
         ProviderId::OpenAICodex,
         Arc::new(openai_codex::OpenAICodexProvider::new(
-            shared_client.clone(),
+            shared_request_client.clone(),
+            shared_streaming_client.clone(),
         )) as Arc<dyn Provider>,
     );
     map.insert(
         ProviderId::Copilot,
-        Arc::new(copilot::CopilotProvider::new(shared_client.clone())) as Arc<dyn Provider>,
+        Arc::new(copilot::CopilotProvider::new(
+            shared_request_client.clone(),
+            shared_streaming_client.clone(),
+        )) as Arc<dyn Provider>,
     );
     map.insert(
         ProviderId::Custom,
-        Arc::new(custom::CustomProvider::new(shared_client)) as Arc<dyn Provider>,
+        Arc::new(custom::CustomProvider::new(
+            shared_request_client,
+            shared_streaming_client,
+        )) as Arc<dyn Provider>,
     );
     Arc::new(map)
 }

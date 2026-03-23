@@ -21,13 +21,13 @@ const CACHE_TTL: Duration = Duration::from_secs(300);
 /// Buffer before expiry to trigger proactive refresh (5 minutes).
 const REFRESH_BUFFER_SECS: i64 = 300;
 
-struct CacheEntry {
-    credentials: HashMap<String, ProviderCredentials>,
+pub(crate) struct CacheEntry {
+    pub(crate) credentials: HashMap<String, ProviderCredentials>,
     /// Per-provider token expiry times.
-    expires_at: HashMap<String, DateTime<Utc>>,
+    pub(crate) expires_at: HashMap<String, DateTime<Utc>>,
     /// User's provider priority (provider_id -> priority). Lower = preferred.
-    priority: HashMap<String, i32>,
-    cached_at: Instant,
+    pub(crate) priority: HashMap<String, i32>,
+    pub(crate) cached_at: Instant,
 }
 
 /// Per-(user_id, provider) mutex map to prevent concurrent refresh storms.
@@ -474,30 +474,57 @@ impl ProviderRegistry {
         // Candidates: (AccountId, ProviderCredentials, priority)
         let mut candidates: Vec<(AccountId, ProviderCredentials, i32)> = Vec::new();
 
-        // Load all user accounts for this provider
-        if let Ok(rows) = db.get_all_user_provider_tokens(uid, provider_str).await {
-            for row in rows {
-                let now = chrono::Utc::now();
-                if row.expires_at > now {
-                    let account_id = AccountId {
-                        user_id: Some(uid),
-                        provider_id: native.clone(),
-                        account_label: row.account_label.clone(),
-                    };
-                    let creds = ProviderCredentials {
-                        provider: native.clone(),
-                        access_token: row.access_token.clone(),
-                        base_url: None,
-                        account_label: row.account_label.clone(),
-                    };
-                    candidates.push((account_id, creds, native_pri));
+        match native {
+            ProviderId::Copilot => {
+                if let Ok(Some(row)) = db.get_copilot_tokens(uid).await {
+                    if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
+                        (row.copilot_token, row.base_url, row.expires_at)
+                    {
+                        let now = chrono::Utc::now();
+                        if expires_at > now {
+                            let account_id = AccountId {
+                                user_id: Some(uid),
+                                provider_id: ProviderId::Copilot,
+                                account_label: "default".to_string(),
+                            };
+                            let creds = ProviderCredentials {
+                                provider: ProviderId::Copilot,
+                                access_token: copilot_token,
+                                base_url: Some(base_url),
+                                account_label: "default".to_string(),
+                            };
+                            candidates.push((account_id, creds, native_pri));
+                        }
+                    }
+                }
+            }
+            _ => {
+                // Load all user accounts for this provider
+                if let Ok(rows) = db.get_all_user_provider_tokens(uid, provider_str).await {
+                    for row in rows {
+                        let now = chrono::Utc::now();
+                        if row.expires_at > now {
+                            let account_id = AccountId {
+                                user_id: Some(uid),
+                                provider_id: native.clone(),
+                                account_label: row.account_label.clone(),
+                            };
+                            let creds = ProviderCredentials {
+                                provider: native.clone(),
+                                access_token: row.access_token.clone(),
+                                base_url: row.base_url.clone(),
+                                account_label: row.account_label.clone(),
+                            };
+                            candidates.push((account_id, creds, native_pri));
+                        }
+                    }
                 }
             }
         }
 
         // Also check Copilot as an alternative (universal provider)
         // BUT skip Copilot when prefix is explicit — explicit prefix is binding
-        if !is_explicit_prefix {
+        if native != ProviderId::Copilot && !is_explicit_prefix {
             if let Ok(Some(row)) = db.get_copilot_tokens(uid).await {
                 if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
                     (row.copilot_token, row.base_url, row.expires_at)
@@ -524,25 +551,22 @@ impl ProviderRegistry {
             }
         }
 
-        // Load admin pool accounts as fallback (default priority 100)
-        // Skip admin pool for other providers when prefix is explicit
-        if !is_explicit_prefix || native != ProviderId::Copilot {
-            const ADMIN_POOL_PRIORITY: i32 = 100;
-            if let Ok(pool_rows) = db.get_admin_pool_accounts(provider_str).await {
-                for row in pool_rows {
-                    let account_id = AccountId {
-                        user_id: None,
-                        provider_id: native.clone(),
-                        account_label: row.account_label.clone(),
-                    };
-                    let creds = ProviderCredentials {
-                        provider: native.clone(),
-                        access_token: row.api_key.clone(),
-                        base_url: row.base_url.clone(),
-                        account_label: row.account_label.clone(),
-                    };
-                    candidates.push((account_id, creds, ADMIN_POOL_PRIORITY));
-                }
+        // Load admin pool accounts for the target provider as fallback (default priority 100).
+        const ADMIN_POOL_PRIORITY: i32 = 100;
+        if let Ok(pool_rows) = db.get_admin_pool_accounts(provider_str).await {
+            for row in pool_rows {
+                let account_id = AccountId {
+                    user_id: None,
+                    provider_id: native.clone(),
+                    account_label: row.account_label.clone(),
+                };
+                let creds = ProviderCredentials {
+                    provider: native.clone(),
+                    access_token: row.api_key.clone(),
+                    base_url: row.base_url.clone(),
+                    account_label: row.account_label.clone(),
+                };
+                candidates.push((account_id, creds, ADMIN_POOL_PRIORITY));
             }
         }
 

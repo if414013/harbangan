@@ -13,10 +13,10 @@ use crate::providers::types::{ProviderContext, ProviderId};
 
 use super::pipeline::{
     build_kiro_credentials, build_request_context_anthropic, extract_assistant_content_anthropic,
-    extract_last_user_message_anthropic, handle_rate_limit_retry, read_config,
-    record_non_streaming_usage, resolve_provider_routing, run_input_guardrail_check,
+    extract_last_user_message_anthropic, extract_usage_metric_snapshot, handle_rate_limit_retry,
+    persist_non_streaming_usage, read_config, resolve_provider_routing, run_input_guardrail_check,
     run_output_guardrail_check, update_rate_limits, validate_model_provider,
-    wrap_stream_with_usage_tracking,
+    wrap_stream_with_usage_metrics,
 };
 use super::state::{AppState, UserKiroCreds};
 
@@ -68,8 +68,9 @@ pub(crate) async fn anthropic_messages_handler(
     }
 
     // ── Provider routing ─────────────────────────────────────────────
-    validate_model_provider(&request.model)?;
-    let mut routing = resolve_provider_routing(&state, user_creds.as_ref(), &request.model).await;
+    let requested_model = request.model.clone();
+    validate_model_provider(&requested_model)?;
+    let mut routing = resolve_provider_routing(&state, user_creds.as_ref(), &requested_model).await;
 
     let mut creds = if routing.provider_id == ProviderId::Kiro {
         build_kiro_credentials(&state, user_creds.as_ref()).await?
@@ -155,7 +156,7 @@ pub(crate) async fn anthropic_messages_handler(
                         &stream_resp.headers,
                     );
 
-                    let tracked_stream = wrap_stream_with_usage_tracking(
+                    let tracked_stream = wrap_stream_with_usage_metrics(
                         stream_resp.stream,
                         state.config_db.clone(),
                         user_creds.as_ref().map(|c| c.user_id),
@@ -187,7 +188,6 @@ pub(crate) async fn anthropic_messages_handler(
                     if !handle_rate_limit_retry(
                         &state,
                         user_creds.as_ref(),
-                        &request.model,
                         &mut routing,
                         &mut creds,
                         &mut provider,
@@ -238,8 +238,8 @@ pub(crate) async fn anthropic_messages_handler(
                         }
                     }
 
-                    record_non_streaming_usage(
-                        &body,
+                    persist_non_streaming_usage(
+                        extract_usage_metric_snapshot(&body),
                         &state.config_db,
                         user_creds.as_ref().map(|c| c.user_id),
                         &routing.provider_id,
@@ -257,7 +257,6 @@ pub(crate) async fn anthropic_messages_handler(
                     if !handle_rate_limit_retry(
                         &state,
                         user_creds.as_ref(),
-                        &request.model,
                         &mut routing,
                         &mut creds,
                         &mut provider,

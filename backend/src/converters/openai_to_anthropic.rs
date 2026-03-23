@@ -76,10 +76,8 @@ pub fn openai_to_anthropic(req: &ChatCompletionRequest) -> AnthropicMessagesRequ
                 let tool_use_id = msg.tool_call_id.clone().unwrap_or_default();
                 let result_content = msg
                     .content
-                    .as_ref()
-                    .and_then(|c| c.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                    .clone()
+                    .unwrap_or_else(|| serde_json::Value::String(String::new()));
                 let block = json!({
                     "type": "tool_result",
                     "tool_use_id": tool_use_id,

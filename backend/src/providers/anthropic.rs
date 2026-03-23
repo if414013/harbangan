@@ -20,11 +20,15 @@ const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 pub struct AnthropicProvider {
     client: reqwest::Client,
+    streaming_client: reqwest::Client,
 }
 
 impl AnthropicProvider {
-    pub fn new(client: reqwest::Client) -> Self {
-        Self { client }
+    pub fn new(client: reqwest::Client, streaming_client: reqwest::Client) -> Self {
+        Self {
+            client,
+            streaming_client,
+        }
     }
 
     fn base_url<'a>(&self, ctx: &ProviderContext<'a>) -> &'a str {
@@ -98,8 +102,13 @@ impl AnthropicProvider {
         let url = self.messages_url(ctx);
         body["stream"] = json!(stream);
 
-        let response = self
-            .client
+        let client = if stream {
+            &self.streaming_client
+        } else {
+            &self.client
+        };
+
+        let response = client
             .post(&url)
             .header("x-api-key", &ctx.credentials.access_token)
             .header("anthropic-version", ANTHROPIC_VERSION)
@@ -127,7 +136,7 @@ impl AnthropicProvider {
 
 impl Default for AnthropicProvider {
     fn default() -> Self {
-        Self::new(reqwest::Client::new())
+        Self::new(reqwest::Client::new(), reqwest::Client::new())
     }
 }
 
@@ -263,6 +272,7 @@ impl Provider for AnthropicProvider {
         let finish_reason = match stop_reason {
             "end_turn" => "stop".to_string(),
             "tool_use" => "tool_calls".to_string(),
+            "max_tokens" => "length".to_string(),
             other => other.to_string(),
         };
 
@@ -486,5 +496,22 @@ mod tests {
 
         let body = AnthropicProvider::openai_to_anthropic_body(&req);
         assert_eq!(body["max_tokens"], 4096);
+    }
+
+    #[test]
+    fn test_normalize_response_for_openai_maps_max_tokens_to_length() {
+        let provider = AnthropicProvider::default();
+        let body = json!({
+            "id": "msg_123",
+            "content": [{"type": "text", "text": "Partial answer"}],
+            "stop_reason": "max_tokens",
+            "usage": {
+                "input_tokens": 11,
+                "output_tokens": 22
+            }
+        });
+
+        let normalized = provider.normalize_response_for_openai("claude-sonnet-4", body);
+        assert_eq!(normalized["choices"][0]["finish_reason"], "length");
     }
 }

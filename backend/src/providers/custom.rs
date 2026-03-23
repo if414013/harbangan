@@ -20,11 +20,15 @@ use crate::streaming::sse::parse_sse_stream;
 
 pub struct CustomProvider {
     client: reqwest::Client,
+    streaming_client: reqwest::Client,
 }
 
 impl CustomProvider {
-    pub fn new(client: reqwest::Client) -> Self {
-        Self { client }
+    pub fn new(client: reqwest::Client, streaming_client: reqwest::Client) -> Self {
+        Self {
+            client,
+            streaming_client,
+        }
     }
 
     fn completions_url(ctx: &ProviderContext<'_>) -> Result<String, ApiError> {
@@ -51,10 +55,13 @@ impl CustomProvider {
         let url = Self::completions_url(ctx)?;
         body["stream"] = json!(stream);
 
-        let mut builder = self
-            .client
-            .post(&url)
-            .header("content-type", "application/json");
+        let client = if stream {
+            &self.streaming_client
+        } else {
+            &self.client
+        };
+
+        let mut builder = client.post(&url).header("content-type", "application/json");
 
         // Only add auth header when a key is configured
         if !ctx.credentials.access_token.is_empty() {
@@ -86,7 +93,7 @@ impl CustomProvider {
 
 impl Default for CustomProvider {
     fn default() -> Self {
-        Self::new(reqwest::Client::new())
+        Self::new(reqwest::Client::new(), reqwest::Client::new())
     }
 }
 

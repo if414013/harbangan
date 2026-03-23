@@ -523,6 +523,53 @@ mod tests {
     }
 
     #[test]
+    fn test_tool_roundtrip_preserves_structured_tool_result_content() {
+        let req = anthropic_req(vec![
+            anth_msg("user", "Weather?"),
+            AnthropicMessage {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type": "tool_use", "id": "tu_blocks", "name": "weather", "input": {}}
+                ]),
+            },
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: json!([
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tu_blocks",
+                        "content": [{"type": "text", "text": "Sunny 72F"}]
+                    }
+                ]),
+            },
+        ]);
+
+        let mid = anthropic_to_openai(&req);
+        let tool_msg = mid.messages.iter().find(|m| m.role == "tool").unwrap();
+        assert_eq!(tool_msg.tool_call_id, Some("tu_blocks".to_string()));
+        assert_eq!(
+            tool_msg.content,
+            Some(json!([{"type": "text", "text": "Sunny 72F"}]))
+        );
+
+        let back = openai_to_anthropic(&mid);
+        let user_tr = back.messages.iter().find(|m| {
+            m.role == "user"
+                && m.content
+                    .as_array()
+                    .is_some_and(|a| a.iter().any(|b| b["type"] == "tool_result"))
+        });
+        assert!(user_tr.is_some());
+        let blocks = user_tr.unwrap().content.as_array().unwrap();
+        let tr = blocks.iter().find(|b| b["type"] == "tool_result").unwrap();
+        assert_eq!(tr["tool_use_id"], "tu_blocks");
+        assert_eq!(
+            tr["content"],
+            json!([{"type": "text", "text": "Sunny 72F"}])
+        );
+    }
+
+    #[test]
     fn test_tool_roundtrip_multiple_concurrent_tool_calls() {
         let req = openai_req(vec![
             chat_msg("user", "Search and translate"),

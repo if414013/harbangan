@@ -20,11 +20,15 @@ const OPENAI_API_BASE: &str = "https://api.openai.com";
 
 pub struct OpenAICodexProvider {
     client: reqwest::Client,
+    streaming_client: reqwest::Client,
 }
 
 impl OpenAICodexProvider {
-    pub fn new(client: reqwest::Client) -> Self {
-        Self { client }
+    pub fn new(client: reqwest::Client, streaming_client: reqwest::Client) -> Self {
+        Self {
+            client,
+            streaming_client,
+        }
     }
 
     fn base_url<'a>(&self, ctx: &ProviderContext<'a>) -> &'a str {
@@ -47,8 +51,13 @@ impl OpenAICodexProvider {
         let url = self.completions_url(ctx);
         body["stream"] = json!(stream);
 
-        let response = self
-            .client
+        let client = if stream {
+            &self.streaming_client
+        } else {
+            &self.client
+        };
+
+        let response = client
             .post(&url)
             .header(
                 "Authorization",
@@ -78,7 +87,7 @@ impl OpenAICodexProvider {
 
 impl Default for OpenAICodexProvider {
     fn default() -> Self {
-        Self::new(reqwest::Client::new())
+        Self::new(reqwest::Client::new(), reqwest::Client::new())
     }
 }
 
@@ -197,6 +206,7 @@ pub fn openai_response_to_anthropic(model: &str, body: &Value) -> Value {
     let stop_reason = match finish_reason {
         "stop" => "end_turn".to_string(),
         "tool_calls" => "tool_use".to_string(),
+        "length" => "max_tokens".to_string(),
         other => other.to_string(),
     };
 
@@ -370,5 +380,23 @@ mod tests {
         assert_eq!(body["messages"][0]["role"], "system");
         assert_eq!(body["messages"][0]["content"], "Be helpful");
         assert_eq!(body["messages"][1]["role"], "user");
+    }
+
+    #[test]
+    fn test_openai_response_to_anthropic_maps_length_to_max_tokens() {
+        let body = json!({
+            "id": "chatcmpl-123",
+            "choices": [{
+                "message": { "content": "Partial answer" },
+                "finish_reason": "length"
+            }],
+            "usage": {
+                "prompt_tokens": 11,
+                "completion_tokens": 22
+            }
+        });
+
+        let normalized = openai_response_to_anthropic("gpt-4o", &body);
+        assert_eq!(normalized["stop_reason"], "max_tokens");
     }
 }

@@ -24,6 +24,7 @@ use crate::web_ui::copilot_auth::CopilotDevicePendingMap;
 
 pub struct CopilotProvider {
     client: reqwest::Client,
+    streaming_client: reqwest::Client,
     /// user_id → (copilot_token, base_url, cached_at)
     token_cache: Arc<DashMap<Uuid, (String, String, Instant)>>,
     /// Pending Copilot device flow states: device_code → CopilotDevicePending
@@ -31,9 +32,10 @@ pub struct CopilotProvider {
 }
 
 impl CopilotProvider {
-    pub fn new(client: reqwest::Client) -> Self {
+    pub fn new(client: reqwest::Client, streaming_client: reqwest::Client) -> Self {
         Self {
             client,
+            streaming_client,
             token_cache: Arc::new(DashMap::new()),
             device_pending: Arc::new(DashMap::new()),
         }
@@ -100,8 +102,13 @@ impl CopilotProvider {
 
         let has_vision = Self::has_vision_content(&body);
 
-        let mut builder = self
-            .client
+        let client = if stream {
+            &self.streaming_client
+        } else {
+            &self.client
+        };
+
+        let mut builder = client
             .post(&url)
             .header(
                 "Authorization",
@@ -143,7 +150,7 @@ impl CopilotProvider {
 
 impl Default for CopilotProvider {
     fn default() -> Self {
-        Self::new(reqwest::Client::new())
+        Self::new(reqwest::Client::new(), reqwest::Client::new())
     }
 }
 

@@ -1,11 +1,19 @@
 /// Convert Anthropic AnthropicMessagesRequest to OpenAI ChatCompletionRequest.
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::converters::core::map_tool_choice_anthropic_to_openai;
 use crate::models::anthropic::{AnthropicMessagesRequest, AnthropicTool};
 use crate::models::openai::{
     ChatCompletionRequest, ChatMessage, FunctionCall, FunctionTool, Tool, ToolCall, ToolFunction,
 };
+
+fn tool_result_content_to_openai(content: &Value) -> Value {
+    if content.is_null() {
+        Value::String(String::new())
+    } else {
+        content.clone()
+    }
+}
 
 /// Convert an Anthropic-format request to OpenAI format.
 ///
@@ -53,7 +61,7 @@ pub fn anthropic_to_openai(req: &AnthropicMessagesRequest) -> ChatCompletionRequ
             // Content is an array of blocks — check for tool_use / tool_result
             let mut text_parts: Vec<String> = Vec::new();
             let mut tool_calls_out: Vec<ToolCall> = Vec::new();
-            let mut tool_results: Vec<(String, String)> = Vec::new(); // (tool_use_id, content)
+            let mut tool_results: Vec<(String, Value)> = Vec::new(); // (tool_use_id, content)
 
             for block in blocks {
                 let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
@@ -90,9 +98,8 @@ pub fn anthropic_to_openai(req: &AnthropicMessagesRequest) -> ChatCompletionRequ
                             .to_string();
                         let content = block
                             .get("content")
-                            .and_then(|c| c.as_str())
-                            .unwrap_or("")
-                            .to_string();
+                            .map(tool_result_content_to_openai)
+                            .unwrap_or_else(|| Value::String(String::new()));
                         tool_results.push((tool_use_id, content));
                     }
                     _ => {
@@ -108,7 +115,7 @@ pub fn anthropic_to_openai(req: &AnthropicMessagesRequest) -> ChatCompletionRequ
             for (tool_use_id, content) in tool_results {
                 messages.push(ChatMessage {
                     role: "tool".to_string(),
-                    content: Some(serde_json::Value::String(content)),
+                    content: Some(content),
                     name: None,
                     tool_calls: None,
                     tool_call_id: Some(tool_use_id),
