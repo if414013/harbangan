@@ -60,7 +60,6 @@ Proxy-Only Mode supports **multiple providers** via environment variables: Kiro 
 | `CUSTOM_PROVIDER_URL` | _(none)_ | Custom OpenAI-compatible endpoint URL. |
 | `CUSTOM_PROVIDER_KEY` | _(none)_ | Custom provider API key. |
 | `CUSTOM_PROVIDER_MODELS` | _(none)_ | Comma-separated model names for custom provider. |
-| `SKIP_DEVICE_FLOWS` | _(none)_ | Skip interactive device code flows on startup. |
 
 ### Builder ID vs Identity Center
 

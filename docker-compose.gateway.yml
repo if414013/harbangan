@@ -49,7 +49,6 @@ services:
       PROXY_API_KEY: "${PROXY_API_KEY}"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       DEBUG_MODE: "${DEBUG_MODE:-off}"
-      SKIP_DEVICE_FLOWS: "${SKIP_DEVICE_FLOWS:-}"
       # Kiro (Optional)
       KIRO_ENABLED: "${KIRO_ENABLED:-true}"
       KIRO_REGION: "${KIRO_REGION:-us-east-1}"

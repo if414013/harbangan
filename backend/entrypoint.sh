@@ -15,11 +15,6 @@ OIDC_BASE="https://oidc.${OIDC_REGION}.amazonaws.com"
 COPILOT_GITHUB_CLIENT_ID="${COPILOT_GITHUB_CLIENT_ID:-Iv1.b507a08c87ecfe98}"
 COPILOT_DEFAULT_BASE_URL="https://api.githubcopilot.com"
 
-# ── Skip device flows override ─────────────────────────────────────────
-if [ "${SKIP_DEVICE_FLOWS:-}" = "true" ]; then
-    echo "SKIP_DEVICE_FLOWS=true, skipping all device flows"
-fi
-
 # ── Validate ─────────────────────────────────────────────────────────
 if [ -z "${PROXY_API_KEY:-}" ]; then
     echo "ERROR: PROXY_API_KEY is required" >&2
@@ -109,10 +104,6 @@ elif [ -z "${KIRO_REFRESH_TOKEN:-}" ]; then
         export KIRO_CLIENT_ID="$CACHED_OIDC_ID"
         export KIRO_CLIENT_SECRET="$CACHED_OIDC_SEC"
     else
-        # Skip device flow if explicitly disabled
-        if [ "${SKIP_DEVICE_FLOWS:-}" = "true" ]; then
-            echo "  Skipping Kiro device flow (SKIP_DEVICE_FLOWS=true)"
-        else
         echo ""
         echo "┌─────────────────────────────────────────────────────────┐"
         echo "│  Kiro Gateway — Proxy-Only Mode                         │"
@@ -227,7 +218,6 @@ elif [ -z "${KIRO_REFRESH_TOKEN:-}" ]; then
         export KIRO_REFRESH_TOKEN="$REFRESH_TOKEN"
         export KIRO_CLIENT_ID="$OIDC_CID"
         export KIRO_CLIENT_SECRET="$OIDC_CSEC"
-    fi # end device flow skip check
     fi
 fi
 
@@ -360,7 +350,7 @@ run_copilot_device_flow() {
 }
 
 # Run device flows for providers that still need tokens
-if [ -z "${COPILOT_TOKEN:-}" ] && [ "${SKIP_DEVICE_FLOWS:-}" != "true" ] && [ "${COPILOT_ENABLED:-false}" != "false" ]; then
+if [ -z "${COPILOT_TOKEN:-}" ] && [ "${COPILOT_ENABLED:-false}" != "false" ]; then
     run_copilot_device_flow || echo "  Skipping Copilot (device flow failed or declined)"
 fi
 
