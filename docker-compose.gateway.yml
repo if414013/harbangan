@@ -4,16 +4,20 @@
 #   PROXY_API_KEY        — API key clients use to authenticate
 #
 # Optional (Kiro):
+#   KIRO_ENABLED         — Set to "false" to skip Kiro auth entirely (default: true)
 #   KIRO_REGION          — Kiro API region (default: us-east-1)
 #   KIRO_SSO_REGION      — SSO OIDC region (default: same as KIRO_REGION)
 #   KIRO_SSO_URL         — SSO issuer URL (auto-derived if omitted)
 #
-# Optional (multi-provider):
+# Optional (Copilot):
+#   COPILOT_ENABLED      — Set to "true" to enable Copilot device flow (default: false)
+#   COPILOT_TOKEN        — GitHub Copilot token (or obtained via device flow)
+#   COPILOT_BASE_URL     — Copilot API base URL
+#
+# Optional (other providers):
 #   ANTHROPIC_API_KEY    — Anthropic API key (enables claude-* models)
 #   OPENAI_API_KEY       — OpenAI API key (enables gpt-* models)
 #   OPENAI_BASE_URL      — OpenAI base URL (default: https://api.openai.com/v1)
-#   COPILOT_TOKEN        — GitHub Copilot token (or obtained via device flow)
-#   COPILOT_BASE_URL     — Copilot API base URL
 #   CUSTOM_PROVIDER_URL  — Custom OpenAI-compatible endpoint
 #   CUSTOM_PROVIDER_KEY  — Custom provider API key
 #   CUSTOM_PROVIDER_MODELS — Comma-separated model names for custom provider
@@ -38,28 +42,35 @@ services:
       # Localhost only by default. Set BIND_ADDRESS=0.0.0.0 to allow Docker container access.
       - "${BIND_ADDRESS:-127.0.0.1}:${SERVER_PORT:-8000}:${SERVER_PORT:-8000}"
     environment:
+      # Core
       GATEWAY_MODE: "proxy"
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "${SERVER_PORT:-8000}"
       PROXY_API_KEY: "${PROXY_API_KEY}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      DEBUG_MODE: "${DEBUG_MODE:-off}"
+      SKIP_DEVICE_FLOWS: "${SKIP_DEVICE_FLOWS:-}"
+      # Kiro (Optional)
+      KIRO_ENABLED: "${KIRO_ENABLED:-true}"
       KIRO_REGION: "${KIRO_REGION:-us-east-1}"
       KIRO_SSO_REGION: "${KIRO_SSO_REGION:-}"
       KIRO_SSO_URL: "${KIRO_SSO_URL:-}"
-      LOG_LEVEL: "${LOG_LEVEL:-info}"
-      DEBUG_MODE: "${DEBUG_MODE:-off}"
-      # Multi-provider credentials (all optional)
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-}"
+      # Copilot (Optional)
+      COPILOT_ENABLED: "${COPILOT_ENABLED:-false}"
       COPILOT_TOKEN: "${COPILOT_TOKEN:-}"
       COPILOT_BASE_URL: "${COPILOT_BASE_URL:-}"
+      # Anthropic (Optional)
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # OpenAI (Optional)
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-}"
+      # Custom provider (Optional)
       CUSTOM_PROVIDER_URL: "${CUSTOM_PROVIDER_URL:-}"
       CUSTOM_PROVIDER_KEY: "${CUSTOM_PROVIDER_KEY:-}"
       CUSTOM_PROVIDER_MODELS: "${CUSTOM_PROVIDER_MODELS:-}"
-      # Device flow control
-      SKIP_DEVICE_FLOWS: "${SKIP_DEVICE_FLOWS:-}"
     volumes:
       - gateway-data:/data
+      - ./backend/entrypoint.sh:/app/entrypoint.sh:ro
     deploy:
       resources:
         limits:

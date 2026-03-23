@@ -101,7 +101,9 @@ save_kiro_tokens() {
 # ══════════════════════════════════════════════════════════════════════
 # Provider 1: Kiro (AWS SSO OIDC device code flow)
 # ══════════════════════════════════════════════════════════════════════
-if [ -z "${KIRO_REFRESH_TOKEN:-}" ]; then
+if [ "${KIRO_ENABLED:-true}" = "false" ]; then
+    echo "→ Kiro provider disabled"
+elif [ -z "${KIRO_REFRESH_TOKEN:-}" ]; then
     if load_cached_kiro_tokens && validate_cached_kiro_tokens; then
         export KIRO_REFRESH_TOKEN="$CACHED_REFRESH"
         export KIRO_CLIENT_ID="$CACHED_OIDC_ID"
@@ -232,7 +234,9 @@ fi
 # ══════════════════════════════════════════════════════════════════════
 # Provider 2: GitHub Copilot (GitHub device code flow)
 # ══════════════════════════════════════════════════════════════════════
-if [ -n "${COPILOT_TOKEN:-}" ]; then
+if [ "${COPILOT_ENABLED:-false}" = "false" ]; then
+    echo "→ Copilot provider disabled"
+elif [ -n "${COPILOT_TOKEN:-}" ]; then
     export COPILOT_BASE_URL="${COPILOT_BASE_URL:-${COPILOT_DEFAULT_BASE_URL}}"
     echo "→ Copilot token provided via env"
 elif CACHED_CP_TK=$(read_cache_field copilot token) && [ -n "$CACHED_CP_TK" ]; then
@@ -356,7 +360,7 @@ run_copilot_device_flow() {
 }
 
 # Run device flows for providers that still need tokens
-if [ -z "${COPILOT_TOKEN:-}" ] && [ "${SKIP_DEVICE_FLOWS:-}" != "true" ]; then
+if [ -z "${COPILOT_TOKEN:-}" ] && [ "${SKIP_DEVICE_FLOWS:-}" != "true" ] && [ "${COPILOT_ENABLED:-false}" != "false" ]; then
     run_copilot_device_flow || echo "  Skipping Copilot (device flow failed or declined)"
 fi
 
