@@ -11,7 +11,6 @@ readme = "README.md"
 [features]
 default = []
 test-utils = []
-bench = ["hdrhistogram"]
 
 [dependencies]
 # Web framework
@@ -94,9 +93,6 @@ subtle = "2"
 argon2 = "0.5"
 totp-rs = { version = "5", features = ["qr", "gen_secret"] }
 
-# Benchmark dependencies (optional)
-hdrhistogram = { version = "7", optional = true }
-
 [dev-dependencies]
 # Testing
 tokio-test = "0.4"
@@ -123,8 +119,3 @@ name = "integration_test"
 path = "tests/integration_test.rs"
 required-features = ["test-utils"]
 
-[[bench]]
-name = "gateway_benchmark"
-path = "benches/benchmark.rs"
-harness = false
-required-features = ["bench"]
