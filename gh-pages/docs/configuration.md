@@ -45,6 +45,7 @@ Proxy-Only Mode supports **multiple providers** via environment variables: Kiro 
 
 | Variable | Default | Description |
 |:---|:---|:---|
+| `KIRO_ENABLED` | `true` | Set to `false` to skip Kiro device flow entirely. |
 | `KIRO_REGION` | `us-east-1` | AWS region for the Kiro API endpoint. |
 | `KIRO_SSO_URL` | _(omit for Builder ID)_ | Identity Center SSO issuer URL. Omit this to use Builder ID (free). |
 | `KIRO_SSO_REGION` | same as `KIRO_REGION` | AWS region for the SSO OIDC endpoint. Only needed if different from `KIRO_REGION`. |
@@ -55,6 +56,7 @@ Proxy-Only Mode supports **multiple providers** via environment variables: Kiro 
 | `ANTHROPIC_API_KEY` | _(none)_ | Anthropic API key for direct Anthropic provider access. |
 | `OPENAI_API_KEY` | _(none)_ | OpenAI API key for direct OpenAI provider access. |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI API base URL (override for compatible endpoints). |
+| `COPILOT_ENABLED` | `false` | Set to `true` to enable Copilot device flow. |
 | `COPILOT_TOKEN` | _(none)_ | GitHub Copilot token. |
 | `COPILOT_BASE_URL` | `https://api.githubcopilot.com` | Copilot API base URL. |
 | `CUSTOM_PROVIDER_URL` | _(none)_ | Custom OpenAI-compatible endpoint URL. |
