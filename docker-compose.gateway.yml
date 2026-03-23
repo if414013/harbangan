@@ -32,10 +32,7 @@
 
 services:
   gateway:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    image: harbangan-backend:latest
+    image: ghcr.io/if414013/harbangan-backend:${IMAGE_TAG:-latest}
     restart: on-failure:5
     entrypoint: ["/app/entrypoint.sh"]
     ports:
