@@ -93,7 +93,7 @@ impl std::str::FromStr for ProviderId {
         match s {
             "kiro" => Ok(ProviderId::Kiro),
             "anthropic" => Ok(ProviderId::Anthropic),
-            "openai_codex" => Ok(ProviderId::OpenAICodex),
+            "openai_codex" | "openai" => Ok(ProviderId::OpenAICodex),
             "copilot" => Ok(ProviderId::Copilot),
             "custom" => Ok(ProviderId::Custom),
             other => Err(format!("Unknown provider: {}", other)),
@@ -179,6 +179,10 @@ mod tests {
         );
         assert_eq!(
             ProviderId::from_str("openai_codex").unwrap(),
+            ProviderId::OpenAICodex
+        );
+        assert_eq!(
+            ProviderId::from_str("openai").unwrap(),
             ProviderId::OpenAICodex
         );
         assert_eq!(

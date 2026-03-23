@@ -50,7 +50,7 @@ where
                     None => break,
                     Some(pos) => {
                         let line = buffer[..pos].trim_end_matches('\r').to_string();
-                        buffer = buffer[pos + 1..].to_string();
+                        buffer.drain(..pos + 1);
 
                         if let Some(data) = line.strip_prefix("data: ") {
                             if data == "[DONE]" {

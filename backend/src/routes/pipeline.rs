@@ -1,7 +1,12 @@
+use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::http::HeaderMap;
+use bytes::Bytes;
+use futures::stream::{Stream, StreamExt};
 use serde_json::Value;
+use uuid::Uuid;
 
 use crate::config::Config;
 use crate::error::ApiError;
@@ -9,7 +14,8 @@ use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::ChatCompletionRequest;
 use crate::providers::rate_limiter::{AccountId, RateLimitTracker};
 use crate::providers::registry::ProviderRegistry;
-use crate::providers::types::{ProviderCredentials, ProviderId};
+use crate::providers::types::{ProviderCredentials, ProviderId, ProviderStreamItem};
+use crate::web_ui::config_db::ConfigDb;
 
 use super::state::{AppState, UserKiroCreds, PROXY_USER_ID};
 
@@ -332,10 +338,215 @@ pub(crate) async fn run_output_guardrail_check(
     }
 }
 
+/// Handle rate-limit retry and account re-resolution.
+///
+/// When a 429 error is received, marks the account as rate-limited, re-resolves
+/// the provider routing (which may pick a different account or provider), and
+/// updates the mutable references. Returns `true` if the caller should retry,
+/// `false` if retries are exhausted or no new credentials are available.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_rate_limit_retry<'a>(
+    state: &'a AppState,
+    user_creds: Option<&UserKiroCreds>,
+    model: &str,
+    routing: &mut ProviderRouting,
+    creds: &mut ProviderCredentials,
+    provider: &mut &'a Arc<dyn crate::providers::traits::Provider>,
+    attempt: usize,
+    max_attempts: usize,
+    headers: &Option<axum::http::HeaderMap>,
+) -> Result<bool, ApiError> {
+    if attempt >= max_attempts - 1 {
+        return Ok(false);
+    }
+    let retry_after = headers.as_ref().and_then(parse_retry_after);
+    if let Some(ref aid) = routing.account_id {
+        tracing::info!(
+            attempt,
+            account_label = %aid.account_label,
+            retry_after_secs = ?retry_after.map(|d| d.as_secs()),
+            "Rate limited, retrying with different account"
+        );
+        state.rate_tracker.mark_limited(aid, retry_after);
+    }
+    *routing = resolve_provider_routing(state, user_creds, model).await;
+    if let Some(ref new_creds) = routing.provider_creds {
+        *creds = new_creds.clone();
+    } else {
+        return Ok(false);
+    }
+    *provider = state.providers.get(&routing.provider_id).ok_or_else(|| {
+        ApiError::Internal(anyhow::anyhow!(
+            "Provider {:?} not registered",
+            routing.provider_id
+        ))
+    })?;
+    Ok(true)
+}
+
+/// Record usage from a non-streaming response body.
+///
+/// Extracts token counts from the body's `usage` field (supporting both OpenAI
+/// and Anthropic field names) and spawns a background task to persist the record.
+pub(crate) fn record_non_streaming_usage(
+    body: &Value,
+    config_db: &Option<Arc<ConfigDb>>,
+    user_id: Option<Uuid>,
+    provider_id: &ProviderId,
+    model: &str,
+) {
+    let Some(db) = config_db else { return };
+    let Some(uid) = user_id else { return };
+    let Some(usage) = body.get("usage") else {
+        return;
+    };
+    // Support both OpenAI (prompt_tokens/completion_tokens) and Anthropic (input_tokens/output_tokens)
+    let input_tokens = usage
+        .get("prompt_tokens")
+        .or_else(|| usage.get("input_tokens"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as i32;
+    let output_tokens = usage
+        .get("completion_tokens")
+        .or_else(|| usage.get("output_tokens"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as i32;
+    if input_tokens == 0 && output_tokens == 0 {
+        return;
+    }
+    let cost = crate::cost::calculate_cost(model, input_tokens as i64, output_tokens as i64);
+    let db = db.clone();
+    let provider_str = provider_id.to_string();
+    let model = model.to_string();
+    tokio::spawn(async move {
+        if let Err(e) = db
+            .insert_usage_record(
+                uid,
+                &provider_str,
+                &model,
+                input_tokens,
+                output_tokens,
+                cost,
+            )
+            .await
+        {
+            tracing::warn!(error = ?e, "Failed to record usage");
+        }
+    });
+}
+
+/// Wrap a streaming response to extract usage data and persist it after the stream ends.
+///
+/// Passes all chunks through unchanged (no latency impact). Inspects each chunk's
+/// text representation for `"usage":` and extracts token counts. On stream end,
+/// if tokens > 0, spawns a task to call `insert_usage_record`.
+pub(crate) fn wrap_stream_with_usage_tracking(
+    stream: Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>>,
+    config_db: Option<Arc<ConfigDb>>,
+    user_id: Option<Uuid>,
+    provider_id: ProviderId,
+    model: String,
+) -> Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>> {
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    let Some(db) = config_db else {
+        return stream;
+    };
+    let Some(uid) = user_id else {
+        return stream;
+    };
+
+    let input_tokens = Arc::new(AtomicI64::new(0));
+    let output_tokens = Arc::new(AtomicI64::new(0));
+    let provider_str = provider_id.to_string();
+
+    let input_ref = input_tokens.clone();
+    let output_ref = output_tokens.clone();
+
+    Box::pin(
+        stream
+            .map(move |item| {
+                if let Ok(ref chunk) = item {
+                    if let Ok(text) = std::str::from_utf8(chunk.as_ref()) {
+                        for line in text.lines() {
+                            if let Some(data) = line.strip_prefix("data: ") {
+                                if let Ok(parsed) = serde_json::from_str::<Value>(data) {
+                                    if let Some(usage) = parsed.get("usage") {
+                                        // OpenAI format
+                                        if let Some(pt) =
+                                            usage.get("prompt_tokens").and_then(|v| v.as_i64())
+                                        {
+                                            input_ref.store(pt, Ordering::Relaxed);
+                                        }
+                                        if let Some(ct) =
+                                            usage.get("completion_tokens").and_then(|v| v.as_i64())
+                                        {
+                                            output_ref.store(ct, Ordering::Relaxed);
+                                        }
+                                        // Anthropic format
+                                        if let Some(it) =
+                                            usage.get("input_tokens").and_then(|v| v.as_i64())
+                                        {
+                                            input_ref.store(it, Ordering::Relaxed);
+                                        }
+                                        if let Some(ot) =
+                                            usage.get("output_tokens").and_then(|v| v.as_i64())
+                                        {
+                                            output_ref.store(ot, Ordering::Relaxed);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                item
+            })
+            .chain(futures::stream::once({
+                let model = model.clone();
+                let provider_str = provider_str.clone();
+                async move {
+                    let inp = input_tokens.load(Ordering::Relaxed);
+                    let out = output_tokens.load(Ordering::Relaxed);
+                    if inp > 0 || out > 0 {
+                        let cost = crate::cost::calculate_cost(&model, inp, out);
+                        tokio::spawn(async move {
+                            if let Err(e) = db
+                                .insert_usage_record(
+                                    uid,
+                                    &provider_str,
+                                    &model,
+                                    inp as i32,
+                                    out as i32,
+                                    cost,
+                                )
+                                .await
+                            {
+                                tracing::warn!(error = ?e, "Failed to record streaming usage");
+                            }
+                        });
+                    }
+                    Ok(Bytes::new())
+                }
+            }))
+            .filter(|item| {
+                let keep = match item {
+                    Ok(bytes) => !bytes.is_empty(),
+                    Err(_) => true,
+                };
+                futures::future::ready(keep)
+            }),
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::pin::Pin;
+
+    use futures::stream::Stream;
     use uuid::Uuid;
+
+    use super::*;
 
     #[test]
     fn test_resolve_user_id_with_creds() {
@@ -382,5 +593,91 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("retry-after", "abc".parse().unwrap());
         assert_eq!(parse_retry_after(&headers), None);
+    }
+
+    // ── record_non_streaming_usage tests ──────────────────────────────
+
+    #[test]
+    fn test_record_non_streaming_usage_no_db_is_noop() {
+        let body = serde_json::json!({"usage": {"prompt_tokens": 100, "completion_tokens": 50}});
+        // Should not panic — just returns early
+        record_non_streaming_usage(
+            &body,
+            &None,
+            Some(Uuid::new_v4()),
+            &ProviderId::Anthropic,
+            "claude-sonnet-4",
+        );
+    }
+
+    #[test]
+    fn test_record_non_streaming_usage_no_user_is_noop() {
+        let body = serde_json::json!({"usage": {"prompt_tokens": 100, "completion_tokens": 50}});
+        record_non_streaming_usage(
+            &body,
+            &None, // no db
+            None,  // no user
+            &ProviderId::Anthropic,
+            "claude-sonnet-4",
+        );
+    }
+
+    #[test]
+    fn test_record_non_streaming_usage_no_usage_field_is_noop() {
+        let body = serde_json::json!({"choices": []});
+        record_non_streaming_usage(
+            &body,
+            &None,
+            Some(Uuid::new_v4()),
+            &ProviderId::Anthropic,
+            "claude-sonnet-4",
+        );
+    }
+
+    // ── wrap_stream_with_usage_tracking tests ─────────────────────────
+
+    #[test]
+    fn test_wrap_stream_no_db_returns_original() {
+        let stream: Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>> =
+            Box::pin(futures::stream::empty());
+        // Should return the stream unchanged (no wrapping)
+        let result = wrap_stream_with_usage_tracking(
+            stream,
+            None, // no db
+            Some(Uuid::new_v4()),
+            ProviderId::Anthropic,
+            "test-model".to_string(),
+        );
+        // Just verify it returns without panic
+        drop(result);
+    }
+
+    #[test]
+    fn test_wrap_stream_no_user_returns_original() {
+        let stream: Pin<Box<dyn Stream<Item = ProviderStreamItem> + Send>> =
+            Box::pin(futures::stream::empty());
+        let result = wrap_stream_with_usage_tracking(
+            stream,
+            None, // no db
+            None, // no user
+            ProviderId::Anthropic,
+            "test-model".to_string(),
+        );
+        drop(result);
+    }
+
+    #[test]
+    fn test_validate_model_provider_rejects_removed() {
+        let result = validate_model_provider("gemini-2.5-pro");
+        assert!(result.is_err());
+        let result = validate_model_provider("qwen-coder-plus");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_model_provider_accepts_active() {
+        assert!(validate_model_provider("claude-sonnet-4").is_ok());
+        assert!(validate_model_provider("gpt-4o").is_ok());
+        assert!(validate_model_provider("auto").is_ok());
     }
 }

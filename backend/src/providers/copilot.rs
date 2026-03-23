@@ -31,9 +31,9 @@ pub struct CopilotProvider {
 }
 
 impl CopilotProvider {
-    pub fn new() -> Self {
+    pub fn new(client: reqwest::Client) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client,
             token_cache: Arc::new(DashMap::new()),
             device_pending: Arc::new(DashMap::new()),
         }
@@ -143,7 +143,7 @@ impl CopilotProvider {
 
 impl Default for CopilotProvider {
     fn default() -> Self {
-        Self::new()
+        Self::new(reqwest::Client::new())
     }
 }
 
@@ -245,7 +245,7 @@ mod tests {
 
     #[test]
     fn test_copilot_provider_id() {
-        assert_eq!(CopilotProvider::new().id(), ProviderId::Copilot);
+        assert_eq!(CopilotProvider::default().id(), ProviderId::Copilot);
     }
 
     #[test]
@@ -487,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn test_anthropic_to_openai_body_zero_max_tokens_omitted() {
+    fn test_anthropic_to_openai_body_zero_max_tokens_passed_through() {
         let req = AnthropicMessagesRequest {
             model: "claude-sonnet-4".to_string(),
             messages: vec![AnthropicMessage {
@@ -508,7 +508,8 @@ mod tests {
             disable_parallel_tool_use: None,
         };
         let body = anthropic_to_openai_body(&req);
-        assert!(body.get("max_tokens").is_none());
+        // Full converter passes through max_tokens as-is
+        assert_eq!(body["max_tokens"], 0);
     }
 
     #[test]

@@ -163,6 +163,159 @@ mod tests {
     }
 
     #[test]
+    fn test_convert_kiro_to_anthropic_empty_content() {
+        let kiro_response = KiroResponse {
+            conversation_id: "test-conv".to_string(),
+            assistant_response_message: crate::models::kiro::AssistantResponseMessage {
+                content: vec![],
+                tool_uses: None,
+            },
+            usage: None,
+        };
+
+        let response = convert_kiro_to_anthropic_response(&kiro_response, "claude-sonnet-4");
+        // Empty content blocks when input is empty
+        assert!(response.content.is_empty());
+        assert_eq!(response.stop_reason, Some("end_turn".to_string()));
+    }
+
+    #[test]
+    fn test_convert_kiro_to_anthropic_empty_text_skipped() {
+        let kiro_response = KiroResponse {
+            conversation_id: "test-conv".to_string(),
+            assistant_response_message: crate::models::kiro::AssistantResponseMessage {
+                content: vec![crate::models::kiro::ContentBlock::Text {
+                    text: String::new(),
+                }],
+                tool_uses: None,
+            },
+            usage: None,
+        };
+
+        let response = convert_kiro_to_anthropic_response(&kiro_response, "claude-sonnet-4");
+        // Empty text blocks are skipped
+        assert!(response.content.is_empty());
+    }
+
+    #[test]
+    fn test_convert_kiro_to_anthropic_usage_propagation() {
+        let kiro_response = KiroResponse {
+            conversation_id: "test-conv".to_string(),
+            assistant_response_message: crate::models::kiro::AssistantResponseMessage {
+                content: vec![crate::models::kiro::ContentBlock::Text {
+                    text: "Hi".to_string(),
+                }],
+                tool_uses: None,
+            },
+            usage: Some(crate::models::kiro::KiroUsage {
+                input_tokens: 200,
+                output_tokens: 80,
+            }),
+        };
+
+        let response = convert_kiro_to_anthropic_response(&kiro_response, "claude-sonnet-4");
+        assert_eq!(response.usage.input_tokens, 200);
+        assert_eq!(response.usage.output_tokens, 80);
+    }
+
+    #[test]
+    fn test_convert_kiro_to_anthropic_no_usage_defaults_to_zero() {
+        let kiro_response = KiroResponse {
+            conversation_id: "test-conv".to_string(),
+            assistant_response_message: crate::models::kiro::AssistantResponseMessage {
+                content: vec![crate::models::kiro::ContentBlock::Text {
+                    text: "Hi".to_string(),
+                }],
+                tool_uses: None,
+            },
+            usage: None,
+        };
+
+        let response = convert_kiro_to_anthropic_response(&kiro_response, "claude-sonnet-4");
+        assert_eq!(response.usage.input_tokens, 0);
+        assert_eq!(response.usage.output_tokens, 0);
+    }
+
+    #[test]
+    fn test_convert_kiro_to_anthropic_multi_tool_uses() {
+        let kiro_response = KiroResponse {
+            conversation_id: "test-conv".to_string(),
+            assistant_response_message: crate::models::kiro::AssistantResponseMessage {
+                content: vec![crate::models::kiro::ContentBlock::Text {
+                    text: "Here you go.".to_string(),
+                }],
+                tool_uses: Some(vec![
+                    crate::models::kiro::ToolUse {
+                        tool_use_id: "tu_1".to_string(),
+                        name: "search".to_string(),
+                        input: json!({"q": "dogs"}),
+                    },
+                    crate::models::kiro::ToolUse {
+                        tool_use_id: "tu_2".to_string(),
+                        name: "calc".to_string(),
+                        input: json!({"expr": "2+2"}),
+                    },
+                ]),
+            },
+            usage: None,
+        };
+
+        let response = convert_kiro_to_anthropic_response(&kiro_response, "claude-sonnet-4");
+        assert_eq!(response.content.len(), 3); // text + 2 tool_use
+        assert_eq!(response.stop_reason, Some("tool_use".to_string()));
+
+        // Verify tool_use blocks
+        if let ContentBlock::ToolUse { id, name, .. } = &response.content[1] {
+            assert_eq!(id, "tu_1");
+            assert_eq!(name, "search");
+        } else {
+            panic!("Expected tool_use block at index 1");
+        }
+        if let ContentBlock::ToolUse { id, name, .. } = &response.content[2] {
+            assert_eq!(id, "tu_2");
+            assert_eq!(name, "calc");
+        } else {
+            panic!("Expected tool_use block at index 2");
+        }
+    }
+
+    #[test]
+    fn test_convert_kiro_to_anthropic_stop_reason_end_turn() {
+        let kiro_response = KiroResponse {
+            conversation_id: "test-conv".to_string(),
+            assistant_response_message: crate::models::kiro::AssistantResponseMessage {
+                content: vec![crate::models::kiro::ContentBlock::Text {
+                    text: "Done".to_string(),
+                }],
+                tool_uses: None,
+            },
+            usage: None,
+        };
+
+        let response = convert_kiro_to_anthropic_response(&kiro_response, "claude-sonnet-4");
+        assert_eq!(response.stop_reason, Some("end_turn".to_string()));
+    }
+
+    #[test]
+    fn test_convert_kiro_to_anthropic_model_preserved() {
+        let kiro_response = KiroResponse {
+            conversation_id: "test-conv".to_string(),
+            assistant_response_message: crate::models::kiro::AssistantResponseMessage {
+                content: vec![crate::models::kiro::ContentBlock::Text {
+                    text: "Hi".to_string(),
+                }],
+                tool_uses: None,
+            },
+            usage: None,
+        };
+
+        let response = convert_kiro_to_anthropic_response(&kiro_response, "claude-opus-4-6");
+        assert_eq!(response.model, "claude-opus-4-6");
+        assert_eq!(response.role, "assistant");
+        assert_eq!(response.response_type, "message");
+    }
+
+    #[test]
     fn test_generate_message_id_format() {
         let id = generate_message_id();
         assert!(id.starts_with("msg_"));

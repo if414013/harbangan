@@ -23,10 +23,8 @@ pub struct AnthropicProvider {
 }
 
 impl AnthropicProvider {
-    pub fn new() -> Self {
-        Self {
-            client: reqwest::Client::new(),
-        }
+    pub fn new(client: reqwest::Client) -> Self {
+        Self { client }
     }
 
     fn base_url<'a>(&self, ctx: &ProviderContext<'a>) -> &'a str {
@@ -41,6 +39,10 @@ impl AnthropicProvider {
     }
 
     /// Convert OpenAI ChatCompletionRequest to Anthropic messages format.
+    ///
+    /// NOTE: Production code now uses `converters::openai_to_anthropic` instead.
+    /// This simplified version is retained for existing test coverage.
+    #[cfg(test)]
     fn openai_to_anthropic_body(req: &ChatCompletionRequest) -> Value {
         let messages: Vec<Value> = req
             .messages
@@ -125,7 +127,7 @@ impl AnthropicProvider {
 
 impl Default for AnthropicProvider {
     fn default() -> Self {
-        Self::new()
+        Self::new(reqwest::Client::new())
     }
 }
 
@@ -144,7 +146,9 @@ impl Provider for AnthropicProvider {
         ctx: &ProviderContext<'_>,
         req: &ChatCompletionRequest,
     ) -> Result<ProviderResponse, ApiError> {
-        let body = Self::openai_to_anthropic_body(req);
+        let anthropic_req = crate::converters::openai_to_anthropic::openai_to_anthropic(req);
+        let body = serde_json::to_value(&anthropic_req)
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Serialization failed: {}", e)))?;
         let response = self.send_request(ctx, body, false).await?;
         let status = response.status().as_u16();
         let headers = response.headers().clone();
@@ -163,7 +167,9 @@ impl Provider for AnthropicProvider {
         ctx: &ProviderContext<'_>,
         req: &ChatCompletionRequest,
     ) -> Result<ProviderStreamResponse, ApiError> {
-        let body = Self::openai_to_anthropic_body(req);
+        let anthropic_req = crate::converters::openai_to_anthropic::openai_to_anthropic(req);
+        let body = serde_json::to_value(&anthropic_req)
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Serialization failed: {}", e)))?;
         let response = self.send_request(ctx, body, true).await?;
         let headers = response.headers().clone();
         let byte_stream = response.bytes_stream();
@@ -213,21 +219,52 @@ impl Provider for AnthropicProvider {
 
     /// Anthropic responses need conversion when served through the OpenAI endpoint.
     fn normalize_response_for_openai(&self, model: &str, body: Value) -> Value {
-        let text = body
-            .get("content")
-            .and_then(|c| c.as_array())
-            .and_then(|a| a.first())
-            .and_then(|b| b.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_string();
+        // Iterate ALL content blocks — concatenate text, collect tool_use as tool_calls
+        let mut text_parts: Vec<String> = Vec::new();
+        let mut tool_calls: Vec<Value> = Vec::new();
+        if let Some(blocks) = body.get("content").and_then(|c| c.as_array()) {
+            for block in blocks {
+                let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                match block_type {
+                    "text" => {
+                        if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
+                            text_parts.push(t.to_string());
+                        }
+                    }
+                    "tool_use" => {
+                        let id = block
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let name = block
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let input = block.get("input").cloned().unwrap_or(json!({}));
+                        let arguments = serde_json::to_string(&input).unwrap_or_default();
+                        tool_calls.push(json!({
+                            "id": id,
+                            "type": "function",
+                            "function": { "name": name, "arguments": arguments }
+                        }));
+                    }
+                    _ => {}
+                }
+            }
+        }
 
-        let finish_reason = body
+        let text = text_parts.join("");
+        let stop_reason = body
             .get("stop_reason")
             .and_then(|r| r.as_str())
-            .map(|r| if r == "end_turn" { "stop" } else { r })
-            .unwrap_or("stop")
-            .to_string();
+            .unwrap_or("end_turn");
+        let finish_reason = match stop_reason {
+            "end_turn" => "stop".to_string(),
+            "tool_use" => "tool_calls".to_string(),
+            other => other.to_string(),
+        };
 
         let prompt_tokens = body
             .get("usage")
@@ -240,6 +277,14 @@ impl Provider for AnthropicProvider {
             .and_then(|v| v.as_i64())
             .unwrap_or(0) as i32;
 
+        let mut message = json!({ "role": "assistant" });
+        if !text.is_empty() || tool_calls.is_empty() {
+            message["content"] = json!(text);
+        }
+        if !tool_calls.is_empty() {
+            message["tool_calls"] = json!(tool_calls);
+        }
+
         serde_json::json!({
             "id": body.get("id").and_then(|v| v.as_str()).unwrap_or("chatcmpl-direct"),
             "object": "chat.completion",
@@ -247,7 +292,7 @@ impl Provider for AnthropicProvider {
             "model": model,
             "choices": [{
                 "index": 0,
-                "message": { "role": "assistant", "content": text },
+                "message": message,
                 "finish_reason": finish_reason,
                 "logprobs": null
             }],
@@ -280,12 +325,12 @@ mod tests {
 
     #[test]
     fn test_anthropic_provider_id() {
-        assert_eq!(AnthropicProvider::new().id(), ProviderId::Anthropic);
+        assert_eq!(AnthropicProvider::default().id(), ProviderId::Anthropic);
     }
 
     #[test]
     fn test_messages_url_default() {
-        let provider = AnthropicProvider::new();
+        let provider = AnthropicProvider::default();
         let (creds, model) = make_ctx_parts("sk-ant-test");
         let ctx = ProviderContext {
             credentials: &creds,
@@ -299,7 +344,7 @@ mod tests {
 
     #[test]
     fn test_messages_url_custom_base() {
-        let provider = AnthropicProvider::new();
+        let provider = AnthropicProvider::default();
         let creds = ProviderCredentials {
             provider: ProviderId::Anthropic,
             access_token: "sk-ant-test".to_string(),

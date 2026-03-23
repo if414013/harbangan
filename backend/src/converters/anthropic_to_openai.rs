@@ -1,7 +1,11 @@
 /// Convert Anthropic AnthropicMessagesRequest to OpenAI ChatCompletionRequest.
+use serde_json::json;
+
 use crate::converters::core::map_tool_choice_anthropic_to_openai;
-use crate::models::anthropic::AnthropicMessagesRequest;
-use crate::models::openai::{ChatCompletionRequest, ChatMessage};
+use crate::models::anthropic::{AnthropicMessagesRequest, AnthropicTool};
+use crate::models::openai::{
+    ChatCompletionRequest, ChatMessage, FunctionCall, FunctionTool, Tool, ToolCall, ToolFunction,
+};
 
 /// Convert an Anthropic-format request to OpenAI format.
 ///
@@ -14,7 +18,6 @@ use crate::models::openai::{ChatCompletionRequest, ChatMessage};
 /// - `tool_choice` is mapped: {"type":"auto"} → "auto", {"type":"any"} → "required", etc.
 /// - `disable_parallel_tool_use: true` → `parallel_tool_calls: false`
 /// - `thinking` config → `reasoning_effort` (based on budget_tokens)
-#[allow(dead_code)]
 pub fn anthropic_to_openai(req: &AnthropicMessagesRequest) -> ChatCompletionRequest {
     let mut messages: Vec<ChatMessage> = Vec::new();
 
@@ -46,13 +49,101 @@ pub fn anthropic_to_openai(req: &AnthropicMessagesRequest) -> ChatCompletionRequ
     }
 
     for msg in &req.messages {
-        messages.push(ChatMessage {
-            role: msg.role.clone(),
-            content: Some(msg.content.clone()),
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-        });
+        if let Some(blocks) = msg.content.as_array() {
+            // Content is an array of blocks — check for tool_use / tool_result
+            let mut text_parts: Vec<String> = Vec::new();
+            let mut tool_calls_out: Vec<ToolCall> = Vec::new();
+            let mut tool_results: Vec<(String, String)> = Vec::new(); // (tool_use_id, content)
+
+            for block in blocks {
+                let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                match block_type {
+                    "text" => {
+                        if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
+                            text_parts.push(text.to_string());
+                        }
+                    }
+                    "tool_use" => {
+                        let id = block
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let name = block
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let input = block.get("input").cloned().unwrap_or(json!({}));
+                        let arguments = serde_json::to_string(&input).unwrap_or_default();
+                        tool_calls_out.push(ToolCall {
+                            id,
+                            tool_type: "function".to_string(),
+                            function: FunctionCall { name, arguments },
+                        });
+                    }
+                    "tool_result" => {
+                        let tool_use_id = block
+                            .get("tool_use_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let content = block
+                            .get("content")
+                            .and_then(|c| c.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        tool_results.push((tool_use_id, content));
+                    }
+                    _ => {
+                        // Pass through other block types as text if they have text
+                        if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
+                            text_parts.push(text.to_string());
+                        }
+                    }
+                }
+            }
+
+            // Emit tool results as separate "tool" role messages
+            for (tool_use_id, content) in tool_results {
+                messages.push(ChatMessage {
+                    role: "tool".to_string(),
+                    content: Some(serde_json::Value::String(content)),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: Some(tool_use_id),
+                });
+            }
+
+            // Emit the assistant/user message with text + tool_calls
+            if !text_parts.is_empty() || !tool_calls_out.is_empty() {
+                let content_text = text_parts.join("\n");
+                messages.push(ChatMessage {
+                    role: msg.role.clone(),
+                    content: if content_text.is_empty() {
+                        None
+                    } else {
+                        Some(serde_json::Value::String(content_text))
+                    },
+                    name: None,
+                    tool_calls: if tool_calls_out.is_empty() {
+                        None
+                    } else {
+                        Some(tool_calls_out)
+                    },
+                    tool_call_id: None,
+                });
+            }
+        } else {
+            // Content is a plain string
+            messages.push(ChatMessage {
+                role: msg.role.clone(),
+                content: Some(msg.content.clone()),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            });
+        }
     }
 
     let stop = req.stop_sequences.as_ref().map(|seqs| {
@@ -83,6 +174,24 @@ pub fn anthropic_to_openai(req: &AnthropicMessagesRequest) -> ChatCompletionRequ
             })
     });
 
+    // Map Anthropic tools to OpenAI format
+    let tools: Option<Vec<Tool>> = req.tools.as_ref().map(|tools| {
+        tools
+            .iter()
+            .filter_map(|t| match t {
+                AnthropicTool::Custom(ct) => Some(Tool::Function(FunctionTool {
+                    tool_type: "function".to_string(),
+                    function: ToolFunction {
+                        name: ct.name.clone(),
+                        description: ct.description.clone(),
+                        parameters: Some(ct.input_schema.clone()),
+                    },
+                })),
+                AnthropicTool::ServerSide(_) => None,
+            })
+            .collect()
+    });
+
     ChatCompletionRequest {
         model: req.model.clone(),
         messages,
@@ -95,7 +204,7 @@ pub fn anthropic_to_openai(req: &AnthropicMessagesRequest) -> ChatCompletionRequ
         stop,
         presence_penalty: None,
         frequency_penalty: None,
-        tools: None,
+        tools,
         tool_choice,
         stream_options: None,
         logit_bias: None,

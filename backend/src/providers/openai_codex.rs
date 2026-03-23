@@ -23,10 +23,8 @@ pub struct OpenAICodexProvider {
 }
 
 impl OpenAICodexProvider {
-    pub fn new() -> Self {
-        Self {
-            client: reqwest::Client::new(),
-        }
+    pub fn new(client: reqwest::Client) -> Self {
+        Self { client }
     }
 
     fn base_url<'a>(&self, ctx: &ProviderContext<'a>) -> &'a str {
@@ -80,7 +78,7 @@ impl OpenAICodexProvider {
 
 impl Default for OpenAICodexProvider {
     fn default() -> Self {
-        Self::new()
+        Self::new(reqwest::Client::new())
     }
 }
 
@@ -174,25 +172,73 @@ impl Provider for OpenAICodexProvider {
 
 /// Convert an OpenAI API non-streaming response body → Anthropic messages response JSON.
 ///
-/// Public so that other OpenAI-compatible providers (Copilot) can reuse this.
+/// Public so that other OpenAI-compatible providers (Copilot, Custom) can reuse this.
+/// Maps tool_calls to Anthropic tool_use content blocks and finish_reason "tool_calls"
+/// to stop_reason "tool_use".
 pub fn openai_response_to_anthropic(model: &str, body: &Value) -> Value {
-    let text = body
+    let message = body
         .get("choices")
         .and_then(|c| c.get(0))
-        .and_then(|c| c.get("message"))
+        .and_then(|c| c.get("message"));
+
+    let text = message
         .and_then(|m| m.get("content"))
         .and_then(|c| c.as_str())
         .unwrap_or("")
         .to_string();
 
-    let stop_reason = body
+    let finish_reason = body
         .get("choices")
         .and_then(|c| c.get(0))
         .and_then(|c| c.get("finish_reason"))
         .and_then(|r| r.as_str())
-        .map(|r| if r == "stop" { "end_turn" } else { r })
-        .unwrap_or("end_turn")
-        .to_string();
+        .unwrap_or("stop");
+
+    let stop_reason = match finish_reason {
+        "stop" => "end_turn".to_string(),
+        "tool_calls" => "tool_use".to_string(),
+        other => other.to_string(),
+    };
+
+    // Build content blocks: text + tool_use
+    let mut content_blocks: Vec<Value> = Vec::new();
+    if !text.is_empty() {
+        content_blocks.push(json!({"type": "text", "text": text}));
+    }
+    if let Some(tool_calls) = message
+        .and_then(|m| m.get("tool_calls"))
+        .and_then(|t| t.as_array())
+    {
+        for tc in tool_calls {
+            let id = tc
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let name = tc
+                .get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(|n| n.as_str())
+                .unwrap_or("")
+                .to_string();
+            let arguments = tc
+                .get("function")
+                .and_then(|f| f.get("arguments"))
+                .and_then(|a| a.as_str())
+                .unwrap_or("{}");
+            let input: Value = serde_json::from_str(arguments).unwrap_or(json!({}));
+            content_blocks.push(json!({
+                "type": "tool_use",
+                "id": id,
+                "name": name,
+                "input": input,
+            }));
+        }
+    }
+    // Ensure at least one content block
+    if content_blocks.is_empty() {
+        content_blocks.push(json!({"type": "text", "text": ""}));
+    }
 
     let input_tokens = body
         .get("usage")
@@ -210,7 +256,7 @@ pub fn openai_response_to_anthropic(model: &str, body: &Value) -> Value {
         "type": "message",
         "role": "assistant",
         "model": model,
-        "content": [{ "type": "text", "text": text }],
+        "content": content_blocks,
         "stop_reason": stop_reason,
         "stop_sequence": null,
         "usage": { "input_tokens": input_tokens, "output_tokens": output_tokens }
@@ -226,12 +272,12 @@ mod tests {
 
     #[test]
     fn test_openai_codex_provider_id() {
-        assert_eq!(OpenAICodexProvider::new().id(), ProviderId::OpenAICodex);
+        assert_eq!(OpenAICodexProvider::default().id(), ProviderId::OpenAICodex);
     }
 
     #[test]
     fn test_completions_url_default() {
-        let provider = OpenAICodexProvider::new();
+        let provider = OpenAICodexProvider::default();
         let creds = ProviderCredentials {
             provider: ProviderId::OpenAICodex,
             access_token: "sk-test".to_string(),
@@ -251,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_completions_url_custom_base() {
-        let provider = OpenAICodexProvider::new();
+        let provider = OpenAICodexProvider::default();
         let creds = ProviderCredentials {
             provider: ProviderId::OpenAICodex,
             access_token: "sk-test".to_string(),

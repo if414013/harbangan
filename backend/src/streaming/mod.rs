@@ -517,7 +517,7 @@ impl SseParser {
             }
 
             // Remove the processed part from buffer
-            self.buffer = self.buffer[json_end + 1..].to_string();
+            self.buffer.drain(..json_end + 1);
         }
 
         Ok(events)

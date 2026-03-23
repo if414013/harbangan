@@ -13,9 +13,10 @@ use crate::providers::types::{ProviderContext, ProviderId};
 
 use super::pipeline::{
     build_kiro_credentials, build_request_context_anthropic, extract_assistant_content_anthropic,
-    extract_last_user_message_anthropic, parse_retry_after, read_config, resolve_provider_routing,
-    run_input_guardrail_check, run_output_guardrail_check, update_rate_limits,
-    validate_model_provider,
+    extract_last_user_message_anthropic, handle_rate_limit_retry, read_config,
+    record_non_streaming_usage, resolve_provider_routing, run_input_guardrail_check,
+    run_output_guardrail_check, update_rate_limits, validate_model_provider,
+    wrap_stream_with_usage_tracking,
 };
 use super::state::{AppState, UserKiroCreds};
 
@@ -73,7 +74,12 @@ pub(crate) async fn anthropic_messages_handler(
     let mut creds = if routing.provider_id == ProviderId::Kiro {
         build_kiro_credentials(&state, user_creds.as_ref()).await?
     } else {
-        routing.provider_creds.clone().unwrap()
+        routing.provider_creds.clone().ok_or_else(|| {
+            ApiError::AuthError(format!(
+                "No credentials available for provider {:?}",
+                routing.provider_id
+            ))
+        })?
     };
 
     // Strip provider prefix from model name if present
@@ -142,7 +148,6 @@ pub(crate) async fn anthropic_messages_handler(
 
             match provider.stream_anthropic(&ctx, &request).await {
                 Ok(stream_resp) => {
-                    // Update rate limits from streaming response headers
                     update_rate_limits(
                         &state.rate_tracker,
                         &routing.account_id,
@@ -150,9 +155,16 @@ pub(crate) async fn anthropic_messages_handler(
                         &stream_resp.headers,
                     );
 
-                    let byte_stream = stream_resp
-                        .stream
-                        .map(|r| r.map_err(|e| std::io::Error::other(e.to_string())));
+                    let tracked_stream = wrap_stream_with_usage_tracking(
+                        stream_resp.stream,
+                        state.config_db.clone(),
+                        user_creds.as_ref().map(|c| c.user_id),
+                        routing.provider_id.clone(),
+                        request.model.clone(),
+                    );
+
+                    let byte_stream =
+                        tracked_stream.map(|r| r.map_err(|e| std::io::Error::other(e.to_string())));
 
                     let response = Response::builder()
                         .status(200)
@@ -171,30 +183,22 @@ pub(crate) async fn anthropic_messages_handler(
                     status: 429,
                     ref headers,
                     ..
-                }) if attempt < MAX_ATTEMPTS - 1 => {
-                    let retry_after = headers.as_ref().and_then(parse_retry_after);
-                    if let Some(ref aid) = routing.account_id {
-                        tracing::info!(
-                            attempt,
-                            account_label = %aid.account_label,
-                            retry_after_secs = ?retry_after.map(|d| d.as_secs()),
-                            "Rate limited, retrying with different account"
-                        );
-                        state.rate_tracker.mark_limited(aid, retry_after);
-                    }
-                    routing =
-                        resolve_provider_routing(&state, user_creds.as_ref(), &request.model).await;
-                    if let Some(ref new_creds) = routing.provider_creds {
-                        creds = new_creds.clone();
-                    } else {
+                }) => {
+                    if !handle_rate_limit_retry(
+                        &state,
+                        user_creds.as_ref(),
+                        &request.model,
+                        &mut routing,
+                        &mut creds,
+                        &mut provider,
+                        attempt,
+                        MAX_ATTEMPTS,
+                        headers,
+                    )
+                    .await?
+                    {
                         break;
                     }
-                    provider = state.providers.get(&routing.provider_id).ok_or_else(|| {
-                        ApiError::Internal(anyhow::anyhow!(
-                            "Provider {:?} not registered",
-                            routing.provider_id
-                        ))
-                    })?;
                 }
                 Err(e) => {
                     last_error = Some(e);
@@ -216,7 +220,6 @@ pub(crate) async fn anthropic_messages_handler(
 
             match provider.execute_anthropic(&ctx, &request).await {
                 Ok(resp) => {
-                    // Update rate limits from response headers
                     update_rate_limits(
                         &state.rate_tracker,
                         &routing.account_id,
@@ -235,39 +238,13 @@ pub(crate) async fn anthropic_messages_handler(
                         }
                     }
 
-                    // Usage tracking
-                    if let (Some(config_db), Some(user_creds)) =
-                        (state.config_db.as_ref(), user_creds.as_ref())
-                    {
-                        if let Some(usage) = body.get("usage") {
-                            let input_tokens = usage["input_tokens"].as_i64().unwrap_or(0) as i32;
-                            let output_tokens = usage["output_tokens"].as_i64().unwrap_or(0) as i32;
-                            let cost = crate::cost::calculate_cost(
-                                &request.model,
-                                input_tokens as i64,
-                                output_tokens as i64,
-                            );
-                            let db = config_db.clone();
-                            let user_id = user_creds.user_id;
-                            let provider_str = routing.provider_id.to_string();
-                            let model = request.model.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = db
-                                    .insert_usage_record(
-                                        user_id,
-                                        &provider_str,
-                                        &model,
-                                        input_tokens,
-                                        output_tokens,
-                                        cost,
-                                    )
-                                    .await
-                                {
-                                    tracing::warn!(error = ?e, "Failed to record usage");
-                                }
-                            });
-                        }
-                    }
+                    record_non_streaming_usage(
+                        &body,
+                        &state.config_db,
+                        user_creds.as_ref().map(|c| c.user_id),
+                        &routing.provider_id,
+                        &request.model,
+                    );
 
                     DEBUG_LOGGER.discard_buffers().await;
                     return Ok(Json(body).into_response());
@@ -276,30 +253,22 @@ pub(crate) async fn anthropic_messages_handler(
                     status: 429,
                     ref headers,
                     ..
-                }) if attempt < MAX_ATTEMPTS - 1 => {
-                    let retry_after = headers.as_ref().and_then(parse_retry_after);
-                    if let Some(ref aid) = routing.account_id {
-                        tracing::info!(
-                            attempt,
-                            account_label = %aid.account_label,
-                            retry_after_secs = ?retry_after.map(|d| d.as_secs()),
-                            "Rate limited, retrying with different account"
-                        );
-                        state.rate_tracker.mark_limited(aid, retry_after);
-                    }
-                    routing =
-                        resolve_provider_routing(&state, user_creds.as_ref(), &request.model).await;
-                    if let Some(ref new_creds) = routing.provider_creds {
-                        creds = new_creds.clone();
-                    } else {
+                }) => {
+                    if !handle_rate_limit_retry(
+                        &state,
+                        user_creds.as_ref(),
+                        &request.model,
+                        &mut routing,
+                        &mut creds,
+                        &mut provider,
+                        attempt,
+                        MAX_ATTEMPTS,
+                        headers,
+                    )
+                    .await?
+                    {
                         break;
                     }
-                    provider = state.providers.get(&routing.provider_id).ok_or_else(|| {
-                        ApiError::Internal(anyhow::anyhow!(
-                            "Provider {:?} not registered",
-                            routing.provider_id
-                        ))
-                    })?;
                 }
                 Err(e) => {
                     last_error = Some(e);
