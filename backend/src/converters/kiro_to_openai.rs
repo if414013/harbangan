@@ -151,6 +151,135 @@ mod tests {
     }
 
     #[test]
+    fn test_convert_kiro_to_openai_empty_content() {
+        let kiro_response = KiroResponse {
+            conversation_id: "test-conv".to_string(),
+            assistant_response_message: crate::models::kiro::AssistantResponseMessage {
+                content: vec![],
+                tool_uses: None,
+            },
+            usage: None,
+        };
+
+        let response =
+            convert_kiro_to_openai_response(&kiro_response, "claude-sonnet-4", "test-empty");
+        assert_eq!(response.choices[0].message.content, Some(json!("")));
+        assert_eq!(response.choices[0].finish_reason, Some("stop".to_string()));
+    }
+
+    #[test]
+    fn test_convert_kiro_to_openai_usage_propagation() {
+        let kiro_response = KiroResponse {
+            conversation_id: "test-conv".to_string(),
+            assistant_response_message: crate::models::kiro::AssistantResponseMessage {
+                content: vec![crate::models::kiro::ContentBlock::Text {
+                    text: "Hi".to_string(),
+                }],
+                tool_uses: None,
+            },
+            usage: Some(crate::models::kiro::KiroUsage {
+                input_tokens: 150,
+                output_tokens: 42,
+            }),
+        };
+
+        let response =
+            convert_kiro_to_openai_response(&kiro_response, "claude-sonnet-4", "test-usage");
+        let usage = response.usage.expect("expected usage");
+        assert_eq!(usage.prompt_tokens, 150);
+        assert_eq!(usage.completion_tokens, 42);
+        assert_eq!(usage.total_tokens, 192);
+    }
+
+    #[test]
+    fn test_convert_kiro_to_openai_no_usage_defaults_to_zero() {
+        let kiro_response = KiroResponse {
+            conversation_id: "test-conv".to_string(),
+            assistant_response_message: crate::models::kiro::AssistantResponseMessage {
+                content: vec![crate::models::kiro::ContentBlock::Text {
+                    text: "Hi".to_string(),
+                }],
+                tool_uses: None,
+            },
+            usage: None,
+        };
+
+        let response =
+            convert_kiro_to_openai_response(&kiro_response, "claude-sonnet-4", "test-no-usage");
+        let usage = response.usage.expect("expected usage even when None");
+        assert_eq!(usage.prompt_tokens, 0);
+        assert_eq!(usage.completion_tokens, 0);
+        assert_eq!(usage.total_tokens, 0);
+    }
+
+    #[test]
+    fn test_convert_kiro_to_openai_multi_tool_uses() {
+        let kiro_response = KiroResponse {
+            conversation_id: "test-conv".to_string(),
+            assistant_response_message: crate::models::kiro::AssistantResponseMessage {
+                content: vec![crate::models::kiro::ContentBlock::Text {
+                    text: "Let me help.".to_string(),
+                }],
+                tool_uses: Some(vec![
+                    crate::models::kiro::ToolUse {
+                        tool_use_id: "call_1".to_string(),
+                        name: "search".to_string(),
+                        input: json!({"q": "cats"}),
+                    },
+                    crate::models::kiro::ToolUse {
+                        tool_use_id: "call_2".to_string(),
+                        name: "translate".to_string(),
+                        input: json!({"text": "hello", "to": "es"}),
+                    },
+                ]),
+            },
+            usage: Some(crate::models::kiro::KiroUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+            }),
+        };
+
+        let response =
+            convert_kiro_to_openai_response(&kiro_response, "claude-sonnet-4", "test-multi");
+        let tc = response.choices[0]
+            .message
+            .tool_calls
+            .as_ref()
+            .expect("expected tool_calls");
+        assert_eq!(tc.len(), 2);
+        assert_eq!(tc[0].id, "call_1");
+        assert_eq!(tc[0].function.name, "search");
+        assert_eq!(tc[1].id, "call_2");
+        assert_eq!(tc[1].function.name, "translate");
+        assert_eq!(
+            response.choices[0].finish_reason,
+            Some("tool_calls".to_string())
+        );
+        // Usage should also be present
+        let usage = response.usage.expect("expected usage");
+        assert_eq!(usage.total_tokens, 150);
+    }
+
+    #[test]
+    fn test_convert_kiro_to_openai_stop_reason_no_tools() {
+        let kiro_response = KiroResponse {
+            conversation_id: "test-conv".to_string(),
+            assistant_response_message: crate::models::kiro::AssistantResponseMessage {
+                content: vec![crate::models::kiro::ContentBlock::Text {
+                    text: "Done".to_string(),
+                }],
+                tool_uses: None,
+            },
+            usage: None,
+        };
+
+        let response =
+            convert_kiro_to_openai_response(&kiro_response, "claude-sonnet-4", "test-stop");
+        assert_eq!(response.choices[0].finish_reason, Some("stop".to_string()));
+        assert!(response.choices[0].message.tool_calls.is_none());
+    }
+
+    #[test]
     fn test_convert_kiro_to_openai_with_tools() {
         let kiro_response = KiroResponse {
             conversation_id: "test-conv".to_string(),

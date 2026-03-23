@@ -430,6 +430,17 @@ impl ConfigDb {
             self.migrate_to_v22().await?;
         }
 
+        // Re-read max version after v22 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 23 {
+            self.migrate_to_v23().await?;
+        }
+
         Ok(())
     }
 
@@ -2836,9 +2847,9 @@ impl ConfigDb {
                 user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 provider_id TEXT NOT NULL,
                 model_id TEXT NOT NULL,
-                input_tokens INTEGER NOT NULL,
-                output_tokens INTEGER NOT NULL,
-                cost DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                input_tokens INTEGER NOT NULL CHECK (input_tokens >= 0),
+                output_tokens INTEGER NOT NULL CHECK (output_tokens >= 0),
+                cost DOUBLE PRECISION NOT NULL DEFAULT 0.0 CHECK (cost >= 0),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )",
         )
@@ -3073,6 +3084,69 @@ impl ConfigDb {
             .context("Failed to commit v22 migration")?;
 
         tracing::info!("Database migration to version 22 complete");
+        Ok(())
+    }
+
+    async fn migrate_to_v23(&self) -> Result<()> {
+        tracing::info!("Running database migration to version 23 (usage metric constraints)...");
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v23 migration transaction")?;
+
+        sqlx::query(
+            "UPDATE usage_records
+             SET input_tokens = GREATEST(input_tokens, 0),
+                 output_tokens = GREATEST(output_tokens, 0),
+                 cost = GREATEST(cost, 0.0)
+             WHERE input_tokens < 0 OR output_tokens < 0 OR cost < 0.0",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to normalize invalid usage metric rows")?;
+
+        for (constraint_name, clause) in [
+            (
+                "usage_records_input_tokens_nonnegative",
+                "CHECK (input_tokens >= 0)",
+            ),
+            (
+                "usage_records_output_tokens_nonnegative",
+                "CHECK (output_tokens >= 0)",
+            ),
+            ("usage_records_cost_nonnegative", "CHECK (cost >= 0)"),
+        ] {
+            let sql = format!(
+                "DO $$ BEGIN
+                     IF NOT EXISTS (
+                         SELECT 1
+                         FROM pg_constraint
+                         WHERE conname = '{constraint_name}'
+                     ) THEN
+                         ALTER TABLE usage_records
+                         ADD CONSTRAINT {constraint_name} {clause};
+                     END IF;
+                 END $$;"
+            );
+            sqlx::query(&sql)
+                .execute(&mut *tx)
+                .await
+                .context(format!("Failed to add {constraint_name}"))?;
+        }
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(23_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 23")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit v23 migration")?;
+
+        tracing::info!("Database migration to version 23 complete");
         Ok(())
     }
 
@@ -4025,8 +4099,8 @@ impl ConfigDb {
 
     // ── Usage Tracking ───────────────────────────────────────────
 
-    /// Insert a usage record for tracking token and cost analytics.
-    pub async fn insert_usage_record(
+    /// Insert usage metrics for tracking token and cost analytics.
+    pub async fn insert_usage_metric(
         &self,
         user_id: Uuid,
         provider_id: &str,
@@ -4048,7 +4122,7 @@ impl ConfigDb {
         .bind(cost)
         .execute(&self.pool)
         .await
-        .context("Failed to insert usage record")?;
+        .context("Failed to insert usage metric")?;
 
         Ok(())
     }
@@ -4265,6 +4339,25 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, Some(1));
+    }
+
+    #[tokio::test]
+    async fn test_insert_usage_metric_rejects_negative_values() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping: DATABASE_URL not set");
+            return;
+        };
+
+        let (user_id, _) = db
+            .upsert_user("usage-negative@example.com", "Usage Negative", None)
+            .await
+            .unwrap();
+
+        let result = db
+            .insert_usage_metric(user_id, "anthropic", "claude-sonnet-4", -1, 10, 0.1)
+            .await;
+
+        assert!(result.is_err());
     }
 
     #[tokio::test]

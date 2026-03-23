@@ -256,6 +256,19 @@ mod tests {
         builder.body(Body::from(body_json)).unwrap()
     }
 
+    /// Helper: build an axum::http::Request from an OpenAI JSON body.
+    fn build_openai_request(
+        body: &crate::models::openai::ChatCompletionRequest,
+    ) -> axum::http::Request<Body> {
+        let body_json = serde_json::to_vec(body).unwrap();
+        axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(body_json))
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn test_anthropic_messages_handler_without_version_header() {
         let state = create_test_state();
@@ -340,6 +353,82 @@ mod tests {
                 assert!(msg.contains("messages"));
             }
             _ => panic!("Expected ValidationError for empty messages"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_chat_completions_handler_rejects_removed_model_with_explicit_prefix() {
+        let state = create_test_state();
+        let body = crate::models::openai::ChatCompletionRequest {
+            model: "anthropic/gemini-2.5-pro".to_string(),
+            messages: vec![crate::models::openai::ChatMessage {
+                role: "user".to_string(),
+                content: Some(serde_json::json!("Hello")),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            stream: false,
+            temperature: None,
+            top_p: None,
+            n: None,
+            max_tokens: None,
+            max_completion_tokens: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None,
+            tool_choice: None,
+            stream_options: None,
+            logit_bias: None,
+            logprobs: None,
+            top_logprobs: None,
+            user: None,
+            seed: None,
+            parallel_tool_calls: None,
+            reasoning_effort: None,
+            response_format: None,
+        };
+
+        let raw_request = build_openai_request(&body);
+        let result = openai::chat_completions_handler(State(state), raw_request).await;
+
+        match result {
+            Err(ApiError::ValidationError(msg)) => assert!(msg.contains("removed")),
+            _ => panic!("Expected ValidationError for explicitly prefixed removed model"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_anthropic_messages_handler_rejects_removed_model_with_explicit_prefix() {
+        let state = create_test_state();
+        let body = crate::models::anthropic::AnthropicMessagesRequest {
+            model: "openai_codex/qwen-coder-plus".to_string(),
+            messages: vec![crate::models::anthropic::AnthropicMessage {
+                role: "user".to_string(),
+                content: serde_json::json!("Hello"),
+            }],
+            max_tokens: 100,
+            system: None,
+            stream: false,
+            tools: None,
+            tool_choice: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            stop_sequences: None,
+            metadata: None,
+            thinking: None,
+            disable_parallel_tool_use: None,
+        };
+
+        let raw_request =
+            build_anthropic_request(&body, Some(&[("anthropic-version", "2023-06-01")]));
+        let result = anthropic::anthropic_messages_handler(State(state), raw_request).await;
+
+        match result {
+            Err(ApiError::ValidationError(msg)) => assert!(msg.contains("removed")),
+            _ => panic!("Expected ValidationError for explicitly prefixed removed model"),
         }
     }
 }

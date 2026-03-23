@@ -21,13 +21,13 @@ const CACHE_TTL: Duration = Duration::from_secs(300);
 /// Buffer before expiry to trigger proactive refresh (5 minutes).
 const REFRESH_BUFFER_SECS: i64 = 300;
 
-struct CacheEntry {
-    credentials: HashMap<String, ProviderCredentials>,
+pub(crate) struct CacheEntry {
+    pub(crate) credentials: HashMap<String, ProviderCredentials>,
     /// Per-provider token expiry times.
-    expires_at: HashMap<String, DateTime<Utc>>,
+    pub(crate) expires_at: HashMap<String, DateTime<Utc>>,
     /// User's provider priority (provider_id -> priority). Lower = preferred.
-    priority: HashMap<String, i32>,
-    cached_at: Instant,
+    pub(crate) priority: HashMap<String, i32>,
+    pub(crate) cached_at: Instant,
 }
 
 /// Per-(user_id, provider) mutex map to prevent concurrent refresh storms.
@@ -205,7 +205,11 @@ impl ProviderRegistry {
         db: &ConfigDb,
         exchanger: &dyn TokenExchanger,
     ) {
-        let Some(target) = Self::provider_for_model(model) else {
+        let target = if let Some((provider, _)) = Self::parse_prefixed_model(model) {
+            provider
+        } else if let Some(provider) = Self::provider_for_model(model) {
+            provider
+        } else {
             return;
         };
         let provider_str = target.as_str().to_string();
@@ -343,20 +347,24 @@ impl ProviderRegistry {
         };
 
         // Try explicit prefix first (e.g. "anthropic/claude-opus-4-6")
-        let (native, actual_model) =
+        let (native, is_explicit_prefix) =
             if let Some((provider, _model_id)) = Self::parse_prefixed_model(model) {
-                (provider, model)
+                (provider, true)
             } else if let Some(provider) = Self::provider_for_model(model) {
-                (provider, model)
+                (provider, false)
             } else {
                 return (ProviderId::Kiro, None);
             };
-        // actual_model is used for logging context only; routing uses `native`
-        let _ = actual_model;
 
         // Cache hit?
         if let Some(entry) = self.cache.get(&uid) {
             if entry.cached_at.elapsed() < CACHE_TTL {
+                if is_explicit_prefix {
+                    // Explicit prefix is binding — only look up the specified provider
+                    let native_str = native.as_str();
+                    let creds = entry.credentials.get(native_str).cloned();
+                    return (native, creds);
+                }
                 return Self::pick_best_provider(&native, &entry.credentials, &entry.priority);
             }
         }
@@ -367,7 +375,14 @@ impl ProviderRegistry {
             return self.resolve_from_proxy_creds(model);
         };
         let (user_creds, user_expires, user_priority) = Self::load_user_data(uid, db).await;
-        let result = Self::pick_best_provider(&native, &user_creds, &user_priority);
+        let result = if is_explicit_prefix {
+            // Explicit prefix is binding — only look up the specified provider
+            let native_str = native.as_str();
+            let creds = user_creds.get(native_str).cloned();
+            (native, creds)
+        } else {
+            Self::pick_best_provider(&native, &user_creds, &user_priority)
+        };
         self.cache.insert(
             uid,
             CacheEntry {
@@ -431,13 +446,14 @@ impl ProviderRegistry {
         };
 
         // Determine target provider from model name
-        let native = if let Some((provider, _model_id)) = Self::parse_prefixed_model(model) {
-            provider
-        } else if let Some(provider) = Self::provider_for_model(model) {
-            provider
-        } else {
-            return (ProviderId::Kiro, None, None);
-        };
+        let (native, is_explicit_prefix) =
+            if let Some((provider, _model_id)) = Self::parse_prefixed_model(model) {
+                (provider, true)
+            } else if let Some(provider) = Self::provider_for_model(model) {
+                (provider, false)
+            } else {
+                return (ProviderId::Kiro, None, None);
+            };
 
         let Some(db) = db else {
             return (ProviderId::Kiro, None, None);
@@ -458,54 +474,84 @@ impl ProviderRegistry {
         // Candidates: (AccountId, ProviderCredentials, priority)
         let mut candidates: Vec<(AccountId, ProviderCredentials, i32)> = Vec::new();
 
-        // Load all user accounts for this provider
-        if let Ok(rows) = db.get_all_user_provider_tokens(uid, provider_str).await {
-            for row in rows {
-                let now = chrono::Utc::now();
-                if row.expires_at > now {
-                    let account_id = AccountId {
-                        user_id: Some(uid),
-                        provider_id: native.clone(),
-                        account_label: row.account_label.clone(),
-                    };
-                    let creds = ProviderCredentials {
-                        provider: native.clone(),
-                        access_token: row.access_token.clone(),
-                        base_url: None,
-                        account_label: row.account_label.clone(),
-                    };
-                    candidates.push((account_id, creds, native_pri));
+        match native {
+            ProviderId::Copilot => {
+                if let Ok(Some(row)) = db.get_copilot_tokens(uid).await {
+                    if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
+                        (row.copilot_token, row.base_url, row.expires_at)
+                    {
+                        let now = chrono::Utc::now();
+                        if expires_at > now {
+                            let account_id = AccountId {
+                                user_id: Some(uid),
+                                provider_id: ProviderId::Copilot,
+                                account_label: "default".to_string(),
+                            };
+                            let creds = ProviderCredentials {
+                                provider: ProviderId::Copilot,
+                                access_token: copilot_token,
+                                base_url: Some(base_url),
+                                account_label: "default".to_string(),
+                            };
+                            candidates.push((account_id, creds, native_pri));
+                        }
+                    }
                 }
             }
-        }
-
-        // Also check Copilot as an alternative (universal provider)
-        if let Ok(Some(row)) = db.get_copilot_tokens(uid).await {
-            if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
-                (row.copilot_token, row.base_url, row.expires_at)
-            {
-                let now = chrono::Utc::now();
-                if expires_at > now {
-                    // Include Copilot if it has equal or better priority, or if no native accounts
-                    if candidates.is_empty() || copilot_pri <= native_pri {
-                        let account_id = AccountId {
-                            user_id: Some(uid),
-                            provider_id: ProviderId::Copilot,
-                            account_label: "default".to_string(),
-                        };
-                        let creds = ProviderCredentials {
-                            provider: ProviderId::Copilot,
-                            access_token: copilot_token,
-                            base_url: Some(base_url),
-                            account_label: "default".to_string(),
-                        };
-                        candidates.push((account_id, creds, copilot_pri));
+            _ => {
+                // Load all user accounts for this provider
+                if let Ok(rows) = db.get_all_user_provider_tokens(uid, provider_str).await {
+                    for row in rows {
+                        let now = chrono::Utc::now();
+                        if row.expires_at > now {
+                            let account_id = AccountId {
+                                user_id: Some(uid),
+                                provider_id: native.clone(),
+                                account_label: row.account_label.clone(),
+                            };
+                            let creds = ProviderCredentials {
+                                provider: native.clone(),
+                                access_token: row.access_token.clone(),
+                                base_url: row.base_url.clone(),
+                                account_label: row.account_label.clone(),
+                            };
+                            candidates.push((account_id, creds, native_pri));
+                        }
                     }
                 }
             }
         }
 
-        // Load admin pool accounts as fallback (default priority 100)
+        // Also check Copilot as an alternative (universal provider)
+        // BUT skip Copilot when prefix is explicit — explicit prefix is binding
+        if native != ProviderId::Copilot && !is_explicit_prefix {
+            if let Ok(Some(row)) = db.get_copilot_tokens(uid).await {
+                if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
+                    (row.copilot_token, row.base_url, row.expires_at)
+                {
+                    let now = chrono::Utc::now();
+                    if expires_at > now {
+                        // Include Copilot if it has equal or better priority, or if no native accounts
+                        if candidates.is_empty() || copilot_pri <= native_pri {
+                            let account_id = AccountId {
+                                user_id: Some(uid),
+                                provider_id: ProviderId::Copilot,
+                                account_label: "default".to_string(),
+                            };
+                            let creds = ProviderCredentials {
+                                provider: ProviderId::Copilot,
+                                access_token: copilot_token,
+                                base_url: Some(base_url),
+                                account_label: "default".to_string(),
+                            };
+                            candidates.push((account_id, creds, copilot_pri));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Load admin pool accounts for the target provider as fallback (default priority 100).
         const ADMIN_POOL_PRIORITY: i32 = 100;
         if let Ok(pool_rows) = db.get_admin_pool_accounts(provider_str).await {
             for row in pool_rows {
@@ -525,6 +571,10 @@ impl ProviderRegistry {
         }
 
         if candidates.is_empty() {
+            if is_explicit_prefix {
+                // Explicit prefix is binding — return the specified provider with no creds
+                return (native, None, None);
+            }
             // No accounts available — fall back to existing single-account resolution
             let (pid, creds) = self.resolve_provider(user_id, model, Some(db)).await;
             return (pid, creds, None);
@@ -556,18 +606,22 @@ impl ProviderRegistry {
             return (ProviderId::Kiro, None);
         };
         // Determine target provider from model name
-        let native = if let Some((provider, _)) = Self::parse_prefixed_model(model) {
-            provider
-        } else if let Some(provider) = Self::provider_for_model(model) {
-            provider
-        } else if self.custom_models.contains(model) {
-            ProviderId::Custom
-        } else {
-            return (ProviderId::Kiro, None);
-        };
+        let (native, is_explicit_prefix) =
+            if let Some((provider, _)) = Self::parse_prefixed_model(model) {
+                (provider, true)
+            } else if let Some(provider) = Self::provider_for_model(model) {
+                (provider, false)
+            } else if self.custom_models.contains(model) {
+                (ProviderId::Custom, false)
+            } else {
+                return (ProviderId::Kiro, None);
+            };
         // Look up proxy credentials for that provider
         if let Some(cred) = proxy_creds.get(&native) {
             (native, Some(cred.clone()))
+        } else if is_explicit_prefix {
+            // Explicit prefix is binding — return specified provider with no creds
+            (native, None)
         } else {
             (ProviderId::Kiro, None)
         }
@@ -1747,5 +1801,142 @@ mod tests {
         let registry = ProviderRegistry::from_proxy_config(&proxy);
         let creds = registry.proxy_credentials().as_ref().unwrap();
         assert_eq!(creds[&ProviderId::Custom].access_token, "");
+    }
+
+    // ── Explicit prefix enforcement tests (S-003) ─────────────────────
+
+    #[tokio::test]
+    async fn test_explicit_prefix_binding_skips_copilot() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        // Cache has both Anthropic and Copilot creds, Copilot has better priority
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "anthropic".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Anthropic,
+                access_token: "sk-ant-direct".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        creds_map.insert(
+            "copilot".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Copilot,
+                access_token: "cop-tok".to_string(),
+                base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
+            },
+        );
+        let mut priority = HashMap::new();
+        priority.insert("copilot".to_string(), 0); // Copilot preferred
+        priority.insert("anthropic".to_string(), 1);
+
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority,
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Without prefix: picks Copilot (better priority)
+        let (pid, _) = registry
+            .resolve_provider(Some(uid), "claude-sonnet-4", None)
+            .await;
+        assert_eq!(pid, ProviderId::Copilot);
+
+        // With explicit prefix: MUST use Anthropic regardless of priority
+        let (pid, creds) = registry
+            .resolve_provider(Some(uid), "anthropic/claude-sonnet-4", None)
+            .await;
+        assert_eq!(pid, ProviderId::Anthropic);
+        assert_eq!(creds.unwrap().access_token, "sk-ant-direct");
+    }
+
+    #[tokio::test]
+    async fn test_explicit_prefix_no_creds_returns_provider_not_kiro() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        // Cache has only Copilot, no Anthropic
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "copilot".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Copilot,
+                access_token: "cop-tok".to_string(),
+                base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
+            },
+        );
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority: HashMap::new(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Explicit prefix for Anthropic — no creds, but returns Anthropic (NOT Kiro)
+        let (pid, creds) = registry
+            .resolve_provider(Some(uid), "anthropic/claude-sonnet-4", None)
+            .await;
+        assert_eq!(pid, ProviderId::Anthropic);
+        assert!(creds.is_none()); // No creds — handler will return AuthError
+    }
+
+    #[test]
+    fn test_explicit_prefix_proxy_no_creds_returns_provider_not_kiro() {
+        // Only OpenAI configured, but explicit prefix for Anthropic
+        let mut proxy_creds = HashMap::new();
+        proxy_creds.insert(
+            ProviderId::OpenAICodex,
+            ProviderCredentials {
+                provider: ProviderId::OpenAICodex,
+                access_token: "sk-oai".to_string(),
+                base_url: None,
+                account_label: "proxy".to_string(),
+            },
+        );
+        let registry = ProviderRegistry::new_with_proxy(proxy_creds, HashSet::new());
+
+        let (pid, creds) = registry.resolve_from_proxy_creds("anthropic/claude-sonnet-4");
+        assert_eq!(pid, ProviderId::Anthropic);
+        assert!(creds.is_none()); // No Anthropic proxy creds
+    }
+
+    // ── Token refresh provider inference tests (S-006) ───────────────
+
+    #[test]
+    fn test_prefixed_model_routes_refresh_to_correct_provider() {
+        // parse_prefixed_model should extract the provider, not provider_for_model
+        let result = ProviderRegistry::parse_prefixed_model("openai_codex/claude-sonnet-4");
+        assert!(result.is_some());
+        let (pid, model_id) = result.unwrap();
+        assert_eq!(pid, ProviderId::OpenAICodex);
+        assert_eq!(model_id, "claude-sonnet-4");
+
+        // Without prefix, provider_for_model would route to Anthropic
+        assert_eq!(
+            ProviderRegistry::provider_for_model("claude-sonnet-4"),
+            Some(ProviderId::Anthropic)
+        );
+    }
+
+    #[test]
+    fn test_openai_alias_prefix_works() {
+        // "openai/gpt-4o" should parse correctly with the alias
+        let result = ProviderRegistry::parse_prefixed_model("openai/gpt-4o");
+        assert!(result.is_some());
+        let (pid, model_id) = result.unwrap();
+        assert_eq!(pid, ProviderId::OpenAICodex);
+        assert_eq!(model_id, "gpt-4o");
     }
 }

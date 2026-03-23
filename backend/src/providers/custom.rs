@@ -20,12 +20,14 @@ use crate::streaming::sse::parse_sse_stream;
 
 pub struct CustomProvider {
     client: reqwest::Client,
+    streaming_client: reqwest::Client,
 }
 
 impl CustomProvider {
-    pub fn new() -> Self {
+    pub fn new(client: reqwest::Client, streaming_client: reqwest::Client) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client,
+            streaming_client,
         }
     }
 
@@ -53,10 +55,13 @@ impl CustomProvider {
         let url = Self::completions_url(ctx)?;
         body["stream"] = json!(stream);
 
-        let mut builder = self
-            .client
-            .post(&url)
-            .header("content-type", "application/json");
+        let client = if stream {
+            &self.streaming_client
+        } else {
+            &self.client
+        };
+
+        let mut builder = client.post(&url).header("content-type", "application/json");
 
         // Only add auth header when a key is configured
         if !ctx.credentials.access_token.is_empty() {
@@ -88,7 +93,7 @@ impl CustomProvider {
 
 impl Default for CustomProvider {
     fn default() -> Self {
-        Self::new()
+        Self::new(reqwest::Client::new(), reqwest::Client::new())
     }
 }
 
@@ -195,7 +200,7 @@ mod tests {
 
     #[test]
     fn test_custom_provider_id() {
-        assert_eq!(CustomProvider::new().id(), ProviderId::Custom);
+        assert_eq!(CustomProvider::default().id(), ProviderId::Custom);
     }
 
     #[test]
@@ -352,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn test_anthropic_to_openai_body_zero_max_tokens_omitted() {
+    fn test_anthropic_to_openai_body_zero_max_tokens_passed_through() {
         let req = AnthropicMessagesRequest {
             model: "llama3".to_string(),
             messages: vec![AnthropicMessage {
@@ -374,7 +379,8 @@ mod tests {
         };
 
         let body = anthropic_to_openai_body(&req);
-        assert!(body.get("max_tokens").is_none());
+        // Full converter passes through max_tokens as-is
+        assert_eq!(body["max_tokens"], 0);
     }
 
     #[test]
@@ -489,7 +495,7 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = CustomProvider::new();
+        let provider = CustomProvider::default();
         let (creds, model) = make_ctx_with_url(&server.url(), "test-key-123");
         let ctx = ProviderContext {
             credentials: &creds,
@@ -518,7 +524,7 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = CustomProvider::new();
+        let provider = CustomProvider::default();
         let (creds, _model) = make_ctx_with_url(&server.url(), "");
         let ctx = ProviderContext {
             credentials: &creds,
@@ -540,7 +546,7 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = CustomProvider::new();
+        let provider = CustomProvider::default();
         let (creds, _model) = make_ctx_with_url(&server.url(), "bad-key");
         let ctx = ProviderContext {
             credentials: &creds,
@@ -574,7 +580,7 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = CustomProvider::new();
+        let provider = CustomProvider::default();
         let (creds, _model) = make_ctx_with_url(&server.url(), "key");
         let ctx = ProviderContext {
             credentials: &creds,
@@ -600,7 +606,7 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = CustomProvider::new();
+        let provider = CustomProvider::default();
         let (creds, _model) = make_ctx_with_url(&server.url(), "test-key");
         let ctx = ProviderContext {
             credentials: &creds,

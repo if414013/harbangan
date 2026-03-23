@@ -1,10 +1,14 @@
 /// Convert OpenAI ChatCompletionRequest to Anthropic AnthropicMessagesRequest.
+use serde_json::json;
+
 use crate::converters::core::{
     map_reasoning_effort_to_thinking, map_response_format_openai_to_anthropic,
     map_tool_choice_openai_to_anthropic,
 };
-use crate::models::anthropic::{AnthropicMessage, AnthropicMessagesRequest};
-use crate::models::openai::ChatCompletionRequest;
+use crate::models::anthropic::{
+    AnthropicCustomTool, AnthropicMessage, AnthropicMessagesRequest, AnthropicTool,
+};
+use crate::models::openai::{ChatCompletionRequest, Tool};
 use tracing::debug;
 
 /// Convert an OpenAI-format request to Anthropic format.
@@ -18,7 +22,6 @@ use tracing::debug;
 /// - `parallel_tool_calls: false` → `disable_parallel_tool_use: true`
 /// - `response_format.json_schema` → `output_format` (with constraint filtering)
 /// - `reasoning_effort` → `thinking` config (budget_tokens based on effort level)
-#[allow(dead_code)]
 pub fn openai_to_anthropic(req: &ChatCompletionRequest) -> AnthropicMessagesRequest {
     let mut system_parts: Vec<String> = Vec::new();
     let mut messages: Vec<AnthropicMessage> = Vec::new();
@@ -34,6 +37,66 @@ pub fn openai_to_anthropic(req: &ChatCompletionRequest) -> AnthropicMessagesRequ
         match msg.role.as_str() {
             "system" => {
                 system_parts.push(text);
+            }
+            "assistant" => {
+                // Build content blocks: text + tool_use blocks
+                let mut blocks: Vec<serde_json::Value> = Vec::new();
+                if !text.is_empty() {
+                    blocks.push(json!({"type": "text", "text": text}));
+                }
+                if let Some(tool_calls) = &msg.tool_calls {
+                    for tc in tool_calls {
+                        let input: serde_json::Value =
+                            serde_json::from_str(&tc.function.arguments).unwrap_or(json!({}));
+                        blocks.push(json!({
+                            "type": "tool_use",
+                            "id": tc.id,
+                            "name": tc.function.name,
+                            "input": input,
+                        }));
+                    }
+                }
+                let content = if blocks.len() == 1 && msg.tool_calls.is_none() {
+                    // Simple text — keep as string for compatibility
+                    msg.content
+                        .clone()
+                        .unwrap_or(serde_json::Value::String(String::new()))
+                } else if blocks.is_empty() {
+                    serde_json::Value::String(String::new())
+                } else {
+                    serde_json::Value::Array(blocks)
+                };
+                messages.push(AnthropicMessage {
+                    role: "assistant".to_string(),
+                    content,
+                });
+            }
+            "tool" => {
+                // OpenAI tool result → Anthropic tool_result content block
+                let tool_use_id = msg.tool_call_id.clone().unwrap_or_default();
+                let result_content = msg
+                    .content
+                    .clone()
+                    .unwrap_or_else(|| serde_json::Value::String(String::new()));
+                let block = json!({
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "content": result_content,
+                });
+                // Anthropic expects tool_result in a user message
+                // Buffer consecutive tool results into one user message
+                if let Some(last) = messages.last_mut() {
+                    if last.role == "user" {
+                        if let Some(arr) = last.content.as_array_mut() {
+                            arr.push(block);
+                            continue;
+                        }
+                    }
+                }
+                messages.push(AnthropicMessage {
+                    role: "user".to_string(),
+                    content: serde_json::Value::Array(vec![block]),
+                });
             }
             _ => {
                 messages.push(AnthropicMessage {
@@ -94,13 +157,32 @@ pub fn openai_to_anthropic(req: &ChatCompletionRequest) -> AnthropicMessagesRequ
         req.temperature
     };
 
+    // Map OpenAI tools to Anthropic format
+    let tools: Option<Vec<AnthropicTool>> = req.tools.as_ref().map(|tools| {
+        tools
+            .iter()
+            .filter_map(|t| match t {
+                Tool::Function(ft) => Some(AnthropicTool::Custom(AnthropicCustomTool {
+                    name: ft.function.name.clone(),
+                    description: ft.function.description.clone(),
+                    input_schema: ft
+                        .function
+                        .parameters
+                        .clone()
+                        .unwrap_or(json!({"type": "object", "properties": {}})),
+                })),
+                Tool::ServerSide(_) => None, // Server-side tools don't map to Anthropic
+            })
+            .collect()
+    });
+
     AnthropicMessagesRequest {
         model: req.model.clone(),
         messages,
         max_tokens,
         system,
         stream: req.stream,
-        tools: None,
+        tools,
         tool_choice,
         temperature,
         top_p: req.top_p,
