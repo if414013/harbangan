@@ -117,6 +117,8 @@ pub async fn fetch_copilot_models(
             .client()
             .get(&url)
             .header("Authorization", format!("Bearer {}", copilot_token))
+            .header("Editor-Version", "vscode/1.96.0")
+            .header("Copilot-Integration-Id", "vscode-chat")
             .send()
             .await;
 
