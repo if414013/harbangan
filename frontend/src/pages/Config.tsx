@@ -528,6 +528,7 @@ export function Config() {
                       )}
                     </div>
                   ))}
+                  {group.title === "Authentication" && <DomainManager />}
                 </div>
               </div>
             ))}
@@ -594,11 +595,6 @@ export function Config() {
           </div>
         </div>
       </form>
-      <div className="config-layout">
-        <div className="config-form-area">
-          <DomainManager />
-        </div>
-      </div>
     </>
   );
 }
