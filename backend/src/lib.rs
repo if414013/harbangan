@@ -18,6 +18,3 @@ pub mod tokenizer;
 pub mod truncation;
 pub mod utils;
 pub mod web_ui;
-
-#[cfg(feature = "bench")]
-pub mod bench;
