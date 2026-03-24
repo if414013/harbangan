@@ -1,84 +1,97 @@
-import { useState, useEffect } from 'react'
-import { apiFetch, apiPost, apiDelete } from '../lib/api'
-import type { DomainInfo } from '../lib/api'
-import { useToast } from './useToast'
+import { useState, useEffect } from "react";
+import { apiFetch, apiPost, apiDelete } from "../lib/api";
+import type { DomainInfo } from "../lib/api";
+import { useToast } from "./useToast";
 
 export function DomainManager() {
-  const { showToast } = useToast()
-  const [domains, setDomains] = useState<DomainInfo[]>([])
-  const [loading, setLoading] = useState(true)
-  const [newDomain, setNewDomain] = useState('')
-  const [adding, setAdding] = useState(false)
+  const { showToast } = useToast();
+  const [domains, setDomains] = useState<DomainInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newDomain, setNewDomain] = useState("");
+  const [adding, setAdding] = useState(false);
 
   function loadDomains() {
-    apiFetch<{ domains: DomainInfo[] }>('/domains')
-      .then(data => { setDomains(data.domains); setLoading(false) })
-      .catch(() => setLoading(false))
+    apiFetch<{ domains: DomainInfo[] }>("/domains")
+      .then((data) => {
+        setDomains(data.domains);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }
 
-  useEffect(() => { loadDomains() }, [])
+  useEffect(() => {
+    loadDomains();
+  }, []);
 
   async function handleAdd() {
-    const domain = newDomain.trim().toLowerCase()
-    if (!domain) return
-    setAdding(true)
+    const domain = newDomain.trim().toLowerCase();
+    if (!domain) return;
+    setAdding(true);
     try {
-      await apiPost('/domains', { domain })
-      setNewDomain('')
-      showToast(`Domain ${domain} added`, 'success')
-      loadDomains()
+      await apiPost("/domains", { domain });
+      setNewDomain("");
+      showToast(`Domain ${domain} added`, "success");
+      loadDomains();
     } catch (err) {
       showToast(
-        err instanceof Error ? err.message : 'Failed to add domain',
-        'error',
-      )
+        err instanceof Error ? err.message : "Failed to add domain",
+        "error",
+      );
     } finally {
-      setAdding(false)
+      setAdding(false);
     }
   }
 
   async function handleRemove(domain: string) {
     try {
-      await apiDelete(`/domains/${encodeURIComponent(domain)}`)
-      showToast(`Domain ${domain} removed`, 'success')
-      loadDomains()
+      await apiDelete(`/domains/${encodeURIComponent(domain)}`);
+      showToast(`Domain ${domain} removed`, "success");
+      loadDomains();
     } catch (err) {
       showToast(
-        err instanceof Error ? err.message : 'Failed to remove domain',
-        'error',
-      )
+        err instanceof Error ? err.message : "Failed to remove domain",
+        "error",
+      );
     }
   }
 
   if (loading) {
-    return <div className="skeleton skeleton-block" role="status" aria-label="Loading domains" />
+    return (
+      <div
+        className="skeleton skeleton-block"
+        role="status"
+        aria-label="Loading domains"
+      />
+    );
   }
 
   return (
     <div className="card">
       <div className="card-header">
-        <span className="card-title">{'> '}allowed domains</span>
+        <span className="card-title">{"> "}allowed domains</span>
         <span className="card-subtitle">
-          {domains.length === 0 ? 'open' : `${domains.length} domain${domains.length !== 1 ? 's' : ''}`}
+          {domains.length === 0
+            ? "open"
+            : `${domains.length} domain${domains.length !== 1 ? "s" : ""}`}
         </span>
       </div>
 
       {domains.length === 0 && (
-        <div className="empty-state" style={{ color: 'var(--yellow)' }}>
+        <div className="empty-state" style={{ color: "var(--yellow)" }}>
           No domain restrictions — any Google account can sign in
         </div>
       )}
 
       {domains.length > 0 && (
         <div className="domain-list">
-          {domains.map(d => (
+          {domains.map((d) => (
             <div key={d.domain} className="domain-item">
               <span className="domain-name">{d.domain}</span>
               <button
                 className="device-code-cancel"
                 type="button"
                 onClick={() => handleRemove(d.domain)}
-                style={{ color: 'var(--red)' }}
+                style={{ color: "var(--red)" }}
                 aria-label={`Remove domain ${d.domain}`}
               >
                 remove
@@ -95,8 +108,13 @@ export function DomainManager() {
           aria-label="Domain name to allow"
           placeholder="example.com"
           value={newDomain}
-          onChange={e => setNewDomain(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') handleAdd() }}
+          onChange={(e) => setNewDomain(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleAdd();
+            }
+          }}
         />
         <button
           className="btn-save"
@@ -104,9 +122,9 @@ export function DomainManager() {
           onClick={handleAdd}
           disabled={adding || !newDomain.trim()}
         >
-          {adding ? 'adding...' : '$ add domain'}
+          {adding ? "adding..." : "$ add domain"}
         </button>
       </div>
     </div>
-  )
+  );
 }

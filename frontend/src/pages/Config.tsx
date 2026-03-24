@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, type FormEvent } from "react";
+import { DomainManager } from "../components/DomainManager";
 import { PageHeader } from "../components/PageHeader";
 import { apiFetch, apiPut } from "../lib/api";
 import { useToast } from "../components/useToast";
@@ -22,14 +23,6 @@ interface ConfigField {
 
 const CONFIG_GROUPS: { title: string; icon: string; fields: ConfigField[] }[] =
   [
-    {
-      title: "Server",
-      icon: "server",
-      fields: [
-        { key: "server_host", label: "Host", type: "text", restart: true },
-        { key: "server_port", label: "Port", type: "number", restart: true },
-      ],
-    },
     {
       title: "Kiro Backend",
       icon: "globe",
@@ -169,22 +162,6 @@ const RESTART_KEYS = new Set(
 );
 
 const ICONS: Record<string, React.ReactNode> = {
-  server: (
-    <svg
-      aria-hidden="true"
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <rect x="2" y="2" width="20" height="8" rx="2" />
-      <rect x="2" y="14" width="20" height="8" rx="2" />
-      <circle cx="6" cy="6" r="1" />
-      <circle cx="6" cy="18" r="1" />
-    </svg>
-  ),
   lock: (
     <svg
       aria-hidden="true"
@@ -617,6 +594,11 @@ export function Config() {
           </div>
         </div>
       </form>
+      <div className="config-layout">
+        <div className="config-form-area">
+          <DomainManager />
+        </div>
+      </div>
     </>
   );
 }

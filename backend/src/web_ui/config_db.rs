@@ -954,10 +954,6 @@ impl ConfigDb {
             };
 
             match key.as_str() {
-                "server_host" => config.server_host = value.clone(),
-                "server_port" => {
-                    parse_ranged!(key, value, config.server_port, u16, 1, 65535);
-                }
                 "kiro_region" => config.kiro_region = value.clone(),
                 "log_level" => config.log_level = value.clone(),
                 "debug_mode" => {
@@ -4521,7 +4517,6 @@ mod tests {
             return;
         };
         db.set("log_level", "info", "test").await.unwrap();
-        db.set("server_port", "8000", "test").await.unwrap();
         db.set("fake_reasoning_enabled", "true", "test")
             .await
             .unwrap();
@@ -4529,12 +4524,10 @@ mod tests {
 
         let mut loaded = create_test_config();
         loaded.log_level = "changed".to_string();
-        loaded.server_port = 9999;
 
         db.load_into_config(&mut loaded).await.unwrap();
 
         assert_eq!(loaded.log_level, "info");
-        assert_eq!(loaded.server_port, 8000);
         assert!(loaded.fake_reasoning_enabled);
         assert!(loaded.truncation_recovery);
     }
@@ -4652,7 +4645,6 @@ mod tests {
             return;
         };
         // All out-of-range: too high or zero
-        db.set("server_port", "0", "test").await.unwrap();
         db.set("streaming_timeout", "0", "test").await.unwrap();
         db.set("token_refresh_threshold", "100000", "test")
             .await
@@ -4680,7 +4672,6 @@ mod tests {
         db.load_into_config(&mut config).await.unwrap();
 
         // All should remain at defaults
-        assert_eq!(config.server_port, defaults.server_port);
         assert_eq!(config.streaming_timeout, defaults.streaming_timeout);
         assert_eq!(
             config.token_refresh_threshold,
@@ -4707,7 +4698,6 @@ mod tests {
             eprintln!("Skipping: DATABASE_URL not set");
             return;
         };
-        db.set("server_port", "not_a_number", "test").await.unwrap();
         db.set("http_max_retries", "abc", "test").await.unwrap();
         db.set("fake_reasoning_enabled", "not_bool", "test")
             .await
@@ -4717,7 +4707,6 @@ mod tests {
         let defaults = create_test_config();
         db.load_into_config(&mut config).await.unwrap();
 
-        assert_eq!(config.server_port, defaults.server_port);
         assert_eq!(config.http_max_retries, defaults.http_max_retries);
         assert_eq!(
             config.fake_reasoning_enabled,
@@ -4732,7 +4721,6 @@ mod tests {
             return;
         };
         // Test exact boundary values (min and max)
-        db.set("server_port", "1", "test").await.unwrap();
         db.set("http_max_retries", "0", "test").await.unwrap();
         db.set("http_max_connections", "1000", "test")
             .await
@@ -4744,7 +4732,6 @@ mod tests {
         let mut config = create_test_config();
         db.load_into_config(&mut config).await.unwrap();
 
-        assert_eq!(config.server_port, 1);
         assert_eq!(config.http_max_retries, 0);
         assert_eq!(config.http_max_connections, 1000);
         assert_eq!(config.fake_reasoning_max_tokens, 1_000_000);

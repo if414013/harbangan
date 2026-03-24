@@ -69,8 +69,6 @@ pub async fn get_config(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "setup_complete": setup_complete,
         "config": {
-            "server_host": config.server_host,
-            "server_port": config.server_port,
             "kiro_region": config.kiro_region,
             "streaming_timeout": config.streaming_timeout,
             "token_refresh_threshold": config.token_refresh_threshold,
@@ -388,8 +386,7 @@ pub async fn get_config_schema() -> Json<Value> {
                 field.insert("type".to_string(), json!("string"));
                 field.insert("options".to_string(), json!(["off", "errors", "all"]));
             }
-            "server_port"
-            | "fake_reasoning_max_tokens"
+            "fake_reasoning_max_tokens"
             | "tool_description_max_length"
             | "first_token_timeout"
             | "streaming_timeout"
@@ -504,14 +501,18 @@ mod tests {
         let value = result.0;
         let fields = value["fields"].as_object().unwrap();
         assert!(fields.contains_key("log_level"));
-        assert!(fields.contains_key("server_port"));
+        assert!(fields.contains_key("streaming_timeout"));
 
         let log_level = fields["log_level"].as_object().unwrap();
         assert!(log_level.contains_key("options"));
         assert_eq!(log_level["requires_restart"], false);
 
-        let server_port = fields["server_port"].as_object().unwrap();
-        assert_eq!(server_port["requires_restart"], true);
+        let streaming_timeout = fields["streaming_timeout"].as_object().unwrap();
+        assert_eq!(streaming_timeout["requires_restart"], true);
+
+        // server_host/server_port are env-only and must not appear in schema
+        assert!(!fields.contains_key("server_host"));
+        assert!(!fields.contains_key("server_port"));
     }
 
     // ── Google SSO masking tests ────────────────────────────────────
@@ -742,5 +743,21 @@ mod tests {
         let state = create_test_state();
         let result = apply_config_field(&state, "nonexistent_key", &json!("value"));
         assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn test_get_config_excludes_server_host_port() {
+        let state = create_test_state();
+        let result = get_config(State(state)).await;
+        let value = result.0;
+        let config = value["config"].as_object().unwrap();
+        assert!(
+            !config.contains_key("server_host"),
+            "server_host must not appear in GET /config response"
+        );
+        assert!(
+            !config.contains_key("server_port"),
+            "server_port must not appear in GET /config response"
+        );
     }
 }

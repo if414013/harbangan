@@ -107,7 +107,7 @@ Common causes:
 **Solutions:**
 - If domain allowlisting is enabled, the admin must add the user's email domain via the web UI
 - The first user (admin) bypasses domain restrictions during initial setup
-- Check the domain allowlist in the admin panel at `/_ui/`
+- Check the domain allowlist under Configuration → Authentication at `/_ui/config`
 
 ---
 

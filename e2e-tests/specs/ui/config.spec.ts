@@ -3,7 +3,6 @@ import { Form } from '../../helpers/selectors.js'
 import { navigateTo, expectToastMessage } from '../../helpers/navigation.js'
 
 const CONFIG_GROUPS = [
-  'Server',
   'Kiro Backend',
   'Timeouts',
   'Debug',
@@ -14,7 +13,7 @@ const CONFIG_GROUPS = [
 ] as const
 
 test.describe('Config page', () => {
-  test('renders all 8 config groups', async ({ page }) => {
+  test('renders all 7 config groups', async ({ page }) => {
     await navigateTo(page, '/config')
 
     for (const group of CONFIG_GROUPS) {
@@ -28,7 +27,7 @@ test.describe('Config page', () => {
 
     const groups = page.locator('div.config-group')
     const count = await groups.count()
-    expect(count).toBe(8)
+    expect(count).toBe(7)
 
     // Each group should have at least one config input
     for (let i = 0; i < count; i++) {
@@ -99,11 +98,11 @@ test.describe('Config page — Authentication group', () => {
   test('unsaved changes indicator appears when editing', async ({ page }) => {
     await navigateTo(page, '/config')
 
-    // Find a text input to edit (e.g. server_port or similar in Server group)
-    const serverGroup = page.locator('div.config-group').filter({ hasText: 'Server' })
-    const inputs = serverGroup.locator('input.config-input[type="text"], input.config-input[type="number"]')
+    // Find a text input to edit in the Timeouts group
+    const timeoutsGroup = page.locator('div.config-group').filter({ hasText: 'Timeouts' })
+    const inputs = timeoutsGroup.locator('input.config-input[type="text"], input.config-input[type="number"]')
     const count = await inputs.count()
-    test.skip(count === 0, 'No editable text/number inputs in Server group')
+    test.skip(count === 0, 'No editable text/number inputs in Timeouts group')
 
     const input = inputs.first()
     const originalValue = await input.inputValue()
@@ -118,6 +117,55 @@ test.describe('Config page — Authentication group', () => {
 
     // Revert by reloading (don't save)
     await navigateTo(page, '/config')
+  })
+})
+
+// ── Domain Allowlist (moved from Admin page) ────────────────────────
+
+test.describe('Config page — domain allowlist', () => {
+  test('domain manager card is visible', async ({ page }) => {
+    await navigateTo(page, '/config')
+
+    const domainCard = page.locator('span.card-title', { hasText: 'allowed domains' })
+    await expect(domainCard).toBeVisible()
+  })
+
+  test.describe.serial('domain add and remove', () => {
+    const testDomain = `e2e-test-${Date.now()}.example.com`
+
+    test('add a domain to the allowlist', async ({ page }) => {
+      await navigateTo(page, '/config')
+
+      const domainInput = page.locator('input[aria-label="Domain name to allow"]')
+      await expect(domainInput).toBeVisible()
+      await domainInput.fill(testDomain)
+
+      const addBtn = page.locator('button.btn-save', { hasText: '$ add domain' })
+      await addBtn.click()
+
+      await expectToastMessage(page, `Domain ${testDomain} added`)
+
+      // Domain should appear in the list
+      await page.waitForLoadState('networkidle')
+      await expect(page.locator('span.domain-name', { hasText: testDomain })).toBeVisible()
+    })
+
+    test('remove the domain from the allowlist', async ({ page }) => {
+      await navigateTo(page, '/config')
+
+      // Find the domain we just added and click remove
+      const domainItem = page.locator('div.domain-item').filter({ hasText: testDomain })
+      await expect(domainItem).toBeVisible({ timeout: 5_000 })
+
+      const removeBtn = domainItem.locator('button', { hasText: 'remove' })
+      await removeBtn.click()
+
+      await expectToastMessage(page, `Domain ${testDomain} removed`)
+
+      // Domain should no longer be in the list
+      await page.waitForLoadState('networkidle')
+      await expect(page.locator('span.domain-name', { hasText: testDomain })).not.toBeVisible()
+    })
   })
 })
 

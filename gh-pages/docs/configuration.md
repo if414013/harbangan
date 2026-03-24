@@ -206,13 +206,13 @@ API keys are per-user, created through the Web UI. The gateway SHA-256 hashes th
 
 ### Session Auth (for `/_ui/*` web UI)
 
-Web UI access requires signing in with Google. The first user to sign in gets the Admin role. Admins can manage users, configuration, and domain allowlists.
+Web UI access requires signing in with Google. The first user to sign in gets the Admin role. Admins can manage users and configuration.
 
 ---
 
 ## Domain Allowlist
 
-Admins can configure a domain allowlist to restrict which Google accounts can sign in. When the allowlist is empty, any Google account can sign in. When populated, only accounts with email addresses matching an allowed domain (e.g., `example.com`) can access the Web UI.
+Admins can configure a domain allowlist under **Configuration → Authentication** in the Web UI to restrict which Google accounts can sign in. When the allowlist is empty, any Google account can sign in. When populated, only accounts with email addresses matching an allowed domain (e.g., `example.com`) can access the Web UI.
 
 ---
 

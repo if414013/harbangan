@@ -230,7 +230,7 @@ Navigate to the **Profile** page and create a personal API key in the API Keys s
 
 ### Step 5: Invite users (optional)
 
-As an admin, you can manage users from the Admin page. Create users with password auth, or enable Google SSO and manage domain allowlists for team access.
+As an admin, you can manage users from the Admin page. Create users with password auth, or enable Google SSO and manage domain allowlists under Configuration → Authentication for team access.
 
 ---
 

@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { UserTable } from "../components/UserTable";
-import { DomainManager } from "../components/DomainManager";
 import { PageHeader } from "../components/PageHeader";
 import { useSession } from "../components/SessionGate";
 import { useToast } from "../components/useToast";
@@ -293,15 +292,15 @@ export function Admin() {
     <>
       <PageHeader
         title="administration"
-        description="Manage users, provider pool accounts, and domain access."
+        description="Manage users and provider pool accounts."
       />
       {!setupComplete && (
         <div className="setup-banner">
           <div className="setup-banner-icon">!</div>
           <div>
-            <strong>Welcome, admin!</strong> Your gateway is almost ready. Add
-            your organization's domain below to restrict who can sign in. Leave
-            empty to allow any Google account.
+            <strong>Welcome, admin!</strong> Your gateway is almost ready.
+            Configure domain restrictions under Configuration &rarr;
+            Authentication to control who can sign in.
           </div>
         </div>
       )}
@@ -309,11 +308,6 @@ export function Admin() {
       <h2 className="section-header">PROVIDER POOL</h2>
       <div className="mb-24">
         <ProviderPool />
-      </div>
-
-      <h2 className="section-header">DOMAIN ALLOWLIST</h2>
-      <div className="mb-24">
-        <DomainManager />
       </div>
 
       <h2 className="section-header">CREATE PASSWORD USER</h2>

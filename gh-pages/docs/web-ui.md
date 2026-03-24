@@ -60,8 +60,8 @@ flowchart TB
             UserCreate[POST /admin/users/create]
             AdminUsage[GET /admin/usage]
             AdminPool[Admin provider pool]
-            DomainAllow[Domain Allowlist]
             GuardrailsAdmin[Guardrails CRUD]
+            DomainAllow[Domain Allowlist]
         end
     end
 
@@ -80,6 +80,7 @@ flowchart TB
     Usage --> UsageAPI
     Config --> ConfigRead
     Config --> ConfigWrite
+    Config --> DomainAllow
     Admin --> UserMgmt
     Admin --> UserCreate
     Admin --> AdminUsage
@@ -200,6 +201,7 @@ Gateway runtime configuration management:
 - Edit settings with immediate hot-reload (where supported)
 - Configuration schema with field types, descriptions, and validation rules
 - Configuration change history with timestamps and old/new values
+- **Domain Allowlist** (under Authentication section) — Restrict Google SSO sign-in to specific email domains
 
 ### Guardrails (`/_ui/guardrails`) — Admin Only
 
@@ -217,7 +219,6 @@ User and access management:
 - **Create User** — Create password-authenticated users with initial credentials (`POST /_ui/api/admin/users/create`).
 - **Reset Password** — Force-reset a user's password (`POST /_ui/api/admin/users/:id/reset-password`).
 - **Provider Pool** — Manage shared provider accounts (admin pool). Add, remove, enable/disable shared API keys.
-- **Domain Allowlist** — Restrict Google SSO sign-in to specific email domains.
 
 ### Login (`/_ui/login`)
 
@@ -327,9 +328,9 @@ Users manage provider connections on the **Providers page** (`/_ui/providers`):
 - **Custom** — User-configured endpoint with API key.
 - **Provider Priority** — Users set a priority order for provider fallback. The gateway routes requests to the highest-priority provider with valid credentials.
 
-### Domain Allowlist (Admin)
+### Domain Allowlist
 
-Admins can configure a domain allowlist to restrict which Google accounts can sign in. Only email addresses matching an allowed domain will be permitted to create accounts.
+Admins can configure a domain allowlist under **Configuration → Authentication** to restrict which Google accounts can sign in. Only email addresses matching an allowed domain will be permitted to create accounts.
 
 ### User Management (Admin)
 

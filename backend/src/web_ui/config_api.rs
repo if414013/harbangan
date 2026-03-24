@@ -34,9 +34,7 @@ pub fn classify_config_change(key: &str) -> ChangeType {
         "google_client_id" | "google_client_secret" | "google_callback_url" => {
             ChangeType::HotReload
         }
-        "server_host"
-        | "server_port"
-        | "streaming_timeout"
+        "streaming_timeout"
         | "token_refresh_threshold"
         | "http_max_connections"
         | "http_connect_timeout"
@@ -52,22 +50,6 @@ pub fn classify_config_change(key: &str) -> ChangeType {
 /// Returns `Ok(())` if valid, or `Err(message)` describing the problem.
 pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(), String> {
     match key {
-        "server_host" => {
-            value
-                .as_str()
-                .ok_or_else(|| "server_host must be a string".to_string())?;
-            Ok(())
-        }
-        "server_port" => {
-            let n = value
-                .as_u64()
-                .or_else(|| value.as_str().and_then(|s| s.parse::<u64>().ok()))
-                .ok_or_else(|| "server_port must be a number".to_string())?;
-            if n == 0 || n > 65535 {
-                return Err("server_port must be between 1 and 65535".to_string());
-            }
-            Ok(())
-        }
         "kiro_region" => {
             value
                 .as_str()
@@ -233,11 +215,6 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
 /// Human-readable descriptions for each known config field.
 pub fn get_config_field_descriptions() -> HashMap<&'static str, &'static str> {
     let mut m = HashMap::new();
-    m.insert(
-        "server_host",
-        "Server bind address (e.g. 127.0.0.1, 0.0.0.0)",
-    );
-    m.insert("server_port", "Server listen port (1-65535)");
     m.insert("kiro_region", "AWS region for the Kiro API");
     m.insert(
         "log_level",
@@ -714,14 +691,6 @@ mod tests {
     #[test]
     fn test_classify_requires_restart() {
         assert_eq!(
-            classify_config_change("server_host"),
-            ChangeType::RequiresRestart
-        );
-        assert_eq!(
-            classify_config_change("server_port"),
-            ChangeType::RequiresRestart
-        );
-        assert_eq!(
             classify_config_change("streaming_timeout"),
             ChangeType::RequiresRestart
         );
@@ -756,16 +725,10 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_server_port_valid() {
-        assert!(validate_config_field("server_port", &json!(8080)).is_ok());
-        assert!(validate_config_field("server_port", &json!("443")).is_ok());
-    }
-
-    #[test]
-    fn test_validate_server_port_invalid() {
-        assert!(validate_config_field("server_port", &json!(0)).is_err());
-        assert!(validate_config_field("server_port", &json!(70000)).is_err());
-        assert!(validate_config_field("server_port", &json!("abc")).is_err());
+    fn test_server_host_port_removed_from_validation() {
+        // server_host and server_port are env-only, not configurable via UI
+        assert!(validate_config_field("server_host", &json!("0.0.0.0")).is_err());
+        assert!(validate_config_field("server_port", &json!(8080)).is_err());
     }
 
     #[test]
@@ -811,8 +774,8 @@ mod tests {
 
     #[test]
     fn test_validate_string_fields() {
-        assert!(validate_config_field("server_host", &json!("0.0.0.0")).is_ok());
-        assert!(validate_config_field("server_host", &json!(123)).is_err());
+        assert!(validate_config_field("kiro_region", &json!("us-east-1")).is_ok());
+        assert!(validate_config_field("kiro_region", &json!(123)).is_err());
     }
 
     #[test]
@@ -896,8 +859,6 @@ mod tests {
     fn test_field_descriptions_complete() {
         let descs = get_config_field_descriptions();
         let expected_keys = vec![
-            "server_host",
-            "server_port",
             "kiro_region",
             "log_level",
             "debug_mode",
@@ -920,10 +881,18 @@ mod tests {
         for key in expected_keys {
             assert!(descs.contains_key(key), "Missing description for '{}'", key);
         }
-        // proxy_api_key should NOT be in descriptions
+        // env-only fields should NOT be in descriptions
         assert!(
             !descs.contains_key("proxy_api_key"),
             "proxy_api_key should be removed from descriptions"
+        );
+        assert!(
+            !descs.contains_key("server_host"),
+            "server_host is env-only, should not be in UI descriptions"
+        );
+        assert!(
+            !descs.contains_key("server_port"),
+            "server_port is env-only, should not be in UI descriptions"
         );
     }
 
