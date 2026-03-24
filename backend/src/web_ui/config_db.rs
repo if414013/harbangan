@@ -1900,6 +1900,23 @@ impl ConfigDb {
         Ok(())
     }
 
+    /// Get any user's valid (non-expired) Kiro credential for model population fallback.
+    /// Returns (access_token, Option<oauth_sso_region>).
+    pub async fn get_any_valid_kiro_credential(&self) -> Result<Option<(String, Option<String>)>> {
+        let row: Option<(String, Option<String>)> = sqlx::query_as(
+            "SELECT access_token, oauth_sso_region
+             FROM user_kiro_tokens
+             WHERE access_token IS NOT NULL AND token_expiry > NOW()
+             ORDER BY token_expiry DESC
+             LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to get valid Kiro credential for model population")?;
+
+        Ok(row)
+    }
+
     /// Store per-user OAuth client credentials.
     #[allow(dead_code)]
     pub async fn upsert_user_oauth_client(
@@ -3494,6 +3511,45 @@ impl ConfigDb {
             .collect())
     }
 
+    /// Get any user's valid (non-expired) Copilot token for model population fallback.
+    pub async fn get_any_valid_copilot_token(&self) -> Result<Option<CopilotTokenRow>> {
+        let row: Option<CopilotTokenExpiringRow> = sqlx::query_as(
+            "SELECT user_id, github_token, github_username, copilot_token, copilot_plan, base_url, expires_at, refresh_in
+             FROM user_copilot_tokens
+             WHERE copilot_token IS NOT NULL
+               AND (expires_at IS NULL OR expires_at > NOW())
+             ORDER BY expires_at DESC NULLS LAST
+             LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to get valid copilot token for model population")?;
+
+        Ok(row.map(
+            |(
+                user_id,
+                github_token,
+                github_username,
+                copilot_token,
+                copilot_plan,
+                base_url,
+                expires_at,
+                refresh_in,
+            )| {
+                CopilotTokenRow {
+                    user_id,
+                    github_token,
+                    github_username,
+                    copilot_token,
+                    copilot_plan,
+                    base_url,
+                    expires_at,
+                    refresh_in,
+                }
+            },
+        ))
+    }
+
     // ── Provider Priority ─────────────────────────────────────────
 
     /// Get a user's provider priority list, ordered by priority (ascending).
@@ -3685,8 +3741,27 @@ impl ConfigDb {
         Ok(())
     }
 
-    /// Get a user's OAuth token for a specific provider.
-    /// Returns (access_token, refresh_token, expires_at, email).
+    /// Get any user's provider token for model population fallback.
+    /// Returns the first valid (non-expired) token found for the provider.
+    pub async fn get_any_user_provider_credential(
+        &self,
+        provider_id: &str,
+    ) -> Result<Option<(String, Option<String>)>> {
+        let row: Option<(String, Option<String>)> = sqlx::query_as(
+            "SELECT access_token, base_url
+             FROM user_provider_tokens
+             WHERE provider_id = $1 AND expires_at > NOW()
+             ORDER BY updated_at DESC
+             LIMIT 1",
+        )
+        .bind(provider_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to get user provider credential for model population")?;
+
+        Ok(row)
+    }
+
     #[allow(dead_code)]
     pub async fn get_user_provider_token(
         &self,
