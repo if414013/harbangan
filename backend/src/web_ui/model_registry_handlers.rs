@@ -188,55 +188,30 @@ async fn populate_models(
 
     let mut total_upserted = 0usize;
     for provider_id in &providers {
-        let auth = if *provider_id == "kiro" {
+        // For kiro, snapshot auth_manager credentials before the long-running populate call.
+        // For other providers, pass None — populate_provider handles its own credential lookup.
+        let auth_manager_ref = if *provider_id == "kiro" {
             let guard = state.auth_manager.read().await;
             if guard.has_credentials().await {
-                // We need a reference that outlives the loop iteration,
-                // but AuthManager is behind RwLock. Use populate_provider
-                // with None for non-kiro; for kiro we handle separately.
-                drop(guard);
-                None // Will be handled below
+                Some(guard)
             } else {
-                drop(guard);
                 None
             }
         } else {
             None
         };
 
-        // For kiro, try to fetch from API with auth_manager
-        let result = if *provider_id == "kiro" {
-            let guard = state.auth_manager.read().await;
-            if guard.has_credentials().await {
-                // Fetch kiro models directly
-                match crate::web_ui::model_registry::fetch_kiro_models(&state.http_client, &guard)
-                    .await
-                {
-                    Ok(models) if !models.is_empty() => {
-                        drop(guard);
-                        db.bulk_upsert_registry_models(&models)
-                            .await
-                            .map_err(|e| e.to_string())
-                    }
-                    _ => {
-                        drop(guard);
-                        Ok(0)
-                    }
-                }
-            } else {
-                drop(guard);
-                Ok(0)
-            }
-        } else {
-            crate::web_ui::model_registry::populate_provider(
-                provider_id,
-                &db,
-                &state.http_client,
-                auth,
-            )
-            .await
-            .map_err(|e| e.to_string())
-        };
+        let result = crate::web_ui::model_registry::populate_provider(
+            provider_id,
+            &db,
+            &state.http_client,
+            auth_manager_ref.as_deref(),
+        )
+        .await
+        .map_err(|e| e.to_string());
+
+        // Drop the guard explicitly (if held) before processing the result
+        drop(auth_manager_ref);
 
         match result {
             Ok(count) => {

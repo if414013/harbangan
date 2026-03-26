@@ -16,13 +16,12 @@ pub fn generate_prefixed_id(provider_id: &str, model_id: &str) -> String {
 
 // ── Dynamic Model Fetching ───────────────────────────────────
 
-/// Fetch Kiro models from the ListAvailableModels API, storing internal IDs in upstream_meta.
-pub async fn fetch_kiro_models(
+/// Fetch Kiro models using a raw access token and region.
+pub async fn fetch_kiro_models_with_token(
     http_client: &crate::http_client::KiroHttpClient,
-    auth_manager: &crate::auth::AuthManager,
+    access_token: &str,
+    region: &str,
 ) -> Result<Vec<RegistryModel>> {
-    let access_token = auth_manager.get_access_token().await?;
-    let region = auth_manager.get_region().await;
     let url = format!("https://q.{}.amazonaws.com/ListAvailableModels", region);
 
     let req = http_client
@@ -80,54 +79,60 @@ pub async fn fetch_kiro_models(
         .collect())
 }
 
-/// Fetch Copilot models from `{base_url}/models` using a copilot token from DB.
+/// Fetch Kiro models from the ListAvailableModels API via AuthManager.
+pub async fn fetch_kiro_models(
+    http_client: &crate::http_client::KiroHttpClient,
+    auth_manager: &crate::auth::AuthManager,
+) -> Result<Vec<RegistryModel>> {
+    let access_token = auth_manager.get_access_token().await?;
+    let region = auth_manager.get_region().await;
+    fetch_kiro_models_with_token(http_client, &access_token, &region).await
+}
+
+/// Fetch Copilot models from `{base_url}/models` using a valid copilot token from DB.
 pub async fn fetch_copilot_models(
     http_client: &crate::http_client::KiroHttpClient,
     db: &ConfigDb,
 ) -> Result<Vec<RegistryModel>> {
-    // Find any user with a valid copilot token
-    let tokens = db
-        .get_expiring_copilot_tokens()
-        .await
-        .ok()
-        .unwrap_or_default();
-
-    // Try all copilot tokens, or fall back to fetching all
-    let all_tokens = if tokens.is_empty() {
-        // No expiring tokens — try to get any user's token
-        Vec::new()
-    } else {
-        tokens
+    let token_row = match db.get_any_valid_copilot_token().await {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            tracing::debug!("copilot: no valid copilot token found in DB");
+            return Ok(Vec::new());
+        }
+        Err(e) => {
+            tracing::debug!(error = ?e, "copilot: failed to query copilot tokens");
+            return Ok(Vec::new());
+        }
     };
 
-    for token_row in &all_tokens {
-        if let Some(ref copilot_token) = token_row.copilot_token {
-            let base_url = token_row
-                .base_url
-                .as_deref()
-                .unwrap_or("https://api.githubcopilot.com");
-            let url = format!("{}/models", base_url);
+    if let Some(ref copilot_token) = token_row.copilot_token {
+        let base_url = token_row
+            .base_url
+            .as_deref()
+            .unwrap_or("https://api.githubcopilot.com");
+        let url = format!("{}/models", base_url);
 
-            let result = http_client
-                .client()
-                .get(&url)
-                .header("Authorization", format!("Bearer {}", copilot_token))
-                .send()
-                .await;
+        let result = http_client
+            .client()
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", copilot_token))
+            .header("Editor-Version", "vscode/1.96.0")
+            .header("Copilot-Integration-Id", "vscode-chat")
+            .send()
+            .await;
 
-            if let Ok(resp) = result {
-                if resp.status().is_success() {
-                    if let Ok(body) = resp.text().await {
-                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-                            return Ok(parse_openai_models_response("copilot", &json));
-                        }
+        if let Ok(resp) = result {
+            if resp.status().is_success() {
+                if let Ok(body) = resp.text().await {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                        return Ok(parse_openai_models_response("copilot", &json));
                     }
                 }
             }
         }
     }
 
-    // No valid copilot token available
     Ok(Vec::new())
 }
 
@@ -272,8 +277,8 @@ async fn get_admin_pool_credential(
         .map(|a| (a.api_key, a.base_url))
 }
 
-/// Populate a provider's models in the DB: tries API first, falls back to static.
-/// Returns the number of models upserted.
+/// Populate a provider's models in the DB: tries admin/global credentials first,
+/// then falls back to any user's connected token. Returns the number of models upserted.
 pub async fn populate_provider(
     provider_id: &str,
     db: &Arc<ConfigDb>,
@@ -286,24 +291,71 @@ pub async fn populate_provider(
 
     let api_models = match pid {
         ProviderId::Kiro => {
-            if let Some(am) = auth_manager {
+            // Try global auth_manager first
+            let from_global = if let Some(am) = auth_manager {
+                tracing::debug!("kiro: trying global auth_manager");
                 fetch_kiro_models(http_client, am).await.ok()
             } else {
                 None
+            };
+            if from_global.as_ref().is_some_and(|m| !m.is_empty()) {
+                from_global
+            } else {
+                // Fallback: any user's valid Kiro token
+                tracing::debug!("kiro: falling back to user Kiro token from DB");
+                match db.get_any_valid_kiro_credential().await {
+                    Ok(Some((access_token, sso_region))) => {
+                        let region = sso_region.as_deref().unwrap_or("us-east-1");
+                        tracing::debug!(region, "kiro: using user token for model fetch");
+                        fetch_kiro_models_with_token(http_client, &access_token, region)
+                            .await
+                            .ok()
+                    }
+                    Ok(None) => {
+                        tracing::debug!("kiro: no valid user Kiro token found");
+                        None
+                    }
+                    Err(e) => {
+                        tracing::debug!(error = ?e, "kiro: failed to query user Kiro tokens");
+                        None
+                    }
+                }
             }
         }
         ProviderId::Copilot => fetch_copilot_models(http_client, db).await.ok(),
         ProviderId::Anthropic => {
-            if let Some((api_key, base_url)) = get_admin_pool_credential(db, "anthropic").await {
+            // Try admin pool first
+            let from_admin = if let Some((api_key, base_url)) =
+                get_admin_pool_credential(db, "anthropic").await
+            {
+                tracing::debug!("anthropic: trying admin pool credential");
                 fetch_anthropic_models(http_client, &api_key, base_url.as_deref())
                     .await
                     .ok()
             } else {
                 None
+            };
+            if from_admin.as_ref().is_some_and(|m| !m.is_empty()) {
+                from_admin
+            } else {
+                // Fallback: any user's connected Anthropic token
+                tracing::debug!("anthropic: falling back to user provider token");
+                match db.get_any_user_provider_credential("anthropic").await {
+                    Ok(Some((api_key, base_url))) => {
+                        fetch_anthropic_models(http_client, &api_key, base_url.as_deref())
+                            .await
+                            .ok()
+                    }
+                    _ => None,
+                }
             }
         }
         ProviderId::OpenAICodex => {
-            if let Some((api_key, base_url)) = get_admin_pool_credential(db, "openai_codex").await {
+            // Try admin pool first
+            let from_admin = if let Some((api_key, base_url)) =
+                get_admin_pool_credential(db, "openai_codex").await
+            {
+                tracing::debug!("openai_codex: trying admin pool credential");
                 let base = base_url
                     .as_deref()
                     .or(pid.default_base_url())
@@ -313,6 +365,24 @@ pub async fn populate_provider(
                     .ok()
             } else {
                 None
+            };
+            if from_admin.as_ref().is_some_and(|m| !m.is_empty()) {
+                from_admin
+            } else {
+                // Fallback: any user's connected OpenAI Codex token
+                tracing::debug!("openai_codex: falling back to user provider token");
+                match db.get_any_user_provider_credential("openai_codex").await {
+                    Ok(Some((api_key, base_url))) => {
+                        let base = base_url
+                            .as_deref()
+                            .or(pid.default_base_url())
+                            .unwrap_or("https://api.openai.com");
+                        fetch_openai_compatible_models(http_client, "openai_codex", base, &api_key)
+                            .await
+                            .ok()
+                    }
+                    _ => None,
+                }
             }
         }
         ProviderId::Custom => None,
@@ -334,49 +404,6 @@ pub async fn populate_provider(
     );
     let count = db.bulk_upsert_registry_models(&models).await?;
     tracing::info!(provider = provider_id, count, "Populated model registry");
-    Ok(count)
-}
-
-/// Populate a provider using a user's API key (for anthropic, openai_codex).
-#[allow(dead_code)]
-pub async fn populate_provider_with_key(
-    provider_id: &str,
-    api_key: &str,
-    db: &Arc<ConfigDb>,
-    http_client: &crate::http_client::KiroHttpClient,
-) -> Result<usize> {
-    let pid = ProviderId::from_str(provider_id)
-        .map_err(|e| anyhow::anyhow!(e))
-        .context("Invalid provider_id")?;
-
-    let api_models = match pid {
-        ProviderId::Anthropic => fetch_anthropic_models(http_client, api_key, None)
-            .await
-            .ok(),
-        ProviderId::OpenAICodex => {
-            let base = pid.default_base_url().unwrap_or("https://api.openai.com");
-            fetch_openai_compatible_models(http_client, "openai_codex", base, api_key)
-                .await
-                .ok()
-        }
-        _ => None,
-    };
-
-    // Keep-last-successful: don't overwrite registry on failure/empty
-    let Some(models) = api_models.filter(|m| !m.is_empty()) else {
-        tracing::warn!(
-            provider = provider_id,
-            "API returned no models with key, keeping existing registry"
-        );
-        return Ok(0);
-    };
-
-    tracing::info!(
-        provider = provider_id,
-        count = models.len(),
-        "Fetched models from API with key"
-    );
-    let count = db.bulk_upsert_registry_models(&models).await?;
     Ok(count)
 }
 
