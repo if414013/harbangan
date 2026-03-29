@@ -56,9 +56,18 @@ pub async fn fetch_kiro_models_with_token(
         .filter_map(|m| {
             let internal_id = m.get("modelId")?.as_str()?;
             let display_name = m
-                .get("displayName")
+                .get("modelName")
                 .and_then(|v| v.as_str())
                 .unwrap_or(internal_id);
+            let token_limits = m.get("tokenLimits");
+            let context_length = token_limits
+                .and_then(|t| t.get("maxInputTokens"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32;
+            let max_output_tokens = token_limits
+                .and_then(|t| t.get("maxOutputTokens"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32;
             // Use display name as the external model_id for Kiro models
             Some(RegistryModel {
                 id: Uuid::new_v4(),
@@ -66,12 +75,12 @@ pub async fn fetch_kiro_models_with_token(
                 model_id: display_name.to_string(),
                 display_name: display_name.to_string(),
                 prefixed_id: generate_prefixed_id("kiro", display_name),
-                context_length: 0,
-                max_output_tokens: 0,
+                context_length,
+                max_output_tokens,
                 capabilities: json!({}),
                 enabled: false,
                 source: "api".to_string(),
-                upstream_meta: Some(json!({ "internal_id": internal_id })),
+                upstream_meta: Some(m.clone()),
                 created_at: now,
                 updated_at: now,
             })

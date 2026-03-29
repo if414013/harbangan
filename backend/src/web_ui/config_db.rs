@@ -3212,8 +3212,12 @@ impl ConfigDb {
              ON CONFLICT (provider_id, model_id) DO UPDATE SET
                display_name      = EXCLUDED.display_name,
                prefixed_id       = EXCLUDED.prefixed_id,
-               context_length    = EXCLUDED.context_length,
-               max_output_tokens = EXCLUDED.max_output_tokens,
+               context_length    = CASE WHEN EXCLUDED.context_length > 0
+                                        THEN EXCLUDED.context_length
+                                        ELSE model_registry.context_length END,
+               max_output_tokens = CASE WHEN EXCLUDED.max_output_tokens > 0
+                                        THEN EXCLUDED.max_output_tokens
+                                        ELSE model_registry.max_output_tokens END,
                capabilities      = EXCLUDED.capabilities,
                source            = EXCLUDED.source,
                upstream_meta     = EXCLUDED.upstream_meta,
@@ -3259,8 +3263,12 @@ impl ConfigDb {
                  ON CONFLICT (provider_id, model_id) DO UPDATE SET
                    display_name      = EXCLUDED.display_name,
                    prefixed_id       = EXCLUDED.prefixed_id,
-                   context_length    = EXCLUDED.context_length,
-                   max_output_tokens = EXCLUDED.max_output_tokens,
+                   context_length    = CASE WHEN EXCLUDED.context_length > 0
+                                            THEN EXCLUDED.context_length
+                                            ELSE model_registry.context_length END,
+                   max_output_tokens = CASE WHEN EXCLUDED.max_output_tokens > 0
+                                            THEN EXCLUDED.max_output_tokens
+                                            ELSE model_registry.max_output_tokens END,
                    capabilities      = EXCLUDED.capabilities,
                    source            = EXCLUDED.source,
                    upstream_meta     = EXCLUDED.upstream_meta,
