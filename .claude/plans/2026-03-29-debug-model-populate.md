@@ -24,12 +24,12 @@ Three independent failures, all silently swallowed by `.ok()` in `model_registry
 ### Verified via curl from Docker container
 
 ```
-# Anthropic — 401
-curl https://api.anthropic.com/v1/models -H "x-api-key: sk-ant-oat01-..."
+# Anthropic — 401 (OAT token rejected)
+curl https://api.anthropic.com/v1/models -H "x-api-key: <oat-token>"
 → {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}
 
-# OpenAI Codex — 403
-curl https://api.openai.com/v1/models -H "Authorization: Bearer eyJhbG..."
+# OpenAI Codex — 403 (JWT missing model.read scope)
+curl https://api.openai.com/v1/models -H "Authorization: Bearer <jwt-token>"
 → {"error":"Missing scopes: api.model.read"}
 
 # Kiro — DNS failure
