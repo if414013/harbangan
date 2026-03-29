@@ -391,13 +391,39 @@ pub async fn populate_provider(
         ProviderId::Custom => None,
     };
 
-    // Keep-last-successful: if API returns empty or fails, preserve existing registry rows
-    let Some(models) = api_models.filter(|m| !m.is_empty()) else {
-        tracing::warn!(
-            provider = provider_id,
-            "API returned no models, keeping existing registry"
-        );
-        return Ok(0);
+    // Keep-last-successful: if API returns empty or fails, try static fallback
+    let models = match api_models.filter(|m| !m.is_empty()) {
+        Some(m) => m,
+        None => {
+            // Static fallback for providers whose OAuth tokens can't list models
+            let static_fallback = match pid {
+                ProviderId::Anthropic => {
+                    tracing::info!(
+                        provider = provider_id,
+                        "Using static model definitions as fallback"
+                    );
+                    Some(super::static_models::static_anthropic_models())
+                }
+                ProviderId::OpenAICodex => {
+                    tracing::info!(
+                        provider = provider_id,
+                        "Using static model definitions as fallback"
+                    );
+                    Some(super::static_models::static_openai_codex_models())
+                }
+                _ => None,
+            };
+            match static_fallback {
+                Some(m) => m,
+                None => {
+                    tracing::warn!(
+                        provider = provider_id,
+                        "API returned no models, keeping existing registry"
+                    );
+                    return Ok(0);
+                }
+            }
+        }
     };
 
     tracing::info!(

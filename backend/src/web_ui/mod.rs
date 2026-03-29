@@ -12,6 +12,7 @@ pub mod provider_oauth;
 pub mod provider_priority;
 pub mod routes;
 pub mod session;
+pub mod static_models;
 pub mod usage;
 pub mod user_kiro;
 pub mod users;
