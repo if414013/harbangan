@@ -1,0 +1,123 @@
+{
+  "modelProviders": {
+    "openai": [
+      {
+        "id": "qwen3.5-plus",
+        "name": "[Bailian Coding Plan for Global/Intl] qwen3.5-plus",
+        "baseUrl": "https://coding-intl.dashscope.aliyuncs.com/v1",
+        "envKey": "BAILIAN_CODING_PLAN_API_KEY",
+        "generationConfig": {
+          "extra_body": {
+            "enable_thinking": true
+          },
+          "contextWindowSize": 1000000
+        }
+      },
+      {
+        "id": "qwen3-coder-plus",
+        "name": "[Bailian Coding Plan for Global/Intl] qwen3-coder-plus",
+        "baseUrl": "https://coding-intl.dashscope.aliyuncs.com/v1",
+        "envKey": "BAILIAN_CODING_PLAN_API_KEY",
+        "generationConfig": {
+          "contextWindowSize": 1000000
+        }
+      },
+      {
+        "id": "qwen3-coder-next",
+        "name": "[Bailian Coding Plan for Global/Intl] qwen3-coder-next",
+        "baseUrl": "https://coding-intl.dashscope.aliyuncs.com/v1",
+        "envKey": "BAILIAN_CODING_PLAN_API_KEY",
+        "generationConfig": {
+          "contextWindowSize": 262144
+        }
+      },
+      {
+        "id": "qwen3-max-2026-01-23",
+        "name": "[Bailian Coding Plan for Global/Intl] qwen3-max-2026-01-23",
+        "baseUrl": "https://coding-intl.dashscope.aliyuncs.com/v1",
+        "envKey": "BAILIAN_CODING_PLAN_API_KEY",
+        "generationConfig": {
+          "extra_body": {
+            "enable_thinking": true
+          },
+          "contextWindowSize": 262144
+        }
+      },
+      {
+        "id": "glm-4.7",
+        "name": "[Bailian Coding Plan for Global/Intl] glm-4.7",
+        "baseUrl": "https://coding-intl.dashscope.aliyuncs.com/v1",
+        "envKey": "BAILIAN_CODING_PLAN_API_KEY",
+        "generationConfig": {
+          "extra_body": {
+            "enable_thinking": true
+          },
+          "contextWindowSize": 202752
+        }
+      },
+      {
+        "id": "glm-5",
+        "name": "[Bailian Coding Plan for Global/Intl] glm-5",
+        "baseUrl": "https://coding-intl.dashscope.aliyuncs.com/v1",
+        "envKey": "BAILIAN_CODING_PLAN_API_KEY",
+        "generationConfig": {
+          "extra_body": {
+            "enable_thinking": true
+          },
+          "contextWindowSize": 202752
+        }
+      },
+      {
+        "id": "MiniMax-M2.5",
+        "name": "[Bailian Coding Plan for Global/Intl] MiniMax-M2.5",
+        "baseUrl": "https://coding-intl.dashscope.aliyuncs.com/v1",
+        "envKey": "BAILIAN_CODING_PLAN_API_KEY",
+        "generationConfig": {
+          "extra_body": {
+            "enable_thinking": true
+          },
+          "contextWindowSize": 196608
+        }
+      },
+      {
+        "id": "kimi-k2.5",
+        "name": "[Bailian Coding Plan for Global/Intl] kimi-k2.5",
+        "baseUrl": "https://coding-intl.dashscope.aliyuncs.com/v1",
+        "envKey": "BAILIAN_CODING_PLAN_API_KEY",
+        "generationConfig": {
+          "extra_body": {
+            "enable_thinking": true
+          },
+          "contextWindowSize": 262144
+        }
+      },
+      {
+        "id": "qwen3-coder-plus",
+        "name": "qwen3-coder-plus",
+        "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "description": "Qwen3-Coder via Dashscope",
+        "envKey": "DASHSCOPE_API_KEY"
+      }
+    ]
+  },
+  "env": {
+    "BAILIAN_CODING_PLAN_API_KEY": "your-api-key-here"
+  },
+  "security": {
+    "auth": {
+      "selectedType": "openai"
+    }
+  },
+  "model": {
+    "name": "qwen3.5-plus"
+  },
+  "agents": {
+    "maxThreads": 12,
+    "maxDepth": 2
+  },
+  "$version": 3,
+  "codingPlan": {
+    "region": "global",
+    "version": "01840ceb99f7ee4dcf3d2c4d5f2f8f4409f7f38cfc45013b7c94a3928f3b6a3e"
+  }
+}

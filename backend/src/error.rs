@@ -139,6 +139,11 @@ pub enum ApiError {
         retry_after_secs: u64,
     },
 
+    /// Model is disabled by admin visibility settings
+    #[error("Model disabled: {model}")]
+    #[allow(dead_code)]
+    ModelDisabled { model: String },
+
     /// Internal server error
     #[error("Internal error: {0}")]
     Internal(#[from] anyhow::Error),
@@ -291,6 +296,11 @@ impl IntoResponse for ApiError {
                 )
                     .into_response();
             }
+            ApiError::ModelDisabled { ref model } => (
+                StatusCode::FORBIDDEN,
+                "model_disabled",
+                format!("Model '{}' is disabled by administrator", model),
+            ),
             ApiError::Internal(err) => {
                 // Log internal errors
                 tracing::error!("Internal error: {:?}", err);

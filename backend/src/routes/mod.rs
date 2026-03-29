@@ -172,6 +172,31 @@ mod tests {
     async fn test_get_models_handler() {
         let state = create_test_state();
 
+        // Insert enabled registry models so get_enabled_registry_models() returns them
+        use crate::web_ui::config_db::RegistryModel;
+        use chrono::Utc;
+        let now = Utc::now();
+        for (prefixed, display, provider) in [
+            ("kiro/claude-sonnet-4.5", "Claude Sonnet 4.5", "kiro"),
+            ("kiro/claude-haiku-4", "Claude Haiku 4", "kiro"),
+        ] {
+            state.model_cache.insert_registry_model(RegistryModel {
+                id: uuid::Uuid::new_v4(),
+                provider_id: provider.to_string(),
+                model_id: prefixed.to_string(),
+                display_name: display.to_string(),
+                prefixed_id: prefixed.to_string(),
+                context_length: 200_000,
+                max_output_tokens: 64_000,
+                capabilities: serde_json::json!({}),
+                enabled: true,
+                source: "test".to_string(),
+                upstream_meta: None,
+                created_at: now,
+                updated_at: now,
+            });
+        }
+
         // Call handler
         let result = openai::get_models_handler(State(state)).await;
         assert!(result.is_ok());
@@ -182,13 +207,13 @@ mod tests {
 
         // Check model properties
         let model_ids: Vec<String> = model_list.data.iter().map(|m| m.id.clone()).collect();
-        assert!(model_ids.contains(&"claude-sonnet-4.5".to_string()));
-        assert!(model_ids.contains(&"claude-haiku-4".to_string()));
+        assert!(model_ids.contains(&"kiro/claude-sonnet-4.5".to_string()));
+        assert!(model_ids.contains(&"kiro/claude-haiku-4".to_string()));
 
         // Check model fields
         for model in &model_list.data {
             assert_eq!(model.object, "model");
-            assert_eq!(model.owned_by, "anthropic");
+            assert_eq!(model.owned_by, "kiro");
             assert!(model.description.is_some());
         }
     }

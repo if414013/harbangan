@@ -16,7 +16,7 @@ fn model(provider: &str, id: &str, display: &str, ctx: i32, out: i32) -> Registr
         context_length: ctx,
         max_output_tokens: out,
         capabilities: json!({}),
-        enabled: false,
+        enabled: true,
         source: "static".to_string(),
         upstream_meta: None,
         created_at: now,
@@ -178,7 +178,7 @@ mod tests {
         for m in &models {
             assert_eq!(m.provider_id, "anthropic");
             assert_eq!(m.source, "static");
-            assert!(!m.enabled);
+            assert!(m.enabled);
             assert!(m.context_length > 0);
             assert!(m.prefixed_id.starts_with("anthropic/"));
         }
@@ -192,7 +192,7 @@ mod tests {
         for m in &models {
             assert_eq!(m.provider_id, "openai_codex");
             assert_eq!(m.source, "static");
-            assert!(!m.enabled);
+            assert!(m.enabled);
             assert!(m.context_length > 0);
             assert!(m.prefixed_id.starts_with("openai_codex/"));
         }

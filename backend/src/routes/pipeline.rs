@@ -63,6 +63,27 @@ pub(crate) fn validate_model_provider(model: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// Check if a model is disabled in the registry cache.
+///
+/// Builds the prefixed_id from provider + model and checks the cache.
+/// Unknown models (not in the registry at all) pass through — only explicitly
+/// disabled models are rejected.
+pub(crate) fn validate_model_visibility(
+    model_cache: &crate::cache::ModelCache,
+    provider_id: &ProviderId,
+    model: &str,
+    stripped_model: Option<&str>,
+) -> Result<(), ApiError> {
+    let model_to_check = stripped_model.unwrap_or(model);
+    let prefixed_id = format!("{}/{}", provider_id.as_str(), model_to_check);
+    if model_cache.is_model_disabled(&prefixed_id) {
+        return Err(ApiError::ModelDisabled {
+            model: model.to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// Resolve which provider to route a request to, refreshing OAuth tokens if needed.
 pub(crate) async fn resolve_provider_routing(
     state: &AppState,

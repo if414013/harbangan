@@ -1,7 +1,7 @@
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ProviderModelGroup } from "../../components/ProviderModelGroup";
 import { groupByProvider } from "../../lib/providers";
-import type { RegistryModel } from "../../lib/api";
+import type { RegistryModel, VisibilityDefaults } from "../../lib/api";
 
 interface ModelsTabProps {
   models: RegistryModel[];
@@ -17,6 +17,11 @@ interface ModelsTabProps {
   onPopulate: (providerId?: string) => void;
   onConfirm: () => void;
   onCancelConfirm: () => void;
+  isAdmin?: boolean;
+  visibilityDefaults?: VisibilityDefaults;
+  onSaveDefaults?: (providerId: string, modelIds: string[]) => Promise<void>;
+  onApplyDefaults?: (providerId: string) => Promise<void>;
+  onClearDefaults?: (providerId: string) => Promise<void>;
 }
 
 export function ModelsTab({
@@ -29,6 +34,11 @@ export function ModelsTab({
   onPopulate,
   onConfirm,
   onCancelConfirm,
+  isAdmin,
+  visibilityDefaults = {},
+  onSaveDefaults,
+  onApplyDefaults,
+  onClearDefaults,
 }: ModelsTabProps) {
   const groups = groupByProvider(models);
 
@@ -52,14 +62,16 @@ export function ModelsTab({
           marginBottom: 16,
         }}
       >
-        <button
-          className="btn-save"
-          type="button"
-          onClick={() => onPopulate()}
-          disabled={populating}
-        >
-          {populating ? "populating..." : "$ populate all"}
-        </button>
+        {isAdmin && (
+          <button
+            className="btn-save"
+            type="button"
+            onClick={() => onPopulate()}
+            disabled={populating}
+          >
+            {populating ? "populating..." : "$ populate all"}
+          </button>
+        )}
         <span className="card-subtitle">
           {models.length} models across {groups.length} providers
         </span>
@@ -80,6 +92,11 @@ export function ModelsTab({
               onToggle={onToggle}
               onDelete={onDelete}
               onPopulate={onPopulate}
+              isAdmin={isAdmin}
+              allowedModelIds={visibilityDefaults[g.providerId] ?? []}
+              onSaveDefaults={onSaveDefaults}
+              onApplyDefaults={onApplyDefaults}
+              onClearDefaults={onClearDefaults}
             />
           ))}
         </div>

@@ -1,8 +1,14 @@
-# Harbangan Codex Guide
+# Harbangan Codex and Qwen Code CLI Guide
 
-This repository keeps Claude and Codex workflow files side by side.
+This repository keeps Claude, Codex, and Qwen Code CLI workflow files side by side.
 
-Codex support in this repo is intentionally narrow: the supported repo workflows are review and debugging only.
+Codex and Qwen Code CLI support in this repo is intentionally narrow: the supported repo workflows are review and debugging only.
+
+## Qwen Code CLI paths
+
+- `.qwen/settings.json` is the project configuration for Qwen Code CLI (model providers, agents settings).
+- `.qwen/agents/` contains project-scoped custom subagents (TOML format).
+- `.qwen/skills/` contains project-scoped custom skills (SKILL.md format).
 
 ## Codex-specific paths
 
@@ -42,7 +48,7 @@ Codex support in this repo is intentionally narrow: the supported repo workflows
 
 ## Delegation defaults
 
-- Prefer the custom agents in `.codex/agents/` when you need domain-specific subagents.
+- Prefer the custom agents in `.qwen/agents/` (Qwen Code CLI) or `.codex/agents/` (Codex) when you need domain-specific subagents.
 - All repo custom agents are read-only and advisory-only by design. They inspect, cite evidence, and recommend next actions; they do not write or edit files.
 - Keep one owner per file or change area during parallel work.
 - Use read-only investigation/review passes before proposing risky cross-cutting changes.

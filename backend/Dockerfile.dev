@@ -1,0 +1,18 @@
+FROM rust:1-slim-bookworm
+
+RUN apt-get update && apt-get install -y pkg-config mold clang && rm -rf /var/lib/apt/lists/*
+RUN cargo install cargo-watch
+
+WORKDIR /app
+
+# Configure mold linker for faster incremental linking
+RUN mkdir -p .cargo && printf '[target.x86_64-unknown-linux-gnu]\nlinker = "clang"\nrustflags = ["-C", "link-arg=-fuse-ld=mold"]\n' > .cargo/config.toml
+
+# Pre-build dependencies with dummy source (cached in image layer)
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && echo 'fn main() {}' > src/main.rs \
+    && mkdir -p src/bin && echo 'fn main() {}' > src/bin/probe_limits.rs \
+    && cargo build \
+    && rm -rf src
+
+CMD ["cargo", "watch", "-x", "run --bin harbangan", "-w", "src/"]

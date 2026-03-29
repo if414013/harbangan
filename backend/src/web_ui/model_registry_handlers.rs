@@ -242,11 +242,15 @@ async fn populate_models(
 
 // ── Router ───────────────────────────────────────────────────
 
-/// Model registry routes, nested under `/models/registry` (session-authenticated).
+/// Model registry read-only routes (session-authenticated, all users).
 pub fn model_registry_routes() -> Router<AppState> {
+    Router::new().route("/", get(list_models))
+}
+
+/// Model registry mutation routes (admin-only).
+pub fn model_registry_admin_routes() -> Router<AppState> {
     Router::new()
-        .route("/", get(list_models))
-        .route("/{id}", patch(update_model))
-        .route("/{id}", delete(delete_model))
+        .route("/:id", patch(update_model))
+        .route("/:id", delete(delete_model))
         .route("/populate", post(populate_models))
 }

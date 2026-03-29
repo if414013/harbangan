@@ -16,7 +16,7 @@ use super::pipeline::{
     extract_last_user_message_anthropic, extract_usage_metric_snapshot, handle_rate_limit_retry,
     persist_non_streaming_usage, read_config, resolve_provider_routing, run_input_guardrail_check,
     run_output_guardrail_check, update_rate_limits, validate_model_provider,
-    wrap_stream_with_usage_metrics,
+    validate_model_visibility, wrap_stream_with_usage_metrics,
 };
 use super::state::{AppState, UserKiroCreds};
 
@@ -71,6 +71,12 @@ pub(crate) async fn anthropic_messages_handler(
     let requested_model = request.model.clone();
     validate_model_provider(&requested_model)?;
     let mut routing = resolve_provider_routing(&state, user_creds.as_ref(), &requested_model).await;
+    validate_model_visibility(
+        &state.model_cache,
+        &routing.provider_id,
+        &requested_model,
+        routing.stripped_model.as_deref(),
+    )?;
 
     let mut creds = if routing.provider_id == ProviderId::Kiro {
         build_kiro_credentials(&state, user_creds.as_ref()).await?
