@@ -306,7 +306,10 @@ pub async fn populate_provider(
                 tracing::debug!("kiro: falling back to user Kiro token from DB");
                 match db.get_any_valid_kiro_credential().await {
                     Ok(Some((access_token, _sso_region))) => {
-                        tracing::debug!(region = kiro_api_region, "kiro: using API region for model fetch");
+                        tracing::debug!(
+                            region = kiro_api_region,
+                            "kiro: using API region for model fetch"
+                        );
                         fetch_kiro_models_with_token(http_client, &access_token, kiro_api_region)
                             .await
                             .ok()

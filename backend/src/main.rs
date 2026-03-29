@@ -628,7 +628,15 @@ async fn populate_all_providers(
             None
         };
 
-        match web_ui::model_registry::populate_provider(provider_id, db, http_client, auth, &kiro_api_region).await {
+        match web_ui::model_registry::populate_provider(
+            provider_id,
+            db,
+            http_client,
+            auth,
+            &kiro_api_region,
+        )
+        .await
+        {
             Ok(count) => {
                 if count > 0 {
                     tracing::info!(provider = provider_id, count, "Populated models");

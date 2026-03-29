@@ -11,6 +11,7 @@ paths = [
   '''backend/src/.*tests?\.rs$''',
   '''backend/tests/.*\.rs$''',
   '''\.gitleaks\.toml$''',
+  '''\.claude/plans/.*\.md$''',
 ]
 regexTarget = "match"
 regexes = [
