@@ -284,6 +284,7 @@ pub async fn populate_provider(
     db: &Arc<ConfigDb>,
     http_client: &crate::http_client::KiroHttpClient,
     auth_manager: Option<&crate::auth::AuthManager>,
+    kiro_api_region: &str,
 ) -> Result<usize> {
     let pid = ProviderId::from_str(provider_id)
         .map_err(|e| anyhow::anyhow!(e))
@@ -304,10 +305,9 @@ pub async fn populate_provider(
                 // Fallback: any user's valid Kiro token
                 tracing::debug!("kiro: falling back to user Kiro token from DB");
                 match db.get_any_valid_kiro_credential().await {
-                    Ok(Some((access_token, sso_region))) => {
-                        let region = sso_region.as_deref().unwrap_or("us-east-1");
-                        tracing::debug!(region, "kiro: using user token for model fetch");
-                        fetch_kiro_models_with_token(http_client, &access_token, region)
+                    Ok(Some((access_token, _sso_region))) => {
+                        tracing::debug!(region = kiro_api_region, "kiro: using API region for model fetch");
+                        fetch_kiro_models_with_token(http_client, &access_token, kiro_api_region)
                             .await
                             .ok()
                     }

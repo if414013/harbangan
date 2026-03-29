@@ -590,6 +590,13 @@ async fn populate_all_providers(
     auth_manager: &Arc<tokio::sync::RwLock<auth::AuthManager>>,
     model_cache: &cache::ModelCache,
 ) {
+    let kiro_api_region = db
+        .get("kiro_region")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "us-east-1".to_string());
+
     for pid in providers::types::ProviderId::all_visible() {
         let provider_id = pid.as_str();
         let auth = if provider_id == "kiro" {
@@ -621,7 +628,7 @@ async fn populate_all_providers(
             None
         };
 
-        match web_ui::model_registry::populate_provider(provider_id, db, http_client, auth).await {
+        match web_ui::model_registry::populate_provider(provider_id, db, http_client, auth, &kiro_api_region).await {
             Ok(count) => {
                 if count > 0 {
                     tracing::info!(provider = provider_id, count, "Populated models");

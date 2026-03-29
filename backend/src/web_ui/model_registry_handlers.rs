@@ -186,6 +186,11 @@ async fn populate_models(
             .collect()
     };
 
+    let kiro_api_region = {
+        let config = state.config.read().unwrap();
+        config.kiro_region.clone()
+    };
+
     let mut total_upserted = 0usize;
     for provider_id in &providers {
         // For kiro, snapshot auth_manager credentials before the long-running populate call.
@@ -206,6 +211,7 @@ async fn populate_models(
             &db,
             &state.http_client,
             auth_manager_ref.as_deref(),
+            &kiro_api_region,
         )
         .await
         .map_err(|e| e.to_string());
