@@ -68,17 +68,17 @@ pub async fn fetch_kiro_models_with_token(
                 .and_then(|t| t.get("maxOutputTokens"))
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0) as i32;
-            // Use display name as the external model_id for Kiro models
+            // Use upstream modelId as the canonical model_id for Kiro models
             Some(RegistryModel {
                 id: Uuid::new_v4(),
                 provider_id: "kiro".to_string(),
-                model_id: display_name.to_string(),
+                model_id: internal_id.to_string(),
                 display_name: display_name.to_string(),
-                prefixed_id: generate_prefixed_id("kiro", display_name),
+                prefixed_id: generate_prefixed_id("kiro", internal_id),
                 context_length,
                 max_output_tokens,
                 capabilities: json!({}),
-                enabled: false,
+                enabled: true,
                 source: "api".to_string(),
                 upstream_meta: Some(m.clone()),
                 created_at: now,
@@ -229,7 +229,7 @@ pub async fn fetch_anthropic_models(
                 context_length: 0,
                 max_output_tokens: 0,
                 capabilities: json!({}),
-                enabled: false,
+                enabled: true,
                 source: "api".to_string(),
                 upstream_meta: Some(m.clone()),
                 created_at: now,
@@ -264,7 +264,7 @@ pub(crate) fn parse_openai_models_response(
                 context_length: 0,
                 max_output_tokens: 0,
                 capabilities: json!({}),
-                enabled: false,
+                enabled: true,
                 source: "api".to_string(),
                 upstream_meta: Some(m.clone()),
                 created_at: now,

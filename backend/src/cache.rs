@@ -168,7 +168,7 @@ impl ModelCache {
 
     // ── Registry-backed methods ──────────────────────────────
 
-    /// Load enabled models from the DB registry into the in-memory registry cache.
+    /// Load all models (enabled and disabled) from the DB registry into the in-memory registry cache.
     #[allow(dead_code)]
     pub async fn load_from_registry(&self) -> Result<usize, anyhow::Error> {
         let db = self
@@ -176,7 +176,7 @@ impl ModelCache {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("No config_db configured"))?;
 
-        let models = db.get_enabled_registry_models().await?;
+        let models = db.get_all_registry_models().await?;
         let count = models.len();
 
         self.registry_cache.clear();
@@ -208,13 +208,39 @@ impl ModelCache {
             .map(|entry| entry.value().clone())
     }
 
-    /// Get all enabled registry models.
+    /// Get all registry models (enabled and disabled).
     #[allow(dead_code)]
     pub fn get_all_registry_models(&self) -> Vec<RegistryModel> {
         self.registry_cache
             .iter()
             .map(|entry| entry.value().clone())
             .collect()
+    }
+
+    /// Get only enabled registry models from the cache.
+    #[allow(dead_code)]
+    pub fn get_enabled_registry_models(&self) -> Vec<RegistryModel> {
+        self.registry_cache
+            .iter()
+            .filter(|entry| entry.value().enabled)
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    /// Check if a model is explicitly disabled in the registry.
+    /// Returns `true` only if the model exists in the cache AND has `enabled == false`.
+    /// Returns `false` if the model is not in the cache (unknown models pass through).
+    #[allow(dead_code)]
+    pub fn is_model_disabled(&self, prefixed_id: &str) -> bool {
+        self.registry_cache
+            .get(prefixed_id)
+            .is_some_and(|entry| !entry.value().enabled)
+    }
+
+    /// Insert a registry model directly into the cache (test helper).
+    #[cfg(test)]
+    pub fn insert_registry_model(&self, model: RegistryModel) {
+        self.registry_cache.insert(model.prefixed_id.clone(), model);
     }
 
     /// Check if the registry cache is stale.

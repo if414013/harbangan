@@ -568,3 +568,71 @@ export function populateModels(providerId?: string) {
     provider_id: providerId ?? null,
   });
 }
+
+// --- Visibility Defaults Types ---
+
+export type VisibilityDefaults = Record<string, string[]>;
+
+export interface AllVisibilityDefaultsResponse {
+  defaults: VisibilityDefaults;
+}
+
+export interface SetVisibilityDefaultsResponse {
+  success: boolean;
+  provider_id: string;
+  count: number;
+}
+
+export interface DeleteVisibilityDefaultsResponse {
+  success: boolean;
+  provider_id: string;
+}
+
+export interface ApplyVisibilityDefaultsResponse {
+  success: boolean;
+  provider_id: string;
+  enabled: number;
+  disabled: number;
+}
+
+export interface ProviderApplyResult {
+  provider_id: string;
+  enabled: number;
+  disabled: number;
+}
+
+export interface ApplyAllVisibilityDefaultsResponse {
+  success: boolean;
+  results: ProviderApplyResult[];
+}
+
+// --- Visibility Defaults API ---
+
+export function getVisibilityDefaults() {
+  return apiFetch<AllVisibilityDefaultsResponse>("/models/visibility-defaults");
+}
+
+export function setVisibilityDefaults(providerId: string, modelIds: string[]) {
+  return apiPut<SetVisibilityDefaultsResponse>(
+    `/models/visibility-defaults/${encodeURIComponent(providerId)}`,
+    { model_ids: modelIds },
+  );
+}
+
+export function deleteVisibilityDefaults(providerId: string) {
+  return apiDelete(
+    `/models/visibility-defaults/${encodeURIComponent(providerId)}`,
+  );
+}
+
+export function applyVisibilityDefaults(providerId: string) {
+  return apiPost<ApplyVisibilityDefaultsResponse>(
+    `/models/visibility-defaults/${encodeURIComponent(providerId)}/apply`,
+  );
+}
+
+export function applyAllVisibilityDefaults() {
+  return apiPost<ApplyAllVisibilityDefaultsResponse>(
+    "/models/visibility-defaults/apply-all",
+  );
+}

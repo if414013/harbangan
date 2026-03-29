@@ -16,49 +16,53 @@ use super::pipeline::{
     extract_last_user_message, extract_usage_metric_snapshot, handle_rate_limit_retry,
     persist_non_streaming_usage, read_config, resolve_provider_routing, run_input_guardrail_check,
     run_output_guardrail_check, update_rate_limits, validate_model_provider,
-    wrap_stream_with_usage_metrics,
+    validate_model_visibility, wrap_stream_with_usage_metrics,
 };
 use super::state::{AppState, UserKiroCreds};
 
 /// GET /v1/models - List available models
 ///
 /// Returns a list of available models in OpenAI format.
-/// Merges Kiro API models (legacy cache) with registry-backed models.
+/// Serves enabled models from the registry cache only.
 pub(crate) async fn get_models_handler(
     State(state): State<AppState>,
 ) -> Result<Json<ModelList>, ApiError> {
     tracing::info!("Request to /v1/models");
 
-    // 1. Kiro models from legacy cache
-    let kiro_ids = state.model_cache.get_all_model_ids();
-    let mut models: Vec<OpenAIModel> = kiro_ids
-        .into_iter()
-        .map(|id| {
-            let mut model = OpenAIModel::new(id);
-            model.description = Some("Claude model via Kiro API".to_string());
-            model
-        })
-        .collect();
+    let mut seen = std::collections::HashSet::new();
 
-    // 2. Registry models (direct providers)
-    let registry_models = state.model_cache.get_all_registry_models();
-    let mut seen: std::collections::HashSet<String> = models.iter().map(|m| m.id.clone()).collect();
+    // Registry models (enabled only) — used when DB is available
+    let registry_models = state.model_cache.get_enabled_registry_models();
+    let mut models: Vec<OpenAIModel> = if !registry_models.is_empty() {
+        registry_models
+            .into_iter()
+            .filter_map(|rm| {
+                if !seen.insert(rm.prefixed_id.clone()) {
+                    return None;
+                }
+                Some(OpenAIModel {
+                    id: rm.prefixed_id,
+                    object: "model".to_string(),
+                    created: rm.created_at.timestamp(),
+                    owned_by: rm.provider_id,
+                    description: Some(rm.display_name),
+                })
+            })
+            .collect()
+    } else {
+        // Fallback to legacy Kiro cache (proxy mode without DB)
+        state
+            .model_cache
+            .get_all_model_ids()
+            .into_iter()
+            .map(|id| {
+                seen.insert(id.clone());
+                OpenAIModel::new(id)
+            })
+            .collect()
+    };
 
-    for rm in registry_models {
-        if seen.contains(&rm.prefixed_id) {
-            continue;
-        }
-        seen.insert(rm.prefixed_id.clone());
-        models.push(OpenAIModel {
-            id: rm.prefixed_id,
-            object: "model".to_string(),
-            created: rm.created_at.timestamp(),
-            owned_by: rm.provider_id,
-            description: Some(rm.display_name),
-        });
-    }
-
-    // 3. Add custom provider models from env
+    // Add custom provider models from env
     for model_id in state.provider_registry.custom_model_names() {
         if !seen.contains(model_id) {
             seen.insert(model_id.clone());
@@ -110,6 +114,12 @@ pub(crate) async fn chat_completions_handler(
     let requested_model = request.model.clone();
     validate_model_provider(&requested_model)?;
     let mut routing = resolve_provider_routing(&state, user_creds.as_ref(), &requested_model).await;
+    validate_model_visibility(
+        &state.model_cache,
+        &routing.provider_id,
+        &requested_model,
+        routing.stripped_model.as_deref(),
+    )?;
 
     // Build credentials: for Kiro, derive from user creds / global auth;
     // for direct providers, use the credentials from the registry.

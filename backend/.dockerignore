@@ -1,6 +1,9 @@
 target/
+.git/
 .env
 *.db
 *.sqlite3
-.git/
 entrypoint.sh
+Dockerfile*
+.dockerignore
+.cargo/

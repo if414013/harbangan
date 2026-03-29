@@ -441,6 +441,17 @@ impl ConfigDb {
             self.migrate_to_v23().await?;
         }
 
+        // Re-read max version after v23 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 24 {
+            self.migrate_to_v24().await?;
+        }
+
         Ok(())
     }
 
@@ -3163,6 +3174,51 @@ impl ConfigDb {
         Ok(())
     }
 
+    /// Version 24 migration: model visibility defaults table.
+    async fn migrate_to_v24(&self) -> Result<()> {
+        tracing::info!("Running database migration to version 24 (model visibility defaults)...");
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v24 migration transaction")?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS model_visibility_defaults (
+                id          UUID PRIMARY KEY,
+                provider_id TEXT NOT NULL,
+                model_id    TEXT NOT NULL,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (provider_id, model_id)
+            )",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to create model_visibility_defaults table")?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_mvd_provider
+             ON model_visibility_defaults (provider_id)",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to create idx_mvd_provider index")?;
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(24_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 24")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit v24 migration")?;
+
+        tracing::info!("Database migration to version 24 complete");
+        Ok(())
+    }
+
     // ── Model Registry ───────────────────────────────────────────
 
     /// Get all models in the registry.
@@ -3368,6 +3424,175 @@ impl ConfigDb {
             created_at: row.11,
             updated_at: row.12,
         }
+    }
+
+    // ── Model Visibility Defaults ───────────────────────────────────
+
+    /// Get all visibility defaults grouped by provider_id.
+    #[allow(dead_code)]
+    pub async fn get_all_visibility_defaults(&self) -> Result<HashMap<String, Vec<String>>> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT provider_id, model_id FROM model_visibility_defaults ORDER BY provider_id, model_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get all visibility defaults")?;
+
+        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+        for (provider_id, model_id) in rows {
+            map.entry(provider_id).or_default().push(model_id);
+        }
+        Ok(map)
+    }
+
+    /// Get model_ids for one provider's visibility defaults.
+    #[allow(dead_code)]
+    pub async fn get_visibility_defaults_for_provider(
+        &self,
+        provider_id: &str,
+    ) -> Result<Vec<String>> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT model_id FROM model_visibility_defaults WHERE provider_id = $1 ORDER BY model_id",
+        )
+        .bind(provider_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get visibility defaults for provider")?;
+
+        Ok(rows.into_iter().map(|(m,)| m).collect())
+    }
+
+    /// Replace all visibility defaults for a provider (DELETE + INSERT in transaction).
+    #[allow(dead_code)]
+    pub async fn set_visibility_defaults(
+        &self,
+        provider_id: &str,
+        model_ids: &[String],
+    ) -> Result<usize> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin set_visibility_defaults transaction")?;
+
+        sqlx::query("DELETE FROM model_visibility_defaults WHERE provider_id = $1")
+            .bind(provider_id)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to delete old visibility defaults")?;
+
+        let mut count = 0usize;
+        for model_id in model_ids {
+            sqlx::query(
+                "INSERT INTO model_visibility_defaults (id, provider_id, model_id)
+                 VALUES ($1, $2, $3)",
+            )
+            .bind(Uuid::new_v4())
+            .bind(provider_id)
+            .bind(model_id)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to insert visibility default")?;
+            count += 1;
+        }
+
+        tx.commit()
+            .await
+            .context("Failed to commit set_visibility_defaults")?;
+
+        Ok(count)
+    }
+
+    /// Remove all visibility defaults for a provider.
+    #[allow(dead_code)]
+    pub async fn delete_visibility_defaults(&self, provider_id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM model_visibility_defaults WHERE provider_id = $1")
+            .bind(provider_id)
+            .execute(&self.pool)
+            .await
+            .context("Failed to delete visibility defaults")?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Apply visibility defaults for a provider: enable models in the allowlist,
+    /// disable models NOT in the allowlist. Returns (enabled_count, disabled_count).
+    #[allow(dead_code)]
+    pub async fn apply_visibility_defaults(&self, provider_id: &str) -> Result<(usize, usize)> {
+        // Check if defaults exist for this provider
+        let has_defaults: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM model_visibility_defaults WHERE provider_id = $1)",
+        )
+        .bind(provider_id)
+        .fetch_one(&self.pool)
+        .await
+        .context("Failed to check visibility defaults existence")?;
+
+        if !has_defaults {
+            return Ok((0, 0));
+        }
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin apply_visibility_defaults transaction")?;
+
+        // Enable models that are in the defaults list
+        let enabled = sqlx::query(
+            "UPDATE model_registry SET enabled = true, updated_at = NOW()
+             WHERE provider_id = $1
+               AND enabled = false
+               AND model_id IN (
+                   SELECT model_id FROM model_visibility_defaults WHERE provider_id = $1
+               )",
+        )
+        .bind(provider_id)
+        .execute(&mut *tx)
+        .await
+        .context("Failed to enable models from visibility defaults")?;
+
+        // Disable models that are NOT in the defaults list
+        let disabled = sqlx::query(
+            "UPDATE model_registry SET enabled = false, updated_at = NOW()
+             WHERE provider_id = $1
+               AND enabled = true
+               AND model_id NOT IN (
+                   SELECT model_id FROM model_visibility_defaults WHERE provider_id = $1
+               )",
+        )
+        .bind(provider_id)
+        .execute(&mut *tx)
+        .await
+        .context("Failed to disable models not in visibility defaults")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit apply_visibility_defaults")?;
+
+        Ok((
+            enabled.rows_affected() as usize,
+            disabled.rows_affected() as usize,
+        ))
+    }
+
+    /// Apply visibility defaults for all providers that have defaults.
+    /// Returns a vec of (provider_id, enabled_count, disabled_count).
+    #[allow(dead_code)]
+    pub async fn apply_all_visibility_defaults(&self) -> Result<Vec<(String, usize, usize)>> {
+        let providers: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT provider_id FROM model_visibility_defaults ORDER BY provider_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get providers with visibility defaults")?;
+
+        let mut results = Vec::new();
+        for (provider_id,) in providers {
+            let (enabled, disabled) = self.apply_visibility_defaults(&provider_id).await?;
+            results.push((provider_id, enabled, disabled));
+        }
+        Ok(results)
     }
 
     // ── Copilot Tokens ────────────────────────────────────────────

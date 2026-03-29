@@ -14,6 +14,10 @@ import {
   populateModels,
   apiFetch,
   getCopilotStatus,
+  getVisibilityDefaults,
+  setVisibilityDefaults,
+  deleteVisibilityDefaults,
+  applyVisibilityDefaults,
 } from "../lib/api";
 import type {
   ProvidersStatusResponse,
@@ -22,6 +26,7 @@ import type {
   UserProviderAccount,
   RateLimitInfo,
   KiroStatus,
+  VisibilityDefaults,
 } from "../lib/api";
 import { StatusTab } from "./providers/StatusTab";
 import { ConnectionsTab } from "./providers/ConnectionsTab";
@@ -52,6 +57,7 @@ export function Providers() {
   const [rateLimits, setRateLimits] = useState<RateLimitInfo[]>([]);
   const [kiroConnected, setKiroConnected] = useState(false);
   const [copilotConnected, setCopilotConnected] = useState(false);
+  const [visDefaults, setVisDefaults] = useState<VisibilityDefaults>({});
   const [confirmState, setConfirmState] = useState<{
     action: () => void;
     title: string;
@@ -119,6 +125,13 @@ export function Providers() {
       .catch(() => {});
   }
 
+  function loadVisibilityDefaults() {
+    if (!isAdmin) return;
+    getVisibilityDefaults()
+      .then((data) => setVisDefaults(data.defaults))
+      .catch(() => {});
+  }
+
   function loadDeviceCodeStatuses() {
     apiFetch<KiroStatus>("/kiro/status")
       .then((s) => setKiroConnected(s.has_token && !s.expired))
@@ -145,6 +158,7 @@ export function Providers() {
     loadAccounts();
     loadRateLimits();
     loadDeviceCodeStatuses();
+    loadVisibilityDefaults();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registryLoaded]);
 
@@ -199,6 +213,52 @@ export function Providers() {
 
   function handleNavigateToConnections() {
     setActiveTab("connections");
+  }
+
+  async function handleSaveDefaults(providerId: string, modelIds: string[]) {
+    try {
+      await setVisibilityDefaults(providerId, modelIds);
+      setVisDefaults((prev) => ({ ...prev, [providerId]: modelIds }));
+      showToast("Visibility defaults saved", "success");
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Failed to save defaults",
+        "error",
+      );
+    }
+  }
+
+  async function handleApplyDefaults(providerId: string) {
+    try {
+      const res = await applyVisibilityDefaults(providerId);
+      showToast(
+        `Applied: ${res.enabled} enabled, ${res.disabled} disabled`,
+        "success",
+      );
+      loadModels();
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Failed to apply defaults",
+        "error",
+      );
+    }
+  }
+
+  async function handleClearDefaults(providerId: string) {
+    try {
+      await deleteVisibilityDefaults(providerId);
+      setVisDefaults((prev) => {
+        const next = { ...prev };
+        delete next[providerId];
+        return next;
+      });
+      showToast("Visibility defaults cleared", "success");
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Failed to clear defaults",
+        "error",
+      );
+    }
   }
 
   if (!registryLoaded) {
@@ -262,6 +322,11 @@ export function Providers() {
             setConfirmState(null);
           }}
           onCancelConfirm={() => setConfirmState(null)}
+          isAdmin={isAdmin}
+          visibilityDefaults={visDefaults}
+          onSaveDefaults={handleSaveDefaults}
+          onApplyDefaults={handleApplyDefaults}
+          onClearDefaults={handleClearDefaults}
         />
       )}
     </>

@@ -7,6 +7,7 @@ pub mod crypto;
 pub mod google_auth;
 pub mod model_registry;
 pub mod model_registry_handlers;
+pub mod model_visibility_handlers;
 pub mod password_auth;
 pub mod provider_oauth;
 pub mod provider_priority;
@@ -126,6 +127,16 @@ pub fn web_ui_routes(state: AppState) -> Router {
         .route("/admin/usage/users", get(usage::get_admin_usage_by_users))
         // Admin pool management
         .merge(admin_pool::admin_pool_routes())
+        // Model registry mutations (admin-only)
+        .nest(
+            "/models/registry",
+            model_registry_handlers::model_registry_admin_routes(),
+        )
+        // Model visibility defaults (admin-only)
+        .nest(
+            "/models/visibility-defaults",
+            model_visibility_handlers::visibility_defaults_routes(),
+        )
         // Admin password auth: create users, reset passwords
         .route(
             "/admin/users/create",
