@@ -227,6 +227,26 @@ impl ModelCache {
             .collect()
     }
 
+    /// Get enabled registry models, also excluding models whose provider is disabled.
+    pub fn get_enabled_registry_models_filtered(
+        &self,
+        disabled_providers: &std::collections::HashSet<crate::providers::types::ProviderId>,
+    ) -> Vec<RegistryModel> {
+        self.registry_cache
+            .iter()
+            .filter(|entry| {
+                let m = entry.value();
+                m.enabled
+                    && !m
+                        .provider_id
+                        .parse::<crate::providers::types::ProviderId>()
+                        .map(|pid| disabled_providers.contains(&pid))
+                        .unwrap_or(false)
+            })
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+
     /// Check if a model is explicitly disabled in the registry.
     /// Returns `true` only if the model exists in the cache AND has `enabled == false`.
     /// Returns `false` if the model is not in the cache (unknown models pass through).

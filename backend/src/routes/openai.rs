@@ -31,8 +31,11 @@ pub(crate) async fn get_models_handler(
 
     let mut seen = std::collections::HashSet::new();
 
-    // Registry models (enabled only) — used when DB is available
-    let registry_models = state.model_cache.get_enabled_registry_models();
+    // Registry models (enabled only, excluding disabled providers) — used when DB is available
+    let disabled_providers = state.provider_registry.disabled_providers().await;
+    let registry_models = state
+        .model_cache
+        .get_enabled_registry_models_filtered(&disabled_providers);
     let models: Vec<OpenAIModel> = if !registry_models.is_empty() {
         registry_models
             .into_iter()

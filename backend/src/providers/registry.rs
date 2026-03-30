@@ -468,6 +468,9 @@ impl ProviderRegistry {
             return (ProviderId::Kiro, None, None);
         };
 
+        // Read disabled providers once for filtering
+        let disabled = self.disabled_providers.read().await;
+
         let provider_str = native.as_str();
 
         // Load user priorities once for all provider decisions
@@ -483,57 +486,63 @@ impl ProviderRegistry {
         // Candidates: (AccountId, ProviderCredentials, priority)
         let mut candidates: Vec<(AccountId, ProviderCredentials, i32)> = Vec::new();
 
-        match native {
-            ProviderId::Copilot => {
-                if let Ok(Some(row)) = db.get_copilot_tokens(uid).await {
-                    if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
-                        (row.copilot_token, row.base_url, row.expires_at)
-                    {
-                        let now = chrono::Utc::now();
-                        if expires_at > now {
-                            let account_id = AccountId {
-                                user_id: Some(uid),
-                                provider_id: ProviderId::Copilot,
-                                account_label: "default".to_string(),
-                            };
-                            let creds = ProviderCredentials {
-                                provider: ProviderId::Copilot,
-                                access_token: copilot_token,
-                                base_url: Some(base_url),
-                                account_label: "default".to_string(),
-                            };
-                            candidates.push((account_id, creds, native_pri));
+        // Only load credentials for the native provider if it's not disabled
+        if !disabled.contains(&native) {
+            match native {
+                ProviderId::Copilot => {
+                    if let Ok(Some(row)) = db.get_copilot_tokens(uid).await {
+                        if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
+                            (row.copilot_token, row.base_url, row.expires_at)
+                        {
+                            let now = chrono::Utc::now();
+                            if expires_at > now {
+                                let account_id = AccountId {
+                                    user_id: Some(uid),
+                                    provider_id: ProviderId::Copilot,
+                                    account_label: "default".to_string(),
+                                };
+                                let creds = ProviderCredentials {
+                                    provider: ProviderId::Copilot,
+                                    access_token: copilot_token,
+                                    base_url: Some(base_url),
+                                    account_label: "default".to_string(),
+                                };
+                                candidates.push((account_id, creds, native_pri));
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    // Load all user accounts for this provider
+                    if let Ok(rows) = db.get_all_user_provider_tokens(uid, provider_str).await {
+                        for row in rows {
+                            let now = chrono::Utc::now();
+                            if row.expires_at > now {
+                                let account_id = AccountId {
+                                    user_id: Some(uid),
+                                    provider_id: native.clone(),
+                                    account_label: row.account_label.clone(),
+                                };
+                                let creds = ProviderCredentials {
+                                    provider: native.clone(),
+                                    access_token: row.access_token.clone(),
+                                    base_url: row.base_url.clone(),
+                                    account_label: row.account_label.clone(),
+                                };
+                                candidates.push((account_id, creds, native_pri));
+                            }
                         }
                     }
                 }
             }
-            _ => {
-                // Load all user accounts for this provider
-                if let Ok(rows) = db.get_all_user_provider_tokens(uid, provider_str).await {
-                    for row in rows {
-                        let now = chrono::Utc::now();
-                        if row.expires_at > now {
-                            let account_id = AccountId {
-                                user_id: Some(uid),
-                                provider_id: native.clone(),
-                                account_label: row.account_label.clone(),
-                            };
-                            let creds = ProviderCredentials {
-                                provider: native.clone(),
-                                access_token: row.access_token.clone(),
-                                base_url: row.base_url.clone(),
-                                account_label: row.account_label.clone(),
-                            };
-                            candidates.push((account_id, creds, native_pri));
-                        }
-                    }
-                }
-            }
-        }
+        } // end if !disabled.contains(&native)
 
         // Also check Copilot as an alternative (universal provider)
-        // BUT skip Copilot when prefix is explicit — explicit prefix is binding
-        if native != ProviderId::Copilot && !is_explicit_prefix {
+        // BUT skip Copilot when prefix is explicit, or when Copilot is disabled
+        if native != ProviderId::Copilot
+            && !is_explicit_prefix
+            && !disabled.contains(&ProviderId::Copilot)
+        {
             if let Ok(Some(row)) = db.get_copilot_tokens(uid).await {
                 if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
                     (row.copilot_token, row.base_url, row.expires_at)
@@ -561,31 +570,28 @@ impl ProviderRegistry {
         }
 
         // Load admin pool accounts for the target provider as fallback (default priority 100).
+        // Skip if the native provider is disabled.
         const ADMIN_POOL_PRIORITY: i32 = 100;
-        if let Ok(pool_rows) = db.get_admin_pool_accounts(provider_str).await {
-            for row in pool_rows {
-                let account_id = AccountId {
-                    user_id: None,
-                    provider_id: native.clone(),
-                    account_label: row.account_label.clone(),
-                };
-                let creds = ProviderCredentials {
-                    provider: native.clone(),
-                    access_token: row.api_key.clone(),
-                    base_url: row.base_url.clone(),
-                    account_label: row.account_label.clone(),
-                };
-                candidates.push((account_id, creds, ADMIN_POOL_PRIORITY));
+        if !disabled.contains(&native) {
+            if let Ok(pool_rows) = db.get_admin_pool_accounts(provider_str).await {
+                for row in pool_rows {
+                    let account_id = AccountId {
+                        user_id: None,
+                        provider_id: native.clone(),
+                        account_label: row.account_label.clone(),
+                    };
+                    let creds = ProviderCredentials {
+                        provider: native.clone(),
+                        access_token: row.api_key.clone(),
+                        base_url: row.base_url.clone(),
+                        account_label: row.account_label.clone(),
+                    };
+                    candidates.push((account_id, creds, ADMIN_POOL_PRIORITY));
+                }
             }
-        }
+        } // end if !disabled.contains(&native) for admin pool
 
-        // Filter out candidates for disabled providers
-        {
-            let disabled = self.disabled_providers.read().await;
-            if !disabled.is_empty() {
-                candidates.retain(|(_, creds, _)| !disabled.contains(&creds.provider));
-            }
-        }
+        drop(disabled); // release RwLock before potential recursive call
 
         if candidates.is_empty() {
             if is_explicit_prefix {
