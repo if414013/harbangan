@@ -49,12 +49,13 @@ test.describe('Provider Registry — Shape Tests', () => {
     expect(Array.isArray(body.providers)).toBe(true);
     expect(body.providers.length).toBe(4);
 
-    // Each entry must have id, display_name, category, supports_pool
+    // Each entry must have id, display_name, category, supports_pool, enabled
     for (const entry of body.providers) {
       expect(typeof entry.id).toBe('string');
       expect(typeof entry.display_name).toBe('string');
       expect(typeof entry.category).toBe('string');
       expect(typeof entry.supports_pool).toBe('boolean');
+      expect(typeof entry.enabled).toBe('boolean');
       expect(['device_code', 'oauth_relay']).toContain(entry.category);
     }
 
