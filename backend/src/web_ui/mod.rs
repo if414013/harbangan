@@ -128,8 +128,6 @@ pub fn web_ui_routes(state: AppState) -> Router {
         .route("/admin/usage/users", get(usage::get_admin_usage_by_users))
         // Admin pool management
         .merge(admin_pool::admin_pool_routes())
-        // Provider enable/disable (admin-only)
-        .merge(admin_pool::provider_settings_routes())
         // Model registry mutations (admin-only)
         .nest(
             "/models/registry",
