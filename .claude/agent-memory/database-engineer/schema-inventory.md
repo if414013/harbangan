@@ -26,8 +26,9 @@
 | 21 | Drop all provider_id CHECK constraints (validation moved to Rust) | migrate_to_v21() |
 | 22 | Remove Qwen provider data from all tables | migrate_to_v22() |
 | 23 | Add non-negative CHECK constraints on usage_records | migrate_to_v23() |
+| 24 | model_visibility_defaults table + idx_mvd_provider index | migrate_to_v24() |
 
-## Active Tables (21 total)
+## Active Tables (22 total)
 
 ### schema_version (v1)
 | Column | Type | Constraints |
@@ -273,6 +274,16 @@
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() |
 | updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() |
 **Unique:** (provider_id, account_label)
+
+### model_visibility_defaults (v24)
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | UUID | PRIMARY KEY |
+| provider_id | TEXT | NOT NULL |
+| model_id | TEXT | NOT NULL |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() |
+**Unique:** (provider_id, model_id)
+**Index:** idx_mvd_provider(provider_id)
 
 ## Dropped Tables
 
