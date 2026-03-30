@@ -10,6 +10,7 @@ pub mod http_client;
 pub mod middleware;
 pub mod models;
 pub mod providers;
+pub mod proxy_token_manager;
 pub mod resolver;
 pub mod routes;
 pub mod streaming;

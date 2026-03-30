@@ -8,21 +8,25 @@ pub enum GatewayMode {
 
 /// Proxy-only mode configuration (all fields from env vars, no DB).
 #[derive(Clone, Default)]
+#[allow(dead_code)]
 pub struct ProxyConfig {
     pub api_key: String,
     pub kiro_refresh_token: Option<String>,
     pub kiro_client_id: Option<String>,
     pub kiro_client_secret: Option<String>,
     pub kiro_sso_region: Option<String>,
-    // Multi-provider credentials (env vars, no DB)
-    pub anthropic_api_key: Option<String>,
-    pub openai_api_key: Option<String>,
-    pub openai_base_url: Option<String>,
+    // Multi-provider OAuth credentials (env vars or /data/tokens.json, no DB)
+    pub anthropic_enabled: bool,
+    pub anthropic_access_token: Option<String>,
+    pub anthropic_refresh_token: Option<String>,
+    pub anthropic_oauth_client_id: Option<String>,
+    pub openai_enabled: bool,
+    pub openai_access_token: Option<String>,
+    pub openai_refresh_token: Option<String>,
+    pub openai_oauth_client_id: Option<String>,
     pub copilot_token: Option<String>,
     pub copilot_base_url: Option<String>,
-    pub custom_provider_url: Option<String>,
-    pub custom_provider_key: Option<String>,
-    pub custom_provider_models: Option<String>,
+    pub copilot_github_token: Option<String>,
 }
 
 #[derive(Clone)]
@@ -243,13 +247,28 @@ impl Config {
                 kiro_sso_region: std::env::var("KIRO_SSO_REGION")
                     .ok()
                     .filter(|s| !s.is_empty()),
-                anthropic_api_key: std::env::var("ANTHROPIC_API_KEY")
+                anthropic_enabled: std::env::var("ANTHROPIC_ENABLED")
+                    .map(|v| v == "true" || v == "1")
+                    .unwrap_or(false),
+                anthropic_access_token: std::env::var("ANTHROPIC_ACCESS_TOKEN")
                     .ok()
                     .filter(|s| !s.is_empty()),
-                openai_api_key: std::env::var("OPENAI_API_KEY")
+                anthropic_refresh_token: std::env::var("ANTHROPIC_REFRESH_TOKEN")
                     .ok()
                     .filter(|s| !s.is_empty()),
-                openai_base_url: std::env::var("OPENAI_BASE_URL")
+                anthropic_oauth_client_id: std::env::var("ANTHROPIC_OAUTH_CLIENT_ID")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                openai_enabled: std::env::var("OPENAI_ENABLED")
+                    .map(|v| v == "true" || v == "1")
+                    .unwrap_or(false),
+                openai_access_token: std::env::var("OPENAI_ACCESS_TOKEN")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                openai_refresh_token: std::env::var("OPENAI_REFRESH_TOKEN")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                openai_oauth_client_id: std::env::var("OPENAI_OAUTH_CLIENT_ID")
                     .ok()
                     .filter(|s| !s.is_empty()),
                 copilot_token: std::env::var("COPILOT_TOKEN")
@@ -258,13 +277,7 @@ impl Config {
                 copilot_base_url: std::env::var("COPILOT_BASE_URL")
                     .ok()
                     .filter(|s| !s.is_empty()),
-                custom_provider_url: std::env::var("CUSTOM_PROVIDER_URL")
-                    .ok()
-                    .filter(|s| !s.is_empty()),
-                custom_provider_key: std::env::var("CUSTOM_PROVIDER_KEY")
-                    .ok()
-                    .filter(|s| !s.is_empty()),
-                custom_provider_models: std::env::var("CUSTOM_PROVIDER_MODELS")
+                copilot_github_token: std::env::var("COPILOT_GITHUB_TOKEN")
                     .ok()
                     .filter(|s| !s.is_empty()),
             });
@@ -554,14 +567,17 @@ mod tests {
             api_key: "test-key-long-enough".to_string(),
             ..Default::default()
         };
-        assert!(proxy.anthropic_api_key.is_none());
-        assert!(proxy.openai_api_key.is_none());
-        assert!(proxy.openai_base_url.is_none());
+        assert!(!proxy.anthropic_enabled);
+        assert!(proxy.anthropic_access_token.is_none());
+        assert!(proxy.anthropic_refresh_token.is_none());
+        assert!(proxy.anthropic_oauth_client_id.is_none());
+        assert!(!proxy.openai_enabled);
+        assert!(proxy.openai_access_token.is_none());
+        assert!(proxy.openai_refresh_token.is_none());
+        assert!(proxy.openai_oauth_client_id.is_none());
         assert!(proxy.copilot_token.is_none());
         assert!(proxy.copilot_base_url.is_none());
-        assert!(proxy.custom_provider_url.is_none());
-        assert!(proxy.custom_provider_key.is_none());
-        assert!(proxy.custom_provider_models.is_none());
+        assert!(proxy.copilot_github_token.is_none());
     }
 
     #[test]
@@ -572,74 +588,68 @@ mod tests {
             kiro_client_id: None,
             kiro_client_secret: None,
             kiro_sso_region: None,
-            anthropic_api_key: Some("sk-ant-test-key".to_string()),
-            openai_api_key: Some("sk-proj-test-key".to_string()),
-            openai_base_url: Some("https://api.openai.com/v1".to_string()),
+            anthropic_enabled: true,
+            anthropic_access_token: Some("ant-access-tok".to_string()),
+            anthropic_refresh_token: Some("ant-refresh-tok".to_string()),
+            anthropic_oauth_client_id: Some("ant-client-id".to_string()),
+            openai_enabled: true,
+            openai_access_token: Some("oai-access-tok".to_string()),
+            openai_refresh_token: Some("oai-refresh-tok".to_string()),
+            openai_oauth_client_id: Some("oai-client-id".to_string()),
             copilot_token: Some("cop-tok-test".to_string()),
             copilot_base_url: Some("https://api.githubcopilot.com".to_string()),
-            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
-            custom_provider_key: Some("custom-key-test".to_string()),
-            custom_provider_models: Some("llama3,codellama,deepseek-r1".to_string()),
+            copilot_github_token: Some("gh-token".to_string()),
         };
-        assert_eq!(proxy.anthropic_api_key.as_deref(), Some("sk-ant-test-key"));
-        assert_eq!(proxy.openai_api_key.as_deref(), Some("sk-proj-test-key"));
+        assert!(proxy.anthropic_enabled);
         assert_eq!(
-            proxy.openai_base_url.as_deref(),
-            Some("https://api.openai.com/v1")
+            proxy.anthropic_access_token.as_deref(),
+            Some("ant-access-tok")
         );
+        assert_eq!(
+            proxy.anthropic_refresh_token.as_deref(),
+            Some("ant-refresh-tok")
+        );
+        assert!(proxy.openai_enabled);
+        assert_eq!(proxy.openai_access_token.as_deref(), Some("oai-access-tok"));
         assert_eq!(proxy.copilot_token.as_deref(), Some("cop-tok-test"));
         assert_eq!(
             proxy.copilot_base_url.as_deref(),
             Some("https://api.githubcopilot.com")
         );
-        assert_eq!(
-            proxy.custom_provider_url.as_deref(),
-            Some("http://localhost:11434/v1")
-        );
-        assert_eq!(
-            proxy.custom_provider_key.as_deref(),
-            Some("custom-key-test")
-        );
-        assert_eq!(
-            proxy.custom_provider_models.as_deref(),
-            Some("llama3,codellama,deepseek-r1")
-        );
+        assert_eq!(proxy.copilot_github_token.as_deref(), Some("gh-token"));
     }
 
     #[test]
     fn test_proxy_config_clone() {
         let proxy = ProxyConfig {
             api_key: "test-key-long-enough".to_string(),
-            anthropic_api_key: Some("sk-ant-clone".to_string()),
-            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
-            custom_provider_models: Some("llama3".to_string()),
+            anthropic_enabled: true,
+            anthropic_access_token: Some("ant-access-clone".to_string()),
             ..Default::default()
         };
         let cloned = proxy.clone();
         assert_eq!(cloned.api_key, "test-key-long-enough");
-        assert_eq!(cloned.anthropic_api_key.as_deref(), Some("sk-ant-clone"));
+        assert!(cloned.anthropic_enabled);
         assert_eq!(
-            cloned.custom_provider_url.as_deref(),
-            Some("http://localhost:11434/v1")
+            cloned.anthropic_access_token.as_deref(),
+            Some("ant-access-clone")
         );
-        assert_eq!(cloned.custom_provider_models.as_deref(), Some("llama3"));
     }
 
     #[test]
     fn test_proxy_config_partial_providers() {
-        // Only Anthropic + Custom configured, rest None
+        // Only Anthropic enabled, rest disabled
         let proxy = ProxyConfig {
             api_key: "test-key-long-enough".to_string(),
-            anthropic_api_key: Some("sk-ant-partial".to_string()),
-            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
-            custom_provider_models: Some("llama3".to_string()),
+            anthropic_enabled: true,
+            anthropic_access_token: Some("ant-tok".to_string()),
             ..Default::default()
         };
-        assert!(proxy.anthropic_api_key.is_some());
-        assert!(proxy.openai_api_key.is_none());
+        assert!(proxy.anthropic_enabled);
+        assert!(proxy.anthropic_access_token.is_some());
+        assert!(!proxy.openai_enabled);
+        assert!(proxy.openai_access_token.is_none());
         assert!(proxy.copilot_token.is_none());
-        assert!(proxy.custom_provider_url.is_some());
-        assert!(proxy.custom_provider_key.is_none());
     }
 
     // ── Google SSO config struct tests ───────────────────────────────

@@ -14,6 +14,7 @@ mod http_client;
 mod middleware;
 mod models;
 mod providers;
+mod proxy_token_manager;
 mod resolver;
 mod routes;
 mod streaming;
@@ -387,7 +388,60 @@ async fn main() -> Result<()> {
         )),
         login_rate_limiter: Arc::new(dashmap::DashMap::new()),
         rate_tracker: Arc::new(providers::rate_limiter::RateLimitTracker::new()),
+        proxy_token_manager: None,
     };
+
+    // ── Proxy token manager (proxy mode only) ───────────────────
+    if is_proxy_only {
+        let token_file = proxy_token_manager::default_token_file();
+        let live_creds = app_state.provider_registry.proxy_credentials_live();
+        let ptm = Arc::new(proxy_token_manager::ProxyTokenManager::new_shared(
+            token_file, live_creds,
+        ));
+
+        // Load existing tokens from file into the shared DashMap
+        if let Err(e) = ptm.load_from_file().await {
+            tracing::warn!(error = ?e, "Failed to load proxy tokens from file");
+        }
+
+        // Spawn background refresh task
+        proxy_token_manager::spawn_refresh_task(
+            Arc::clone(&ptm),
+            Arc::clone(&app_state.token_exchanger),
+        );
+
+        app_state.proxy_token_manager = Some(ptm);
+
+        // Log relay instructions for unconfigured providers
+        let live = app_state.provider_registry.proxy_credentials_live();
+        let has_anthropic = live.contains_key(&providers::types::ProviderId::Anthropic);
+        let has_openai = live.contains_key(&providers::types::ProviderId::OpenAICodex);
+
+        if !has_anthropic {
+            if let Some(ref proxy) = config.proxy {
+                if proxy.anthropic_enabled || proxy.anthropic_oauth_client_id.is_some() {
+                    tracing::info!(
+                        "Anthropic not connected. To connect, run on your host:\n\
+                         curl -fsSL 'http://{}:{}/_proxy/providers/anthropic/relay-script' | sh",
+                        config.server_host,
+                        config.server_port
+                    );
+                }
+            }
+        }
+        if !has_openai {
+            if let Some(ref proxy) = config.proxy {
+                if proxy.openai_enabled || proxy.openai_oauth_client_id.is_some() {
+                    tracing::info!(
+                        "OpenAI not connected. To connect, run on your host:\n\
+                         curl -fsSL 'http://{}:{}/_proxy/providers/openai_codex/relay-script' | sh",
+                        config.server_host,
+                        config.server_port
+                    );
+                }
+            }
+        }
+    }
 
     // ── Guardrails ────────────────────────────────────────────────
     if let Some(ref db) = app_state.config_db {
@@ -676,6 +730,10 @@ fn build_app(state: routes::AppState, is_proxy_only: bool) -> axum::Router {
     if !is_proxy_only {
         let web_ui = web_ui::web_ui_routes(state.clone());
         app = app.merge(web_ui);
+    } else {
+        // Proxy mode: mount relay endpoints for OAuth provider connection
+        let proxy_relay = web_ui::proxy_relay::proxy_relay_routes(state.clone());
+        app = app.merge(proxy_relay);
     }
 
     app.layer(middleware::cors_layer())

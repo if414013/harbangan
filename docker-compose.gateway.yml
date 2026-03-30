@@ -14,13 +14,13 @@
 #   COPILOT_TOKEN        — GitHub Copilot token (or obtained via device flow)
 #   COPILOT_BASE_URL     — Copilot API base URL
 #
-# Optional (other providers):
-#   ANTHROPIC_API_KEY    — Anthropic API key (enables claude-* models)
-#   OPENAI_API_KEY       — OpenAI API key (enables gpt-* models)
-#   OPENAI_BASE_URL      — OpenAI base URL (default: https://api.openai.com/v1)
-#   CUSTOM_PROVIDER_URL  — Custom OpenAI-compatible endpoint
-#   CUSTOM_PROVIDER_KEY  — Custom provider API key
-#   CUSTOM_PROVIDER_MODELS — Comma-separated model names for custom provider
+# Optional (Anthropic — OAuth relay, connect after startup):
+#   ANTHROPIC_ENABLED    — Set to "true" to enable Anthropic OAuth relay (default: false)
+#   ANTHROPIC_OAUTH_CLIENT_ID — OAuth client ID for Anthropic PKCE flow
+#
+# Optional (OpenAI — OAuth relay, connect after startup):
+#   OPENAI_ENABLED       — Set to "true" to enable OpenAI OAuth relay (default: false)
+#   OPENAI_OAUTH_CLIENT_ID — OAuth client ID for OpenAI PKCE flow
 #
 # Optional (general):
 #   SERVER_PORT          — Listen port (default: 8000)
@@ -58,15 +58,13 @@ services:
       COPILOT_ENABLED: "${COPILOT_ENABLED:-false}"
       COPILOT_TOKEN: "${COPILOT_TOKEN:-}"
       COPILOT_BASE_URL: "${COPILOT_BASE_URL:-}"
-      # Anthropic (Optional)
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-      # OpenAI (Optional)
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-}"
-      # Custom provider (Optional)
-      CUSTOM_PROVIDER_URL: "${CUSTOM_PROVIDER_URL:-}"
-      CUSTOM_PROVIDER_KEY: "${CUSTOM_PROVIDER_KEY:-}"
-      CUSTOM_PROVIDER_MODELS: "${CUSTOM_PROVIDER_MODELS:-}"
+      COPILOT_PERSIST_GITHUB_TOKEN: "${COPILOT_PERSIST_GITHUB_TOKEN:-false}"
+      # Anthropic (Optional — OAuth relay, connect after startup)
+      ANTHROPIC_ENABLED: "${ANTHROPIC_ENABLED:-false}"
+      ANTHROPIC_OAUTH_CLIENT_ID: "${ANTHROPIC_OAUTH_CLIENT_ID:-}"
+      # OpenAI (Optional — OAuth relay, connect after startup)
+      OPENAI_ENABLED: "${OPENAI_ENABLED:-false}"
+      OPENAI_OAUTH_CLIENT_ID: "${OPENAI_OAUTH_CLIENT_ID:-}"
     volumes:
       - gateway-data:/data
       - ./backend/entrypoint.sh:/app/entrypoint.sh:ro

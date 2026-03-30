@@ -980,6 +980,7 @@ mod tests {
             token_exchanger: Arc::new(crate::web_ui::provider_oauth::HttpTokenExchanger::new()),
             login_rate_limiter: Arc::new(DashMap::new()),
             rate_tracker: Arc::new(crate::providers::rate_limiter::RateLimitTracker::new()),
+            proxy_token_manager: None,
         }
     }
 
@@ -1004,10 +1005,7 @@ mod tests {
                 account_label: "proxy".to_string(),
             },
         );
-        let registry = Arc::new(ProviderRegistry::new_with_proxy(
-            proxy_credentials,
-            std::collections::HashSet::new(),
-        ));
+        let registry = Arc::new(ProviderRegistry::new_with_proxy(proxy_credentials));
         let state = create_test_state(Arc::clone(&registry), Some([7; 32]));
 
         let mut routing =

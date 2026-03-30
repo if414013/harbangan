@@ -3,7 +3,7 @@
 /// Caches per-user provider credentials in memory (5-minute TTL) to avoid
 /// repeated DB lookups on every request. Handles transparent token refresh
 /// for OAuth-based provider tokens.
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -37,10 +37,9 @@ type RefreshLockMap = DashMap<(Uuid, String), Arc<tokio::sync::Mutex<()>>>;
 pub struct ProviderRegistry {
     cache: Arc<DashMap<Uuid, CacheEntry>>,
     refresh_locks: Arc<RefreshLockMap>,
-    /// Static credentials for proxy mode (populated from env vars at startup).
-    proxy_credentials: Option<HashMap<ProviderId, ProviderCredentials>>,
-    /// Model names that route to the Custom provider.
-    custom_models: HashSet<String>,
+    /// Live credentials for proxy mode. Populated from env vars at startup,
+    /// updated at runtime by `ProxyTokenManager` after OAuth relay or refresh.
+    proxy_credentials: Arc<DashMap<ProviderId, ProviderCredentials>>,
 }
 
 impl ProviderRegistry {
@@ -48,25 +47,20 @@ impl ProviderRegistry {
         Self {
             cache: Arc::new(DashMap::new()),
             refresh_locks: Arc::new(DashMap::new()),
-            proxy_credentials: None,
-            custom_models: HashSet::new(),
+            proxy_credentials: Arc::new(DashMap::new()),
         }
     }
 
-    /// Create a registry with static proxy credentials (for proxy-only mode).
-    pub fn new_with_proxy(
-        proxy_creds: HashMap<ProviderId, ProviderCredentials>,
-        custom_models: HashSet<String>,
-    ) -> Self {
+    /// Create a registry with proxy credentials (for proxy-only mode).
+    pub fn new_with_proxy(proxy_creds: HashMap<ProviderId, ProviderCredentials>) -> Self {
+        let map = DashMap::new();
+        for (k, v) in proxy_creds {
+            map.insert(k, v);
+        }
         Self {
             cache: Arc::new(DashMap::new()),
             refresh_locks: Arc::new(DashMap::new()),
-            proxy_credentials: if proxy_creds.is_empty() {
-                None
-            } else {
-                Some(proxy_creds)
-            },
-            custom_models,
+            proxy_credentials: Arc::new(map),
         }
     }
 
@@ -78,26 +72,27 @@ impl ProviderRegistry {
         use crate::providers::types::ProviderCredentials;
 
         let mut creds = HashMap::new();
-        let mut custom_models = HashSet::new();
 
-        if let Some(ref key) = proxy.anthropic_api_key {
+        // Anthropic: use OAuth access token if available
+        if let Some(ref token) = proxy.anthropic_access_token {
             creds.insert(
                 ProviderId::Anthropic,
                 ProviderCredentials {
                     provider: ProviderId::Anthropic,
-                    access_token: key.clone(),
+                    access_token: token.clone(),
                     base_url: None,
                     account_label: "proxy".into(),
                 },
             );
         }
-        if let Some(ref key) = proxy.openai_api_key {
+        // OpenAI: use OAuth access token if available
+        if let Some(ref token) = proxy.openai_access_token {
             creds.insert(
                 ProviderId::OpenAICodex,
                 ProviderCredentials {
                     provider: ProviderId::OpenAICodex,
-                    access_token: key.clone(),
-                    base_url: proxy.openai_base_url.clone(),
+                    access_token: token.clone(),
+                    base_url: None,
                     account_label: "proxy".into(),
                 },
             );
@@ -113,31 +108,29 @@ impl ProviderRegistry {
                 },
             );
         }
-        if let Some(ref url) = proxy.custom_provider_url {
-            creds.insert(
-                ProviderId::Custom,
-                ProviderCredentials {
-                    provider: ProviderId::Custom,
-                    access_token: proxy.custom_provider_key.clone().unwrap_or_default(),
-                    base_url: Some(url.clone()),
-                    account_label: "proxy".into(),
-                },
-            );
-        }
-        if let Some(ref models) = proxy.custom_provider_models {
-            custom_models = models
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-        }
 
-        Self::new_with_proxy(creds, custom_models)
+        Self::new_with_proxy(creds)
     }
 
-    /// Access the static proxy credentials (if any).
-    pub fn proxy_credentials(&self) -> &Option<HashMap<ProviderId, ProviderCredentials>> {
-        &self.proxy_credentials
+    /// Snapshot of proxy credentials as a HashMap. Returns None if empty.
+    pub fn proxy_credentials(&self) -> Option<HashMap<ProviderId, ProviderCredentials>> {
+        if self.proxy_credentials.is_empty() {
+            None
+        } else {
+            let map: HashMap<_, _> = self
+                .proxy_credentials
+                .iter()
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .collect();
+            Some(map)
+        }
+    }
+
+    /// Get a shared reference to the live proxy credentials DashMap.
+    /// Used by `ProxyTokenManager` to update credentials at runtime.
+    #[allow(dead_code)]
+    pub fn proxy_credentials_live(&self) -> Arc<DashMap<ProviderId, ProviderCredentials>> {
+        Arc::clone(&self.proxy_credentials)
     }
 
     /// Parse a prefixed model ID like `"anthropic/claude-opus-4-6"` into (ProviderId, model_id).
@@ -600,24 +593,22 @@ impl ProviderRegistry {
         (provider_id, Some(creds), Some(account_id))
     }
 
-    /// Resolve provider from static proxy credentials (env-var based, no DB).
+    /// Resolve provider from proxy credentials (env-var or relay-based, no DB).
     fn resolve_from_proxy_creds(&self, model: &str) -> (ProviderId, Option<ProviderCredentials>) {
-        let Some(ref proxy_creds) = self.proxy_credentials else {
+        if self.proxy_credentials.is_empty() {
             return (ProviderId::Kiro, None);
-        };
+        }
         // Determine target provider from model name
         let (native, is_explicit_prefix) =
             if let Some((provider, _)) = Self::parse_prefixed_model(model) {
                 (provider, true)
             } else if let Some(provider) = Self::provider_for_model(model) {
                 (provider, false)
-            } else if self.custom_models.contains(model) {
-                (ProviderId::Custom, false)
             } else {
                 return (ProviderId::Kiro, None);
             };
         // Look up proxy credentials for that provider
-        if let Some(cred) = proxy_creds.get(&native) {
+        if let Some(cred) = self.proxy_credentials.get(&native) {
             (native, Some(cred.clone()))
         } else if is_explicit_prefix {
             // Explicit prefix is binding — return specified provider with no creds
@@ -625,11 +616,6 @@ impl ProviderRegistry {
         } else {
             (ProviderId::Kiro, None)
         }
-    }
-
-    /// Return the custom model names configured for proxy mode.
-    pub fn custom_model_names(&self) -> &HashSet<String> {
-        &self.custom_models
     }
 
     /// Invalidate the cache for a user. Call after a provider token is added, removed, or refreshed.
@@ -1441,22 +1427,12 @@ mod tests {
                 account_label: "proxy".to_string(),
             },
         );
-        creds.insert(
-            ProviderId::Custom,
-            ProviderCredentials {
-                provider: ProviderId::Custom,
-                access_token: String::new(),
-                base_url: Some("http://localhost:11434/v1".to_string()),
-                account_label: "proxy".to_string(),
-            },
-        );
         creds
     }
 
     #[test]
     fn test_resolve_from_proxy_creds_anthropic_model() {
-        let custom_models = HashSet::new();
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), custom_models);
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
         let (provider, creds) = registry.resolve_from_proxy_creds("claude-sonnet-4");
         assert_eq!(provider, ProviderId::Anthropic);
         let creds = creds.expect("expected proxy credentials");
@@ -1465,7 +1441,7 @@ mod tests {
 
     #[test]
     fn test_resolve_from_proxy_creds_openai_model() {
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), HashSet::new());
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
         let (provider, creds) = registry.resolve_from_proxy_creds("gpt-4o");
         assert_eq!(provider, ProviderId::OpenAICodex);
         let creds = creds.expect("expected proxy credentials");
@@ -1475,39 +1451,15 @@ mod tests {
 
     #[test]
     fn test_resolve_from_proxy_creds_prefixed_model() {
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), HashSet::new());
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
         let (provider, creds) = registry.resolve_from_proxy_creds("anthropic/claude-opus-4-6");
         assert_eq!(provider, ProviderId::Anthropic);
         assert!(creds.is_some());
     }
 
     #[test]
-    fn test_resolve_from_proxy_creds_custom_model() {
-        let mut custom_models = HashSet::new();
-        custom_models.insert("llama3".to_string());
-        custom_models.insert("deepseek-r1".to_string());
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), custom_models);
-
-        let (provider, creds) = registry.resolve_from_proxy_creds("llama3");
-        assert_eq!(provider, ProviderId::Custom);
-        let creds = creds.expect("expected custom proxy credentials");
-        assert_eq!(creds.base_url.as_deref(), Some("http://localhost:11434/v1"));
-    }
-
-    #[test]
-    fn test_resolve_from_proxy_creds_custom_model_second() {
-        let mut custom_models = HashSet::new();
-        custom_models.insert("llama3".to_string());
-        custom_models.insert("deepseek-r1".to_string());
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), custom_models);
-
-        let (provider, _) = registry.resolve_from_proxy_creds("deepseek-r1");
-        assert_eq!(provider, ProviderId::Custom);
-    }
-
-    #[test]
     fn test_resolve_from_proxy_creds_unknown_model_falls_back_to_kiro() {
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), HashSet::new());
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
         let (provider, creds) = registry.resolve_from_proxy_creds("auto");
         assert_eq!(provider, ProviderId::Kiro);
         assert!(creds.is_none());
@@ -1534,7 +1486,7 @@ mod tests {
                 account_label: "proxy".to_string(),
             },
         );
-        let registry = ProviderRegistry::new_with_proxy(creds, HashSet::new());
+        let registry = ProviderRegistry::new_with_proxy(creds);
         let (provider, creds) = registry.resolve_from_proxy_creds("gpt-4o");
         assert_eq!(provider, ProviderId::Kiro);
         assert!(creds.is_none());
@@ -1542,7 +1494,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_provider_user_id_none_with_proxy_creds() {
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), HashSet::new());
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
         let (provider, creds) = registry
             .resolve_provider(None, "claude-sonnet-4", None)
             .await;
@@ -1562,7 +1514,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_provider_with_user_id_no_db_uses_proxy_creds() {
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), HashSet::new());
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
         let uid = Uuid::new_v4();
         let (provider, creds) = registry.resolve_provider(Some(uid), "gpt-4o", None).await;
         assert_eq!(provider, ProviderId::OpenAICodex);
@@ -1572,7 +1524,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_provider_proxy_user_id_no_db() {
         let proxy_user_id = Uuid::from_u128(0x0000_0001_0000_0000_0000_0000_0000_0001);
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), HashSet::new());
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
         let (provider, creds) = registry
             .resolve_provider(Some(proxy_user_id), "claude-opus-4-6", None)
             .await;
@@ -1584,7 +1536,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_provider_proxy_user_id_unknown_model() {
         let proxy_user_id = Uuid::from_u128(0x0000_0001_0000_0000_0000_0000_0000_0001);
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), HashSet::new());
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
         let (provider, creds) = registry
             .resolve_provider(Some(proxy_user_id), "kiro-auto", None)
             .await;
@@ -1594,51 +1546,33 @@ mod tests {
 
     #[test]
     fn test_new_with_proxy_empty_creds_sets_none() {
-        let registry = ProviderRegistry::new_with_proxy(HashMap::new(), HashSet::new());
-        assert!(registry.proxy_credentials.is_none());
+        let registry = ProviderRegistry::new_with_proxy(HashMap::new());
+        assert!(registry.proxy_credentials.is_empty());
     }
 
     #[test]
     fn test_new_with_proxy_non_empty_creds_sets_some() {
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), HashSet::new());
-        assert!(registry.proxy_credentials.is_some());
-    }
-
-    #[test]
-    fn test_custom_model_names_empty() {
-        let registry = ProviderRegistry::new();
-        assert!(registry.custom_model_names().is_empty());
-    }
-
-    #[test]
-    fn test_custom_model_names_returns_set() {
-        let mut models = HashSet::new();
-        models.insert("llama3".to_string());
-        models.insert("codellama".to_string());
-        let registry = ProviderRegistry::new_with_proxy(HashMap::new(), models);
-        let names = registry.custom_model_names();
-        assert_eq!(names.len(), 2);
-        assert!(names.contains("llama3"));
-        assert!(names.contains("codellama"));
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
+        assert!(!registry.proxy_credentials.is_empty());
     }
 
     #[test]
     fn test_resolve_from_proxy_creds_o3_routes_to_openai() {
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), HashSet::new());
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
         let (provider, _) = registry.resolve_from_proxy_creds("o3-pro");
         assert_eq!(provider, ProviderId::OpenAICodex);
     }
 
     #[test]
     fn test_resolve_from_proxy_creds_o4_routes_to_openai() {
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), HashSet::new());
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
         let (provider, _) = registry.resolve_from_proxy_creds("o4-mini");
         assert_eq!(provider, ProviderId::OpenAICodex);
     }
 
     #[test]
     fn test_resolve_from_proxy_creds_chatgpt_routes_to_openai() {
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), HashSet::new());
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
         let (provider, _) = registry.resolve_from_proxy_creds("chatgpt-4o-latest");
         assert_eq!(provider, ProviderId::OpenAICodex);
     }
@@ -1646,30 +1580,9 @@ mod tests {
     #[test]
     fn test_resolve_from_proxy_creds_prefix_overrides_name_inference() {
         // "openai_codex/claude-sonnet-4" should route to OpenAI, not Anthropic
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), HashSet::new());
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
         let (provider, _) = registry.resolve_from_proxy_creds("openai_codex/claude-sonnet-4");
         assert_eq!(provider, ProviderId::OpenAICodex);
-    }
-
-    #[test]
-    fn test_resolve_from_proxy_creds_custom_model_not_in_set() {
-        let mut custom_models = HashSet::new();
-        custom_models.insert("llama3".to_string());
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), custom_models);
-        // "mistral" is not in custom_models and has no prefix match
-        let (provider, creds) = registry.resolve_from_proxy_creds("mistral");
-        assert_eq!(provider, ProviderId::Kiro);
-        assert!(creds.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_resolve_provider_proxy_custom_model_via_user_id_none() {
-        let mut custom_models = HashSet::new();
-        custom_models.insert("llama3".to_string());
-        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds(), custom_models);
-        let (provider, creds) = registry.resolve_provider(None, "llama3", None).await;
-        assert_eq!(provider, ProviderId::Custom);
-        assert!(creds.is_some());
     }
 
     // ── from_proxy_config tests ─────────────────────────────────────
@@ -1679,29 +1592,25 @@ mod tests {
         use crate::config::ProxyConfig;
         let proxy = ProxyConfig {
             api_key: "test-key-long-enough".to_string(),
-            anthropic_api_key: Some("sk-ant-test".to_string()),
-            openai_api_key: Some("sk-proj-test".to_string()),
-            openai_base_url: Some("https://openrouter.ai/api".to_string()),
+            anthropic_enabled: true,
+            anthropic_access_token: Some("ant-access-tok".to_string()),
+            openai_enabled: true,
+            openai_access_token: Some("oai-access-tok".to_string()),
             copilot_token: Some("cop-tok".to_string()),
             copilot_base_url: Some("https://api.githubcopilot.com".to_string()),
-            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
-            custom_provider_key: Some("custom-key".to_string()),
-            custom_provider_models: Some("llama3,codellama,deepseek-r1".to_string()),
             ..Default::default()
         };
         let registry = ProviderRegistry::from_proxy_config(&proxy);
-        let creds = registry.proxy_credentials().as_ref().unwrap();
-        assert_eq!(creds.len(), 4);
+        let creds = registry.proxy_credentials().unwrap();
+        assert_eq!(creds.len(), 3);
         assert!(creds.contains_key(&ProviderId::Anthropic));
         assert!(creds.contains_key(&ProviderId::OpenAICodex));
         assert!(creds.contains_key(&ProviderId::Copilot));
-        assert!(creds.contains_key(&ProviderId::Custom));
-        // Verify base_url propagation
+        assert_eq!(creds[&ProviderId::Anthropic].access_token, "ant-access-tok");
         assert_eq!(
-            creds[&ProviderId::OpenAICodex].base_url.as_deref(),
-            Some("https://openrouter.ai/api")
+            creds[&ProviderId::OpenAICodex].access_token,
+            "oai-access-tok"
         );
-        assert_eq!(creds[&ProviderId::Custom].access_token, "custom-key");
     }
 
     #[test]
@@ -1709,16 +1618,14 @@ mod tests {
         use crate::config::ProxyConfig;
         let proxy = ProxyConfig {
             api_key: "test-key-long-enough".to_string(),
-            anthropic_api_key: Some("sk-ant-test".to_string()),
-            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
-            custom_provider_models: Some("llama3".to_string()),
+            anthropic_enabled: true,
+            anthropic_access_token: Some("ant-access-tok".to_string()),
             ..Default::default()
         };
         let registry = ProviderRegistry::from_proxy_config(&proxy);
-        let creds = registry.proxy_credentials().as_ref().unwrap();
-        assert_eq!(creds.len(), 2);
+        let creds = registry.proxy_credentials().unwrap();
+        assert_eq!(creds.len(), 1);
         assert!(creds.contains_key(&ProviderId::Anthropic));
-        assert!(creds.contains_key(&ProviderId::Custom));
         assert!(!creds.contains_key(&ProviderId::OpenAICodex));
     }
 
@@ -1731,76 +1638,6 @@ mod tests {
         };
         let registry = ProviderRegistry::from_proxy_config(&proxy);
         assert!(registry.proxy_credentials().is_none());
-    }
-
-    #[test]
-    fn test_from_proxy_config_custom_models_parsed() {
-        use crate::config::ProxyConfig;
-        let proxy = ProxyConfig {
-            api_key: "test-key-long-enough".to_string(),
-            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
-            custom_provider_models: Some("llama3 , codellama , deepseek-r1".to_string()),
-            ..Default::default()
-        };
-        let registry = ProviderRegistry::from_proxy_config(&proxy);
-        // Verify custom models are trimmed and parsed
-        let (provider, creds) = registry.resolve_from_proxy_creds("llama3");
-        assert_eq!(provider, ProviderId::Custom);
-        assert!(creds.is_some());
-        let (provider2, _) = registry.resolve_from_proxy_creds("codellama");
-        assert_eq!(provider2, ProviderId::Custom);
-        let (provider3, _) = registry.resolve_from_proxy_creds("deepseek-r1");
-        assert_eq!(provider3, ProviderId::Custom);
-    }
-
-    #[test]
-    fn test_from_proxy_config_whitespace_around_commas() {
-        use crate::config::ProxyConfig;
-        let proxy = ProxyConfig {
-            api_key: "test-key-long-enough".to_string(),
-            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
-            custom_provider_models: Some(" llama3 , codellama ".to_string()),
-            ..Default::default()
-        };
-        let registry = ProviderRegistry::from_proxy_config(&proxy);
-        let (provider, _) = registry.resolve_from_proxy_creds("llama3");
-        assert_eq!(provider, ProviderId::Custom);
-        let (provider2, _) = registry.resolve_from_proxy_creds("codellama");
-        assert_eq!(provider2, ProviderId::Custom);
-    }
-
-    #[test]
-    fn test_from_proxy_config_trailing_comma() {
-        use crate::config::ProxyConfig;
-        let proxy = ProxyConfig {
-            api_key: "test-key-long-enough".to_string(),
-            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
-            custom_provider_models: Some("llama3,codellama,".to_string()),
-            ..Default::default()
-        };
-        let registry = ProviderRegistry::from_proxy_config(&proxy);
-        let (provider, _) = registry.resolve_from_proxy_creds("llama3");
-        assert_eq!(provider, ProviderId::Custom);
-        let (provider2, _) = registry.resolve_from_proxy_creds("codellama");
-        assert_eq!(provider2, ProviderId::Custom);
-        // Empty string from trailing comma should NOT be in the set
-        let (provider3, creds3) = registry.resolve_from_proxy_creds("");
-        assert_eq!(provider3, ProviderId::Kiro);
-        assert!(creds3.is_none());
-    }
-
-    #[test]
-    fn test_from_proxy_config_custom_key_defaults_empty() {
-        use crate::config::ProxyConfig;
-        let proxy = ProxyConfig {
-            api_key: "test-key-long-enough".to_string(),
-            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
-            // No custom_provider_key set
-            ..Default::default()
-        };
-        let registry = ProviderRegistry::from_proxy_config(&proxy);
-        let creds = registry.proxy_credentials().as_ref().unwrap();
-        assert_eq!(creds[&ProviderId::Custom].access_token, "");
     }
 
     // ── Explicit prefix enforcement tests (S-003) ─────────────────────
@@ -1905,7 +1742,7 @@ mod tests {
                 account_label: "proxy".to_string(),
             },
         );
-        let registry = ProviderRegistry::new_with_proxy(proxy_creds, HashSet::new());
+        let registry = ProviderRegistry::new_with_proxy(proxy_creds);
 
         let (pid, creds) = registry.resolve_from_proxy_creds("anthropic/claude-sonnet-4");
         assert_eq!(pid, ProviderId::Anthropic);

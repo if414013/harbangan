@@ -289,13 +289,6 @@ mod tests {
     }
 
     #[test]
-    fn test_pool_custom_provider_rejected() {
-        // "custom" parses but doesn't support pool
-        let pid = ProviderId::from_str("custom").unwrap();
-        assert!(!pid.supports_pool(), "custom should not support pool");
-    }
-
-    #[test]
     fn test_pool_unknown_provider_rejected() {
         // "gemini" is not a valid ProviderId at all
         assert!(

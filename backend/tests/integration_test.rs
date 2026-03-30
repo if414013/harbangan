@@ -140,6 +140,7 @@ fn create_test_app_state() -> AppState {
         token_exchanger: Arc::new(HttpTokenExchanger::new()),
         login_rate_limiter: Arc::new(dashmap::DashMap::new()),
         rate_tracker: Arc::new(providers::rate_limiter::RateLimitTracker::new()),
+        proxy_token_manager: None,
     }
 }
 

@@ -15,8 +15,6 @@ pub enum ProviderId {
     OpenAICodex,
     #[serde(rename = "copilot")]
     Copilot,
-    #[serde(rename = "custom")]
-    Custom,
 }
 
 impl ProviderId {
@@ -27,7 +25,6 @@ impl ProviderId {
             ProviderId::Anthropic => "anthropic",
             ProviderId::OpenAICodex => "openai_codex",
             ProviderId::Copilot => "copilot",
-            ProviderId::Custom => "custom",
         }
     }
 
@@ -38,28 +35,25 @@ impl ProviderId {
             ProviderId::Anthropic => "Anthropic",
             ProviderId::OpenAICodex => "OpenAI Codex",
             ProviderId::Copilot => "Copilot",
-            ProviderId::Custom => "Custom",
         }
     }
 
     /// Authentication category: how the provider acquires credentials.
     /// - `"device_code"`: Device authorization flow (Kiro, Copilot)
     /// - `"oauth_relay"`: API key stored per-user (Anthropic, OpenAI)
-    /// - `"custom"`: User-supplied base URL + key
     pub fn category(&self) -> &'static str {
         match self {
             ProviderId::Kiro | ProviderId::Copilot => "device_code",
             ProviderId::Anthropic | ProviderId::OpenAICodex => "oauth_relay",
-            ProviderId::Custom => "custom",
         }
     }
 
     /// Whether this provider can participate in admin load-balancing pools.
     pub fn supports_pool(&self) -> bool {
-        !matches!(self, ProviderId::Custom)
+        true
     }
 
-    /// All providers visible to users (excludes Custom).
+    /// All providers visible to users.
     pub fn all_visible() -> &'static [ProviderId] {
         &[
             ProviderId::Kiro,
@@ -75,7 +69,7 @@ impl ProviderId {
             ProviderId::Anthropic => Some("https://api.anthropic.com"),
             ProviderId::OpenAICodex => Some("https://api.openai.com"),
             ProviderId::Copilot => Some("https://api.githubcopilot.com"),
-            ProviderId::Kiro | ProviderId::Custom => None,
+            ProviderId::Kiro => None,
         }
     }
 }
@@ -95,7 +89,6 @@ impl std::str::FromStr for ProviderId {
             "anthropic" => Ok(ProviderId::Anthropic),
             "openai_codex" | "openai" => Ok(ProviderId::OpenAICodex),
             "copilot" => Ok(ProviderId::Copilot),
-            "custom" => Ok(ProviderId::Custom),
             other => Err(format!("Unknown provider: {}", other)),
         }
     }
@@ -158,7 +151,6 @@ mod tests {
         assert_eq!(ProviderId::Anthropic.as_str(), "anthropic");
         assert_eq!(ProviderId::OpenAICodex.as_str(), "openai_codex");
         assert_eq!(ProviderId::Copilot.as_str(), "copilot");
-        assert_eq!(ProviderId::Custom.as_str(), "custom");
     }
 
     #[test]
@@ -166,7 +158,6 @@ mod tests {
         assert_eq!(ProviderId::Anthropic.to_string(), "anthropic");
         assert_eq!(ProviderId::OpenAICodex.to_string(), "openai_codex");
         assert_eq!(ProviderId::Copilot.to_string(), "copilot");
-        assert_eq!(ProviderId::Custom.to_string(), "custom");
     }
 
     #[test]
@@ -189,7 +180,7 @@ mod tests {
             ProviderId::from_str("copilot").unwrap(),
             ProviderId::Copilot
         );
-        assert_eq!(ProviderId::from_str("custom").unwrap(), ProviderId::Custom);
+        assert!(ProviderId::from_str("custom").is_err());
         assert!(ProviderId::from_str("unknown").is_err());
     }
 
@@ -202,10 +193,6 @@ mod tests {
         let id = ProviderId::Copilot;
         let json = serde_json::to_string(&id).unwrap();
         assert_eq!(json, "\"copilot\"");
-
-        let id = ProviderId::Custom;
-        let json = serde_json::to_string(&id).unwrap();
-        assert_eq!(json, "\"custom\"");
     }
 
     #[test]
@@ -216,8 +203,7 @@ mod tests {
         let id: ProviderId = serde_json::from_str("\"copilot\"").unwrap();
         assert_eq!(id, ProviderId::Copilot);
 
-        let id: ProviderId = serde_json::from_str("\"custom\"").unwrap();
-        assert_eq!(id, ProviderId::Custom);
+        assert!(serde_json::from_str::<ProviderId>("\"custom\"").is_err());
     }
 
     #[test]
@@ -240,7 +226,6 @@ mod tests {
             ProviderId::Anthropic,
             ProviderId::OpenAICodex,
             ProviderId::Copilot,
-            ProviderId::Custom,
         ] {
             let json = serde_json::to_string(&id).unwrap();
             let back: ProviderId = serde_json::from_str(&json).unwrap();
@@ -297,7 +282,6 @@ mod tests {
         assert_eq!(ProviderId::Anthropic.display_name(), "Anthropic");
         assert_eq!(ProviderId::OpenAICodex.display_name(), "OpenAI Codex");
         assert_eq!(ProviderId::Copilot.display_name(), "Copilot");
-        assert_eq!(ProviderId::Custom.display_name(), "Custom");
     }
 
     #[test]
@@ -306,7 +290,6 @@ mod tests {
         assert_eq!(ProviderId::Anthropic.category(), "oauth_relay");
         assert_eq!(ProviderId::OpenAICodex.category(), "oauth_relay");
         assert_eq!(ProviderId::Copilot.category(), "device_code");
-        assert_eq!(ProviderId::Custom.category(), "custom");
     }
 
     #[test]
@@ -315,43 +298,16 @@ mod tests {
         assert!(ProviderId::Anthropic.supports_pool());
         assert!(ProviderId::OpenAICodex.supports_pool());
         assert!(ProviderId::Copilot.supports_pool());
-        assert!(!ProviderId::Custom.supports_pool());
     }
 
     #[test]
-    fn test_all_visible_excludes_custom() {
+    fn test_all_visible_contains_all_providers() {
         let visible = ProviderId::all_visible();
         assert_eq!(visible.len(), 4);
-        assert!(!visible.contains(&ProviderId::Custom));
         assert!(visible.contains(&ProviderId::Kiro));
         assert!(visible.contains(&ProviderId::Anthropic));
         assert!(visible.contains(&ProviderId::OpenAICodex));
         assert!(visible.contains(&ProviderId::Copilot));
-    }
-
-    /// Exhaustiveness guard: if a new variant is added to ProviderId,
-    /// this test forces the developer to update all_visible().
-    #[test]
-    fn test_all_visible_exhaustiveness_guard() {
-        // Every variant except Custom must be in all_visible()
-        let visible = ProviderId::all_visible();
-        for id in [
-            ProviderId::Kiro,
-            ProviderId::Anthropic,
-            ProviderId::OpenAICodex,
-            ProviderId::Copilot,
-        ] {
-            assert!(
-                visible.contains(&id),
-                "{} missing from all_visible()",
-                id.as_str()
-            );
-        }
-        // Custom must NOT be in all_visible()
-        assert!(
-            !visible.contains(&ProviderId::Custom),
-            "Custom should not be in all_visible()"
-        );
     }
 
     #[test]
@@ -369,6 +325,5 @@ mod tests {
             Some("https://api.githubcopilot.com")
         );
         assert_eq!(ProviderId::Kiro.default_base_url(), None);
-        assert_eq!(ProviderId::Custom.default_base_url(), None);
     }
 }

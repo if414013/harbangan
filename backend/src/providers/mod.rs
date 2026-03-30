@@ -10,7 +10,6 @@ use crate::providers::types::ProviderId;
 
 pub mod anthropic;
 pub mod copilot;
-pub mod custom;
 pub mod kiro;
 pub mod openai_codex;
 pub mod rate_limiter;
@@ -20,7 +19,7 @@ pub mod types;
 
 /// Convert Anthropic messages format to OpenAI chat completions body (as JSON Value).
 ///
-/// Shared by all OpenAI-compatible providers (OpenAICodex, Copilot, Custom).
+/// Shared by all OpenAI-compatible providers (OpenAICodex, Copilot).
 /// Delegates to the full `converters::anthropic_to_openai` converter which handles
 /// tools, tool_use/tool_result content blocks, and all field mappings.
 pub fn anthropic_to_openai_body(req: &AnthropicMessagesRequest) -> Value {
@@ -88,13 +87,6 @@ pub fn build_provider_map(
     map.insert(
         ProviderId::Copilot,
         Arc::new(copilot::CopilotProvider::new(
-            shared_request_client.clone(),
-            shared_streaming_client.clone(),
-        )) as Arc<dyn Provider>,
-    );
-    map.insert(
-        ProviderId::Custom,
-        Arc::new(custom::CustomProvider::new(
             shared_request_client,
             shared_streaming_client,
         )) as Arc<dyn Provider>,

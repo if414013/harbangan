@@ -397,7 +397,6 @@ pub async fn populate_provider(
                 }
             }
         }
-        ProviderId::Custom => None,
     };
 
     // Keep-last-successful: if API returns empty or fails, try static fallback

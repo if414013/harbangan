@@ -11,6 +11,7 @@ pub mod model_visibility_handlers;
 pub mod password_auth;
 pub mod provider_oauth;
 pub mod provider_priority;
+pub mod proxy_relay;
 pub mod routes;
 pub mod session;
 pub mod static_models;

@@ -234,6 +234,14 @@ elif CACHED_CP_TK=$(read_cache_field copilot token) && [ -n "$CACHED_CP_TK" ]; t
     echo "→ Loaded cached Copilot token"
     export COPILOT_TOKEN="$CACHED_CP_TK"
     export COPILOT_BASE_URL="${CACHED_CP_BASE:-${COPILOT_DEFAULT_BASE_URL}}"
+    # Restore cached GitHub token for background refresh (if persisted)
+    if [ "${COPILOT_PERSIST_GITHUB_TOKEN:-false}" = "true" ]; then
+        CACHED_GH_TK=$(read_cache_field copilot github_token)
+        if [ -n "$CACHED_GH_TK" ]; then
+            export COPILOT_GITHUB_TOKEN="$CACHED_GH_TK"
+            echo "  Loaded cached GitHub token for background refresh"
+        fi
+    fi
 fi
 
 # ── Interactive device flows ─────────────────────────────────────────
@@ -336,12 +344,26 @@ run_copilot_device_flow() {
 
     CP_BASE="${CP_API:-${COPILOT_DEFAULT_BASE_URL}}"
 
-    # Cache only the Copilot session token — do NOT persist the GitHub access token
-    # (it has read:user scope, never expires, and should only live in-memory)
-    write_cache_provider copilot "$(jq -n \
-        --arg token "$CP_TK" \
-        --arg base_url "$CP_BASE" \
-        '{token: $token, base_url: $base_url}')"
+    # Cache Copilot session token. Optionally persist the GitHub access token
+    # for background refresh (opt-in via COPILOT_PERSIST_GITHUB_TOKEN=true).
+    # The GitHub token has read:user scope and never expires — persisting it
+    # expands the attack surface of /data/tokens.json.
+    CP_EXPIRES_AT=$(echo "$CP_RESPONSE" | jq -r '.expires_at // empty')
+    if [ "${COPILOT_PERSIST_GITHUB_TOKEN:-false}" = "true" ]; then
+        write_cache_provider copilot "$(jq -n \
+            --arg token "$CP_TK" \
+            --arg base_url "$CP_BASE" \
+            --arg github_token "$GH_ACCESS" \
+            --arg expires_at "$CP_EXPIRES_AT" \
+            '{token: $token, base_url: $base_url, github_token: $github_token, expires_at: $expires_at}')"
+        export COPILOT_GITHUB_TOKEN="$GH_ACCESS"
+    else
+        write_cache_provider copilot "$(jq -n \
+            --arg token "$CP_TK" \
+            --arg base_url "$CP_BASE" \
+            --arg expires_at "$CP_EXPIRES_AT" \
+            '{token: $token, base_url: $base_url, expires_at: $expires_at}')"
+    fi
 
     echo "  Copilot credentials cached to ${TOKEN_CACHE}"
 
@@ -358,10 +380,10 @@ fi
 echo ""
 echo "→ Configured providers:"
 [ -n "${KIRO_REFRESH_TOKEN:-}" ] && echo "  - Kiro (AWS SSO)"
-[ -n "${ANTHROPIC_API_KEY:-}" ] && echo "  - Anthropic (API key)"
-[ -n "${OPENAI_API_KEY:-}" ] && echo "  - OpenAI (API key)"
 [ -n "${COPILOT_TOKEN:-}" ] && echo "  - Copilot (GitHub)"
-[ -n "${CUSTOM_PROVIDER_URL:-}" ] && echo "  - Custom (${CUSTOM_PROVIDER_URL})"
+echo ""
+echo "→ Anthropic and OpenAI use OAuth relay (connect after startup)."
+echo "  Run the curl command shown in the logs to authenticate."
 echo ""
 
 echo "→ Starting Harbangan Gateway..."

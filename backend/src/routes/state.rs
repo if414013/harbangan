@@ -103,6 +103,8 @@ pub struct AppState {
     /// Per-account rate-limit tracker for multi-account load balancing
     #[allow(dead_code)]
     pub rate_tracker: Arc<RateLimitTracker>,
+    /// File-based token manager for proxy mode (None in full mode)
+    pub proxy_token_manager: Option<Arc<crate::proxy_token_manager::ProxyTokenManager>>,
 }
 
 impl AppState {

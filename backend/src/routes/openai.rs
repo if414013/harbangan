@@ -33,7 +33,7 @@ pub(crate) async fn get_models_handler(
 
     // Registry models (enabled only) — used when DB is available
     let registry_models = state.model_cache.get_enabled_registry_models();
-    let mut models: Vec<OpenAIModel> = if !registry_models.is_empty() {
+    let models: Vec<OpenAIModel> = if !registry_models.is_empty() {
         registry_models
             .into_iter()
             .filter_map(|rm| {
@@ -61,20 +61,6 @@ pub(crate) async fn get_models_handler(
             })
             .collect()
     };
-
-    // Add custom provider models from env
-    for model_id in state.provider_registry.custom_model_names() {
-        if !seen.contains(model_id) {
-            seen.insert(model_id.clone());
-            models.push(OpenAIModel {
-                id: model_id.clone(),
-                object: "model".to_string(),
-                created: 0,
-                owned_by: "custom".to_string(),
-                description: None,
-            });
-        }
-    }
 
     Ok(Json(ModelList::new(models)))
 }
