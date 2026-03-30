@@ -462,6 +462,14 @@ async fn main() -> Result<()> {
         }
     }
 
+    // ── Provider settings (load disabled providers from DB) ─────
+    if let Some(ref db) = app_state.config_db {
+        app_state
+            .provider_registry
+            .load_disabled_providers_from_db(db)
+            .await;
+    }
+
     // ── Background tasks ─────────────────────────────────────────
     if let Some(ref db) = app_state.config_db {
         web_ui::user_kiro::spawn_token_refresh_task(Arc::clone(db));

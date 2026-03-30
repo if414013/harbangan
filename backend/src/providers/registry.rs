@@ -3,9 +3,11 @@
 /// Caches per-user provider credentials in memory (5-minute TTL) to avoid
 /// repeated DB lookups on every request. Handles transparent token refresh
 /// for OAuth-based provider tokens.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use tokio::sync::RwLock;
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
@@ -40,6 +42,8 @@ pub struct ProviderRegistry {
     /// Live credentials for proxy mode. Populated from env vars at startup,
     /// updated at runtime by `ProxyTokenManager` after OAuth relay or refresh.
     proxy_credentials: Arc<DashMap<ProviderId, ProviderCredentials>>,
+    /// Set of providers disabled by admin. Kiro is never in this set.
+    disabled_providers: Arc<RwLock<HashSet<ProviderId>>>,
 }
 
 impl ProviderRegistry {
@@ -48,6 +52,7 @@ impl ProviderRegistry {
             cache: Arc::new(DashMap::new()),
             refresh_locks: Arc::new(DashMap::new()),
             proxy_credentials: Arc::new(DashMap::new()),
+            disabled_providers: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -61,6 +66,7 @@ impl ProviderRegistry {
             cache: Arc::new(DashMap::new()),
             refresh_locks: Arc::new(DashMap::new()),
             proxy_credentials: Arc::new(map),
+            disabled_providers: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -336,7 +342,8 @@ impl ProviderRegistry {
     ) -> (ProviderId, Option<ProviderCredentials>) {
         let Some(uid) = user_id else {
             // Proxy mode without Kiro creds: check proxy credential store
-            return self.resolve_from_proxy_creds(model);
+            let disabled = self.disabled_providers.read().await;
+            return self.resolve_from_proxy_creds_filtered(model, &disabled);
         };
 
         // Try explicit prefix first (e.g. "anthropic/claude-opus-4-6")
@@ -349,25 +356,34 @@ impl ProviderRegistry {
                 return (ProviderId::Kiro, None);
             };
 
+        // Filter out disabled providers from credentials
+        let disabled = self.disabled_providers.read().await;
+
         // Cache hit?
         if let Some(entry) = self.cache.get(&uid) {
             if entry.cached_at.elapsed() < CACHE_TTL {
+                let mut filtered_creds = entry.credentials.clone();
+                for pid in disabled.iter() {
+                    filtered_creds.remove(pid.as_str());
+                }
                 if is_explicit_prefix {
                     // Explicit prefix is binding — only look up the specified provider
                     let native_str = native.as_str();
-                    let creds = entry.credentials.get(native_str).cloned();
+                    let creds = filtered_creds.get(native_str).cloned();
                     return (native, creds);
                 }
-                return Self::pick_best_provider(&native, &entry.credentials, &entry.priority);
+                return Self::pick_best_provider(&native, &filtered_creds, &entry.priority);
             }
         }
 
         // Cache miss or stale — load from DB
         let Some(db) = db else {
             // Proxy mode with Kiro creds but no DB: check proxy credential store
+            drop(disabled);
             return self.resolve_from_proxy_creds(model);
         };
-        let (user_creds, user_expires, user_priority) = Self::load_user_data(uid, db).await;
+        let (user_creds, user_expires, user_priority) = self.load_user_data(uid, db).await;
+        drop(disabled);
         let result = if is_explicit_prefix {
             // Explicit prefix is binding — only look up the specified provider
             let native_str = native.as_str();
@@ -452,6 +468,9 @@ impl ProviderRegistry {
             return (ProviderId::Kiro, None, None);
         };
 
+        // Read disabled providers once for filtering
+        let disabled = self.disabled_providers.read().await;
+
         let provider_str = native.as_str();
 
         // Load user priorities once for all provider decisions
@@ -467,57 +486,63 @@ impl ProviderRegistry {
         // Candidates: (AccountId, ProviderCredentials, priority)
         let mut candidates: Vec<(AccountId, ProviderCredentials, i32)> = Vec::new();
 
-        match native {
-            ProviderId::Copilot => {
-                if let Ok(Some(row)) = db.get_copilot_tokens(uid).await {
-                    if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
-                        (row.copilot_token, row.base_url, row.expires_at)
-                    {
-                        let now = chrono::Utc::now();
-                        if expires_at > now {
-                            let account_id = AccountId {
-                                user_id: Some(uid),
-                                provider_id: ProviderId::Copilot,
-                                account_label: "default".to_string(),
-                            };
-                            let creds = ProviderCredentials {
-                                provider: ProviderId::Copilot,
-                                access_token: copilot_token,
-                                base_url: Some(base_url),
-                                account_label: "default".to_string(),
-                            };
-                            candidates.push((account_id, creds, native_pri));
+        // Only load credentials for the native provider if it's not disabled
+        if !disabled.contains(&native) {
+            match native {
+                ProviderId::Copilot => {
+                    if let Ok(Some(row)) = db.get_copilot_tokens(uid).await {
+                        if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
+                            (row.copilot_token, row.base_url, row.expires_at)
+                        {
+                            let now = chrono::Utc::now();
+                            if expires_at > now {
+                                let account_id = AccountId {
+                                    user_id: Some(uid),
+                                    provider_id: ProviderId::Copilot,
+                                    account_label: "default".to_string(),
+                                };
+                                let creds = ProviderCredentials {
+                                    provider: ProviderId::Copilot,
+                                    access_token: copilot_token,
+                                    base_url: Some(base_url),
+                                    account_label: "default".to_string(),
+                                };
+                                candidates.push((account_id, creds, native_pri));
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    // Load all user accounts for this provider
+                    if let Ok(rows) = db.get_all_user_provider_tokens(uid, provider_str).await {
+                        for row in rows {
+                            let now = chrono::Utc::now();
+                            if row.expires_at > now {
+                                let account_id = AccountId {
+                                    user_id: Some(uid),
+                                    provider_id: native.clone(),
+                                    account_label: row.account_label.clone(),
+                                };
+                                let creds = ProviderCredentials {
+                                    provider: native.clone(),
+                                    access_token: row.access_token.clone(),
+                                    base_url: row.base_url.clone(),
+                                    account_label: row.account_label.clone(),
+                                };
+                                candidates.push((account_id, creds, native_pri));
+                            }
                         }
                     }
                 }
             }
-            _ => {
-                // Load all user accounts for this provider
-                if let Ok(rows) = db.get_all_user_provider_tokens(uid, provider_str).await {
-                    for row in rows {
-                        let now = chrono::Utc::now();
-                        if row.expires_at > now {
-                            let account_id = AccountId {
-                                user_id: Some(uid),
-                                provider_id: native.clone(),
-                                account_label: row.account_label.clone(),
-                            };
-                            let creds = ProviderCredentials {
-                                provider: native.clone(),
-                                access_token: row.access_token.clone(),
-                                base_url: row.base_url.clone(),
-                                account_label: row.account_label.clone(),
-                            };
-                            candidates.push((account_id, creds, native_pri));
-                        }
-                    }
-                }
-            }
-        }
+        } // end if !disabled.contains(&native)
 
         // Also check Copilot as an alternative (universal provider)
-        // BUT skip Copilot when prefix is explicit — explicit prefix is binding
-        if native != ProviderId::Copilot && !is_explicit_prefix {
+        // BUT skip Copilot when prefix is explicit, or when Copilot is disabled
+        if native != ProviderId::Copilot
+            && !is_explicit_prefix
+            && !disabled.contains(&ProviderId::Copilot)
+        {
             if let Ok(Some(row)) = db.get_copilot_tokens(uid).await {
                 if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
                     (row.copilot_token, row.base_url, row.expires_at)
@@ -545,23 +570,28 @@ impl ProviderRegistry {
         }
 
         // Load admin pool accounts for the target provider as fallback (default priority 100).
+        // Skip if the native provider is disabled.
         const ADMIN_POOL_PRIORITY: i32 = 100;
-        if let Ok(pool_rows) = db.get_admin_pool_accounts(provider_str).await {
-            for row in pool_rows {
-                let account_id = AccountId {
-                    user_id: None,
-                    provider_id: native.clone(),
-                    account_label: row.account_label.clone(),
-                };
-                let creds = ProviderCredentials {
-                    provider: native.clone(),
-                    access_token: row.api_key.clone(),
-                    base_url: row.base_url.clone(),
-                    account_label: row.account_label.clone(),
-                };
-                candidates.push((account_id, creds, ADMIN_POOL_PRIORITY));
+        if !disabled.contains(&native) {
+            if let Ok(pool_rows) = db.get_admin_pool_accounts(provider_str).await {
+                for row in pool_rows {
+                    let account_id = AccountId {
+                        user_id: None,
+                        provider_id: native.clone(),
+                        account_label: row.account_label.clone(),
+                    };
+                    let creds = ProviderCredentials {
+                        provider: native.clone(),
+                        access_token: row.api_key.clone(),
+                        base_url: row.base_url.clone(),
+                        account_label: row.account_label.clone(),
+                    };
+                    candidates.push((account_id, creds, ADMIN_POOL_PRIORITY));
+                }
             }
-        }
+        } // end if !disabled.contains(&native) for admin pool
+
+        drop(disabled); // release RwLock before potential recursive call
 
         if candidates.is_empty() {
             if is_explicit_prefix {
@@ -595,6 +625,15 @@ impl ProviderRegistry {
 
     /// Resolve provider from proxy credentials (env-var or relay-based, no DB).
     fn resolve_from_proxy_creds(&self, model: &str) -> (ProviderId, Option<ProviderCredentials>) {
+        self.resolve_from_proxy_creds_filtered(model, &HashSet::new())
+    }
+
+    /// Resolve provider from proxy credentials, filtering out disabled providers.
+    fn resolve_from_proxy_creds_filtered(
+        &self,
+        model: &str,
+        disabled: &HashSet<ProviderId>,
+    ) -> (ProviderId, Option<ProviderCredentials>) {
         if self.proxy_credentials.is_empty() {
             return (ProviderId::Kiro, None);
         }
@@ -607,6 +646,14 @@ impl ProviderRegistry {
             } else {
                 return (ProviderId::Kiro, None);
             };
+        // Skip disabled providers for proxy creds
+        if disabled.contains(&native) {
+            return if is_explicit_prefix {
+                (native, None)
+            } else {
+                (ProviderId::Kiro, None)
+            };
+        }
         // Look up proxy credentials for that provider
         if let Some(cred) = self.proxy_credentials.get(&native) {
             (native, Some(cred.clone()))
@@ -623,8 +670,60 @@ impl ProviderRegistry {
         self.cache.remove(&user_id);
     }
 
+    /// Check if a provider is enabled. Kiro always returns true.
+    pub async fn is_provider_enabled(&self, provider: &ProviderId) -> bool {
+        if *provider == ProviderId::Kiro {
+            return true;
+        }
+        !self.disabled_providers.read().await.contains(provider)
+    }
+
+    /// Update a provider's enabled/disabled state in the in-memory cache.
+    /// Call this after persisting the change to the database.
+    pub async fn set_provider_enabled(&self, provider: ProviderId, enabled: bool) {
+        if provider == ProviderId::Kiro {
+            return; // Kiro cannot be disabled
+        }
+        let mut set = self.disabled_providers.write().await;
+        if enabled {
+            set.remove(&provider);
+        } else {
+            set.insert(provider);
+        }
+    }
+
+    /// Load disabled providers from the database at startup.
+    pub async fn load_disabled_providers_from_db(&self, db: &ConfigDb) {
+        match db.get_all_provider_settings().await {
+            Ok(rows) => {
+                let mut set = HashSet::new();
+                for (provider_id_str, enabled) in rows {
+                    if !enabled {
+                        if let Ok(pid) = provider_id_str.parse::<ProviderId>() {
+                            if pid != ProviderId::Kiro {
+                                set.insert(pid);
+                            }
+                        }
+                    }
+                }
+                *self.disabled_providers.write().await = set;
+            }
+            Err(e) => {
+                tracing::warn!(error = ?e, "Failed to load provider settings from DB, all providers enabled");
+            }
+        }
+    }
+
+    /// Get a snapshot of currently disabled provider IDs.
+    #[allow(dead_code)]
+    pub async fn disabled_providers(&self) -> HashSet<ProviderId> {
+        self.disabled_providers.read().await.clone()
+    }
+
     /// Load all provider tokens and priority for a user from the database.
+    /// Skips disabled providers so their credentials are not loaded into the cache.
     async fn load_user_data(
+        &self,
         user_id: Uuid,
         db: &ConfigDb,
     ) -> (
@@ -632,9 +731,13 @@ impl ProviderRegistry {
         HashMap<String, DateTime<Utc>>,
         HashMap<String, i32>,
     ) {
+        let disabled = self.disabled_providers.read().await;
         let mut creds_map = HashMap::new();
         let mut expires_map = HashMap::new();
         for pid in ProviderId::all_visible() {
+            if disabled.contains(pid) {
+                continue;
+            }
             let provider_str = pid.as_str();
             if let Ok(Some((access_token, _refresh_token, expires_at, _email))) =
                 db.get_user_provider_token(user_id, provider_str).await
@@ -662,22 +765,24 @@ impl ProviderRegistry {
         }
 
         // Also load Copilot tokens from user_copilot_tokens (separate table)
-        if let Ok(Some(row)) = db.get_copilot_tokens(user_id).await {
-            if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
-                (row.copilot_token, row.base_url, row.expires_at)
-            {
-                let now = Utc::now();
-                if expires_at > now {
-                    creds_map.insert(
-                        "copilot".to_string(),
-                        ProviderCredentials {
-                            provider: ProviderId::Copilot,
-                            access_token: copilot_token,
-                            base_url: Some(base_url),
-                            account_label: "default".to_string(),
-                        },
-                    );
-                    expires_map.insert("copilot".to_string(), expires_at);
+        if !disabled.contains(&ProviderId::Copilot) {
+            if let Ok(Some(row)) = db.get_copilot_tokens(user_id).await {
+                if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
+                    (row.copilot_token, row.base_url, row.expires_at)
+                {
+                    let now = Utc::now();
+                    if expires_at > now {
+                        creds_map.insert(
+                            "copilot".to_string(),
+                            ProviderCredentials {
+                                provider: ProviderId::Copilot,
+                                access_token: copilot_token,
+                                base_url: Some(base_url),
+                                account_label: "default".to_string(),
+                            },
+                        );
+                        expires_map.insert("copilot".to_string(), expires_at);
+                    }
                 }
             }
         }
@@ -1775,5 +1880,443 @@ mod tests {
         let (pid, model_id) = result.unwrap();
         assert_eq!(pid, ProviderId::OpenAICodex);
         assert_eq!(model_id, "gpt-4o");
+    }
+
+    // ── Provider enabled/disabled tests ─────────────────────────────
+
+    #[tokio::test]
+    async fn test_kiro_always_enabled() {
+        let registry = ProviderRegistry::new();
+        registry.set_provider_enabled(ProviderId::Kiro, false).await;
+        assert!(registry.is_provider_enabled(&ProviderId::Kiro).await);
+    }
+
+    #[tokio::test]
+    async fn test_disable_provider() {
+        let registry = ProviderRegistry::new();
+        assert!(registry.is_provider_enabled(&ProviderId::Anthropic).await);
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+        assert!(!registry.is_provider_enabled(&ProviderId::Anthropic).await);
+    }
+
+    #[tokio::test]
+    async fn test_re_enable_provider() {
+        let registry = ProviderRegistry::new();
+        registry
+            .set_provider_enabled(ProviderId::Copilot, false)
+            .await;
+        assert!(!registry.is_provider_enabled(&ProviderId::Copilot).await);
+        registry
+            .set_provider_enabled(ProviderId::Copilot, true)
+            .await;
+        assert!(registry.is_provider_enabled(&ProviderId::Copilot).await);
+    }
+
+    #[tokio::test]
+    async fn test_disabled_providers_snapshot() {
+        let registry = ProviderRegistry::new();
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+        registry
+            .set_provider_enabled(ProviderId::OpenAICodex, false)
+            .await;
+        let disabled = registry.disabled_providers().await;
+        assert_eq!(disabled.len(), 2);
+        assert!(disabled.contains(&ProviderId::Anthropic));
+        assert!(disabled.contains(&ProviderId::OpenAICodex));
+        assert!(!disabled.contains(&ProviderId::Kiro));
+    }
+
+    #[tokio::test]
+    async fn test_new_registry_all_enabled() {
+        let registry = ProviderRegistry::new();
+        for pid in ProviderId::all_visible() {
+            assert!(registry.is_provider_enabled(pid).await);
+        }
+    }
+
+    // ── Credential-gate fallthrough tests ────────────────────────────
+
+    #[tokio::test]
+    async fn test_resolve_provider_disabled_native_falls_to_copilot() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        // Cache has both Anthropic and Copilot creds
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "anthropic".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Anthropic,
+                access_token: "sk-ant".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        creds_map.insert(
+            "copilot".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Copilot,
+                access_token: "cop-tok".to_string(),
+                base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
+            },
+        );
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority: HashMap::new(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Disable Anthropic
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+
+        // Unprefixed claude-* should fall through to Copilot
+        let (provider, creds) = registry
+            .resolve_provider(Some(uid), "claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Copilot);
+        assert_eq!(creds.unwrap().access_token, "cop-tok");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_provider_disabled_copilot_uses_native() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "anthropic".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Anthropic,
+                access_token: "sk-ant".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        creds_map.insert(
+            "copilot".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Copilot,
+                access_token: "cop-tok".to_string(),
+                base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
+            },
+        );
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority: HashMap::new(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Disable Copilot
+        registry
+            .set_provider_enabled(ProviderId::Copilot, false)
+            .await;
+
+        // claude-* should route to Anthropic (Copilot filtered out)
+        let (provider, creds) = registry
+            .resolve_provider(Some(uid), "claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Anthropic);
+        assert_eq!(creds.unwrap().access_token, "sk-ant");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_provider_both_disabled_falls_to_kiro() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "anthropic".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Anthropic,
+                access_token: "sk-ant".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        creds_map.insert(
+            "copilot".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Copilot,
+                access_token: "cop-tok".to_string(),
+                base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
+            },
+        );
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority: HashMap::new(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Disable both
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+        registry
+            .set_provider_enabled(ProviderId::Copilot, false)
+            .await;
+
+        // No providers available — falls to Kiro
+        let (provider, creds) = registry
+            .resolve_provider(Some(uid), "claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Kiro);
+        assert!(creds.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_resolve_provider_disabled_openai_copilot_serves_gpt() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "openai_codex".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::OpenAICodex,
+                access_token: "sk-oai".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        creds_map.insert(
+            "copilot".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Copilot,
+                access_token: "cop-tok".to_string(),
+                base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
+            },
+        );
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority: HashMap::new(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Disable OpenAI
+        registry
+            .set_provider_enabled(ProviderId::OpenAICodex, false)
+            .await;
+
+        // gpt-* should fall through to Copilot
+        let (provider, creds) = registry.resolve_provider(Some(uid), "gpt-4o", None).await;
+        assert_eq!(provider, ProviderId::Copilot);
+        assert_eq!(creds.unwrap().access_token, "cop-tok");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_provider_explicit_prefix_disabled_returns_no_creds() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "anthropic".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Anthropic,
+                access_token: "sk-ant".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        creds_map.insert(
+            "copilot".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Copilot,
+                access_token: "cop-tok".to_string(),
+                base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
+            },
+        );
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority: HashMap::new(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Disable Anthropic
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+
+        // Explicit prefix — returns Anthropic with no creds (filtered out)
+        let (provider, creds) = registry
+            .resolve_provider(Some(uid), "anthropic/claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Anthropic);
+        assert!(creds.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_resolve_provider_disabled_priority_ignored() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "anthropic".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Anthropic,
+                access_token: "sk-ant".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        creds_map.insert(
+            "copilot".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Copilot,
+                access_token: "cop-tok".to_string(),
+                base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
+            },
+        );
+        // Copilot has better priority
+        let mut priority = HashMap::new();
+        priority.insert("copilot".to_string(), 0);
+        priority.insert("anthropic".to_string(), 1);
+
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority,
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Disable Copilot (even though it has better priority)
+        registry
+            .set_provider_enabled(ProviderId::Copilot, false)
+            .await;
+
+        // Should use Anthropic since Copilot is disabled
+        let (provider, creds) = registry
+            .resolve_provider(Some(uid), "claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Anthropic);
+        assert_eq!(creds.unwrap().access_token, "sk-ant");
+    }
+
+    // ── Proxy credential-gate tests ─────────────────────────────────
+
+    #[tokio::test]
+    async fn test_proxy_creds_disabled_provider_skipped() {
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+
+        // Unprefixed claude-* with Anthropic disabled — falls to Kiro
+        let (provider, creds) = registry
+            .resolve_provider(None, "claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Kiro);
+        assert!(creds.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_proxy_creds_disabled_explicit_prefix_returns_no_creds() {
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+
+        // Explicit prefix with disabled provider — returns provider with no creds
+        let (provider, creds) = registry
+            .resolve_provider(None, "anthropic/claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Anthropic);
+        assert!(creds.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_proxy_creds_enabled_provider_works() {
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+
+        // OpenAI is still enabled
+        let (provider, creds) = registry.resolve_provider(None, "gpt-4o", None).await;
+        assert_eq!(provider, ProviderId::OpenAICodex);
+        assert!(creds.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_disable_all_non_kiro_falls_to_kiro() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "anthropic".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Anthropic,
+                access_token: "sk-ant".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority: HashMap::new(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Disable all non-Kiro providers
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+        registry
+            .set_provider_enabled(ProviderId::OpenAICodex, false)
+            .await;
+        registry
+            .set_provider_enabled(ProviderId::Copilot, false)
+            .await;
+
+        let (provider, creds) = registry
+            .resolve_provider(Some(uid), "claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Kiro);
+        assert!(creds.is_none());
+
+        // Kiro is still enabled
+        assert!(registry.is_provider_enabled(&ProviderId::Kiro).await);
     }
 }

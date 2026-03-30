@@ -93,7 +93,7 @@ db                     → PostgreSQL 16
 ```
 Client (OpenAI or Anthropic format)
   → middleware/ (CORS, API key auth → per-user Kiro creds)
-  → routes/mod.rs (validate request, resolve model)
+  → routes/mod.rs (validate request, resolve model, check provider enabled)
   → guardrails/ input check (if enabled, CEL rule matching + Bedrock API)
   → converters/ (OpenAI/Anthropic → Kiro format)
   → auth/ (get per-user Kiro access token, auto-refresh)
@@ -171,7 +171,7 @@ Defined in `backend/src/routes/mod.rs`:
 - Public: `/status`, `/auth/google`, `/auth/google/callback`, `POST /auth/login`, `POST /auth/login/2fa`
 - Session: `/metrics`, `/system`, `/models`, `/logs`, `/config`, `/config/schema`, `/config/history`, `/auth/me`, `/auth/2fa/setup` (GET), `/auth/2fa/verify` (POST), `/auth/password/change` (POST), `/stream/metrics` (SSE), `/stream/logs` (SSE)
 - Mutations (+ CSRF): `/auth/logout`, Kiro token routes, API key routes
-- Admin-only (+ CSRF): `PUT /config`, domain allowlist routes, user management routes, `POST /admin/users/create`, `POST /admin/users/:id/reset-password`
+- Admin-only (+ CSRF): `PUT /config`, domain allowlist routes, user management routes, `POST /admin/users/create`, `POST /admin/users/:id/reset-password`, `PATCH /admin/providers/:provider_id` (enable/disable provider)
 - Admin-only: Guardrails profile/rule CRUD routes (`/_ui/api/guardrails/*`), CEL validation, profile testing
 
 ## Service Map

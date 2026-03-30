@@ -421,6 +421,7 @@ struct ProviderRegistryEntry {
     display_name: &'static str,
     category: &'static str,
     supports_pool: bool,
+    enabled: bool,
 }
 
 #[derive(Serialize)]
@@ -453,14 +454,22 @@ const RELAY_TOKEN_TTL_SECS: i64 = 600;
 const MAX_PENDING_RELAYS: usize = 10_000;
 
 /// GET /_ui/api/providers/registry — returns all visible providers with metadata.
-async fn providers_registry() -> Json<ProviderRegistryResponse> {
+async fn providers_registry(
+    State(state): State<AppState>,
+    Extension(session): Extension<SessionInfo>,
+) -> Json<ProviderRegistryResponse> {
+    let disabled = state.provider_registry.disabled_providers().await;
+    let is_admin = session.role == "admin";
+
     let providers = ProviderId::all_visible()
         .iter()
+        .filter(|p| is_admin || !disabled.contains(p))
         .map(|p| ProviderRegistryEntry {
             id: p.as_str(),
             display_name: p.display_name(),
             category: p.category(),
             supports_pool: p.supports_pool(),
+            enabled: !disabled.contains(p),
         })
         .collect();
     Json(ProviderRegistryResponse { providers })
@@ -473,6 +482,8 @@ async fn providers_status(
 ) -> Result<Json<ProvidersStatusResponse>, ApiError> {
     let user_id = session.user_id;
     let config_db = state.require_config_db()?;
+    let disabled = state.provider_registry.disabled_providers().await;
+    let is_admin = session.role == "admin";
 
     let connected = config_db
         .get_user_connected_oauth_providers(user_id)
@@ -485,6 +496,7 @@ async fn providers_status(
     for pid in ProviderId::all_visible()
         .iter()
         .filter(|p| p.category() == "oauth_relay")
+        .filter(|p| is_admin || !disabled.contains(p))
     {
         let email = connected_map.get(pid.as_str()).cloned();
         let connected = email.is_some();
@@ -495,15 +507,17 @@ async fn providers_status(
     }
 
     // Add Copilot status (separate table, no email — uses github_username)
-    let copilot_connected = config_db.has_copilot_token(user_id).await.unwrap_or(false);
-    providers.insert(
-        "copilot".to_string(),
-        serde_json::to_value(ProviderStatusInfo {
-            connected: copilot_connected,
-            email: None,
-        })
-        .unwrap_or_default(),
-    );
+    if is_admin || !disabled.contains(&ProviderId::Copilot) {
+        let copilot_connected = config_db.has_copilot_token(user_id).await.unwrap_or(false);
+        providers.insert(
+            "copilot".to_string(),
+            serde_json::to_value(ProviderStatusInfo {
+                connected: copilot_connected,
+                email: None,
+            })
+            .unwrap_or_default(),
+        );
+    }
 
     Ok(Json(ProvidersStatusResponse { providers }))
 }
@@ -516,6 +530,13 @@ async fn provider_connect(
     headers: axum::http::HeaderMap,
 ) -> Result<Json<ConnectResponse>, ApiError> {
     validate_provider(&provider)?;
+    // Reject connection to disabled providers
+    let pid = ProviderId::from_str(&provider).map_err(ApiError::ValidationError)?;
+    if !state.provider_registry.is_provider_enabled(&pid).await {
+        return Err(ApiError::ProviderDisabled {
+            provider: pid.display_name().to_string(),
+        });
+    }
     // Validate provider config early
     let app_config = state
         .config
@@ -886,6 +907,51 @@ async fn disconnect_provider(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+// ── Admin: Provider Toggle ──────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ToggleProviderRequest {
+    pub enabled: bool,
+}
+
+/// PATCH /_ui/api/admin/providers/:provider_id — toggle provider enabled/disabled.
+pub async fn toggle_provider_enabled(
+    State(state): State<AppState>,
+    Extension(session): Extension<SessionInfo>,
+    Path(provider_id_str): Path<String>,
+    Json(body): Json<ToggleProviderRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if session.role != "admin" {
+        return Err(ApiError::Forbidden("Admin only".into()));
+    }
+    let provider: ProviderId = provider_id_str
+        .parse()
+        .map_err(|_| ApiError::ValidationError(format!("Unknown provider: {}", provider_id_str)))?;
+    if provider == ProviderId::Kiro {
+        return Err(ApiError::ValidationError("Kiro cannot be disabled".into()));
+    }
+    let db = state.require_config_db()?;
+    db.set_provider_enabled(&provider_id_str, body.enabled)
+        .await
+        .map_err(ApiError::Internal)?;
+    state
+        .provider_registry
+        .set_provider_enabled(provider, body.enabled)
+        .await;
+
+    tracing::info!(
+        admin = %session.user_id,
+        provider = %provider_id_str,
+        enabled = body.enabled,
+        "Provider enabled state toggled"
+    );
+
+    Ok(Json(serde_json::json!({
+        "provider_id": provider_id_str,
+        "enabled": body.enabled,
+    })))
+}
+
 // ── Router ───────────────────────────────────────────────────────────
 
 /// Build the provider OAuth router.
@@ -941,6 +1007,7 @@ mod tests {
                 display_name: p.display_name(),
                 category: p.category(),
                 supports_pool: p.supports_pool(),
+                enabled: true,
             })
             .collect::<Vec<_>>();
         assert_eq!(resp.len(), 4);

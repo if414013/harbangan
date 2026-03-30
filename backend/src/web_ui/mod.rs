@@ -26,7 +26,7 @@ use axum::extract::State;
 use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use serde_json::json;
 
@@ -146,6 +146,10 @@ pub fn web_ui_routes(state: AppState) -> Router {
         .route(
             "/admin/users/:id/reset-password",
             post(password_auth::admin_reset_password_handler),
+        )
+        .route(
+            "/admin/providers/:provider_id",
+            patch(provider_oauth::toggle_provider_enabled),
         )
         .layer(axum::middleware::from_fn(google_auth::admin_middleware))
         .layer(axum::middleware::from_fn(google_auth::csrf_middleware))

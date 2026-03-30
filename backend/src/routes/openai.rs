@@ -16,7 +16,7 @@ use super::pipeline::{
     extract_last_user_message, extract_usage_metric_snapshot, handle_rate_limit_retry,
     persist_non_streaming_usage, read_config, resolve_provider_routing, run_input_guardrail_check,
     run_output_guardrail_check, update_rate_limits, validate_model_provider,
-    validate_model_visibility, wrap_stream_with_usage_metrics,
+    validate_model_visibility, validate_provider_enabled, wrap_stream_with_usage_metrics,
 };
 use super::state::{AppState, UserKiroCreds};
 
@@ -31,8 +31,11 @@ pub(crate) async fn get_models_handler(
 
     let mut seen = std::collections::HashSet::new();
 
-    // Registry models (enabled only) — used when DB is available
-    let registry_models = state.model_cache.get_enabled_registry_models();
+    // Registry models (enabled only, excluding disabled providers) — used when DB is available
+    let disabled_providers = state.provider_registry.disabled_providers().await;
+    let registry_models = state
+        .model_cache
+        .get_enabled_registry_models_filtered(&disabled_providers);
     let models: Vec<OpenAIModel> = if !registry_models.is_empty() {
         registry_models
             .into_iter()
@@ -99,6 +102,7 @@ pub(crate) async fn chat_completions_handler(
     // ── Provider routing ─────────────────────────────────────────────
     let requested_model = request.model.clone();
     validate_model_provider(&requested_model)?;
+    validate_provider_enabled(&state.provider_registry, &requested_model).await?;
     let mut routing = resolve_provider_routing(&state, user_creds.as_ref(), &requested_model).await;
     validate_model_visibility(
         &state.model_cache,
