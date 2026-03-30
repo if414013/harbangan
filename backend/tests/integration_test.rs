@@ -682,3 +682,236 @@ async fn test_invalid_json_body() {
     // Should fail with bad request due to JSON parse error
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+// ==================================================================================================
+// Provider Toggle — Model List Filtering Tests
+// ==================================================================================================
+
+use harbangan::web_ui::config_db::RegistryModel;
+
+fn make_registry_model(provider_id: &str, model_id: &str) -> RegistryModel {
+    RegistryModel {
+        id: uuid::Uuid::new_v4(),
+        provider_id: provider_id.to_string(),
+        model_id: model_id.to_string(),
+        display_name: model_id.to_string(),
+        prefixed_id: format!("{}/{}", provider_id, model_id),
+        context_length: 200_000,
+        max_output_tokens: 8192,
+        capabilities: serde_json::json!({}),
+        enabled: true,
+        source: "test".to_string(),
+        upstream_meta: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    }
+}
+
+/// Create a test app state with registry models populated (instead of legacy cache).
+fn create_test_app_state_with_registry() -> AppState {
+    let state = create_test_app_state();
+
+    // Populate registry cache with models from multiple providers
+    state
+        .model_cache
+        .insert_registry_model(make_registry_model("anthropic", "claude-sonnet-4"));
+    state
+        .model_cache
+        .insert_registry_model(make_registry_model("anthropic", "claude-opus-4"));
+    state
+        .model_cache
+        .insert_registry_model(make_registry_model("openai_codex", "gpt-4o"));
+    state
+        .model_cache
+        .insert_registry_model(make_registry_model("copilot", "claude-sonnet-4"));
+
+    state
+}
+
+#[tokio::test]
+async fn test_models_filtered_by_disabled_provider() {
+    let state = create_test_app_state_with_registry();
+
+    // Disable Anthropic
+    state
+        .provider_registry
+        .set_provider_enabled(harbangan::providers::types::ProviderId::Anthropic, false)
+        .await;
+
+    let app = build_test_app(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/models")
+                .header(header::AUTHORIZATION, "Bearer test-api-key-secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = parse_json_body(response.into_body()).await;
+    let models = body["data"].as_array().unwrap();
+    let model_ids: Vec<&str> = models.iter().map(|m| m["id"].as_str().unwrap()).collect();
+
+    // Anthropic models should be excluded
+    assert!(
+        !model_ids.contains(&"anthropic/claude-sonnet-4"),
+        "Disabled provider's models should be filtered out"
+    );
+    assert!(
+        !model_ids.contains(&"anthropic/claude-opus-4"),
+        "Disabled provider's models should be filtered out"
+    );
+    // OpenAI and Copilot models should remain
+    assert!(model_ids.contains(&"openai_codex/gpt-4o"));
+    assert!(model_ids.contains(&"copilot/claude-sonnet-4"));
+}
+
+#[tokio::test]
+async fn test_models_include_all_when_no_providers_disabled() {
+    let state = create_test_app_state_with_registry();
+    let app = build_test_app(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/models")
+                .header(header::AUTHORIZATION, "Bearer test-api-key-secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = parse_json_body(response.into_body()).await;
+    let models = body["data"].as_array().unwrap();
+
+    // All 4 registry models should be present
+    assert_eq!(models.len(), 4);
+}
+
+#[tokio::test]
+async fn test_models_restored_after_re_enable() {
+    let state = create_test_app_state_with_registry();
+    let registry = state.provider_registry.clone();
+
+    // Disable Anthropic
+    registry
+        .set_provider_enabled(harbangan::providers::types::ProviderId::Anthropic, false)
+        .await;
+
+    // Re-enable Anthropic
+    registry
+        .set_provider_enabled(harbangan::providers::types::ProviderId::Anthropic, true)
+        .await;
+
+    let app = build_test_app(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/models")
+                .header(header::AUTHORIZATION, "Bearer test-api-key-secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = parse_json_body(response.into_body()).await;
+    let models = body["data"].as_array().unwrap();
+
+    // All models should be back
+    assert_eq!(models.len(), 4);
+    let model_ids: Vec<&str> = models.iter().map(|m| m["id"].as_str().unwrap()).collect();
+    assert!(model_ids.contains(&"anthropic/claude-sonnet-4"));
+}
+
+#[tokio::test]
+async fn test_models_all_non_kiro_disabled_returns_empty_registry() {
+    let state = create_test_app_state_with_registry();
+
+    // Disable all non-Kiro providers
+    state
+        .provider_registry
+        .set_provider_enabled(harbangan::providers::types::ProviderId::Anthropic, false)
+        .await;
+    state
+        .provider_registry
+        .set_provider_enabled(harbangan::providers::types::ProviderId::OpenAICodex, false)
+        .await;
+    state
+        .provider_registry
+        .set_provider_enabled(harbangan::providers::types::ProviderId::Copilot, false)
+        .await;
+
+    let app = build_test_app(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/models")
+                .header(header::AUTHORIZATION, "Bearer test-api-key-secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = parse_json_body(response.into_body()).await;
+    let models = body["data"].as_array().unwrap();
+
+    // All registry models are from non-Kiro providers, so all filtered out.
+    // Falls back to legacy cache which has 3 Kiro models.
+    assert!(
+        !models.is_empty(),
+        "Legacy Kiro cache should provide fallback models"
+    );
+}
+
+#[tokio::test]
+async fn test_models_multiple_providers_disabled() {
+    let state = create_test_app_state_with_registry();
+
+    // Disable Anthropic and Copilot
+    state
+        .provider_registry
+        .set_provider_enabled(harbangan::providers::types::ProviderId::Anthropic, false)
+        .await;
+    state
+        .provider_registry
+        .set_provider_enabled(harbangan::providers::types::ProviderId::Copilot, false)
+        .await;
+
+    let app = build_test_app(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/models")
+                .header(header::AUTHORIZATION, "Bearer test-api-key-secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = parse_json_body(response.into_body()).await;
+    let models = body["data"].as_array().unwrap();
+
+    // Only OpenAI model should remain
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0]["id"], "openai_codex/gpt-4o");
+}

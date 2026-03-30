@@ -258,7 +258,7 @@ impl ModelCache {
     }
 
     /// Insert a registry model directly into the cache (test helper).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn insert_registry_model(&self, model: RegistryModel) {
         self.registry_cache.insert(model.prefixed_id.clone(), model);
     }
@@ -352,5 +352,121 @@ mod tests {
         let model = cache.get("claude-3.7-sonnet").unwrap();
         assert_eq!(model["_is_hidden"], true);
         assert_eq!(model["_internal_id"], "CLAUDE_3_7_SONNET_20250219_V1_0");
+    }
+
+    // ── Registry model filtering by disabled providers ──────────────
+
+    fn make_test_registry_model(provider_id: &str, model_id: &str, enabled: bool) -> RegistryModel {
+        RegistryModel {
+            id: uuid::Uuid::new_v4(),
+            provider_id: provider_id.to_string(),
+            model_id: model_id.to_string(),
+            display_name: model_id.to_string(),
+            prefixed_id: format!("{}/{}", provider_id, model_id),
+            context_length: 200_000,
+            max_output_tokens: 8192,
+            capabilities: serde_json::json!({}),
+            enabled,
+            source: "test".to_string(),
+            upstream_meta: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_enabled_registry_models_filtered_excludes_disabled_provider() {
+        use crate::providers::types::ProviderId;
+        use std::collections::HashSet;
+
+        let cache = ModelCache::new(3600);
+        cache.insert_registry_model(make_test_registry_model(
+            "anthropic",
+            "claude-sonnet-4",
+            true,
+        ));
+        cache.insert_registry_model(make_test_registry_model("openai_codex", "gpt-4o", true));
+
+        let mut disabled = HashSet::new();
+        disabled.insert(ProviderId::Anthropic);
+
+        let models = cache.get_enabled_registry_models_filtered(&disabled);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].provider_id, "openai_codex");
+    }
+
+    #[test]
+    fn test_enabled_registry_models_filtered_no_disabled() {
+        use crate::providers::types::ProviderId;
+        use std::collections::HashSet;
+
+        let cache = ModelCache::new(3600);
+        cache.insert_registry_model(make_test_registry_model(
+            "anthropic",
+            "claude-sonnet-4",
+            true,
+        ));
+        cache.insert_registry_model(make_test_registry_model("openai_codex", "gpt-4o", true));
+
+        let disabled: HashSet<ProviderId> = HashSet::new();
+        let models = cache.get_enabled_registry_models_filtered(&disabled);
+        assert_eq!(models.len(), 2);
+    }
+
+    #[test]
+    fn test_enabled_registry_models_filtered_respects_model_enabled() {
+        use crate::providers::types::ProviderId;
+        use std::collections::HashSet;
+
+        let cache = ModelCache::new(3600);
+        // Model-level disabled (not provider-level)
+        cache.insert_registry_model(make_test_registry_model(
+            "anthropic",
+            "claude-sonnet-4",
+            false,
+        ));
+        cache.insert_registry_model(make_test_registry_model("anthropic", "claude-opus-4", true));
+
+        let disabled: HashSet<ProviderId> = HashSet::new();
+        let models = cache.get_enabled_registry_models_filtered(&disabled);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].model_id, "claude-opus-4");
+    }
+
+    #[test]
+    fn test_enabled_registry_models_filtered_all_disabled() {
+        use crate::providers::types::ProviderId;
+        use std::collections::HashSet;
+
+        let cache = ModelCache::new(3600);
+        cache.insert_registry_model(make_test_registry_model(
+            "anthropic",
+            "claude-sonnet-4",
+            true,
+        ));
+        cache.insert_registry_model(make_test_registry_model("openai_codex", "gpt-4o", true));
+
+        let mut disabled = HashSet::new();
+        disabled.insert(ProviderId::Anthropic);
+        disabled.insert(ProviderId::OpenAICodex);
+
+        let models = cache.get_enabled_registry_models_filtered(&disabled);
+        assert!(models.is_empty());
+    }
+
+    #[test]
+    fn test_is_model_disabled_registry() {
+        let cache = ModelCache::new(3600);
+        cache.insert_registry_model(make_test_registry_model(
+            "anthropic",
+            "claude-sonnet-4",
+            false,
+        ));
+        cache.insert_registry_model(make_test_registry_model("anthropic", "claude-opus-4", true));
+
+        assert!(cache.is_model_disabled("anthropic/claude-sonnet-4"));
+        assert!(!cache.is_model_disabled("anthropic/claude-opus-4"));
+        // Unknown model passes through
+        assert!(!cache.is_model_disabled("anthropic/unknown-model"));
     }
 }
