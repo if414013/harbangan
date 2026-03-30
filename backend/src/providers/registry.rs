@@ -1937,4 +1937,386 @@ mod tests {
             assert!(registry.is_provider_enabled(pid).await);
         }
     }
+
+    // ── Credential-gate fallthrough tests ────────────────────────────
+
+    #[tokio::test]
+    async fn test_resolve_provider_disabled_native_falls_to_copilot() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        // Cache has both Anthropic and Copilot creds
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "anthropic".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Anthropic,
+                access_token: "sk-ant".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        creds_map.insert(
+            "copilot".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Copilot,
+                access_token: "cop-tok".to_string(),
+                base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
+            },
+        );
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority: HashMap::new(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Disable Anthropic
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+
+        // Unprefixed claude-* should fall through to Copilot
+        let (provider, creds) = registry
+            .resolve_provider(Some(uid), "claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Copilot);
+        assert_eq!(creds.unwrap().access_token, "cop-tok");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_provider_disabled_copilot_uses_native() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "anthropic".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Anthropic,
+                access_token: "sk-ant".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        creds_map.insert(
+            "copilot".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Copilot,
+                access_token: "cop-tok".to_string(),
+                base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
+            },
+        );
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority: HashMap::new(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Disable Copilot
+        registry
+            .set_provider_enabled(ProviderId::Copilot, false)
+            .await;
+
+        // claude-* should route to Anthropic (Copilot filtered out)
+        let (provider, creds) = registry
+            .resolve_provider(Some(uid), "claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Anthropic);
+        assert_eq!(creds.unwrap().access_token, "sk-ant");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_provider_both_disabled_falls_to_kiro() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "anthropic".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Anthropic,
+                access_token: "sk-ant".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        creds_map.insert(
+            "copilot".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Copilot,
+                access_token: "cop-tok".to_string(),
+                base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
+            },
+        );
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority: HashMap::new(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Disable both
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+        registry
+            .set_provider_enabled(ProviderId::Copilot, false)
+            .await;
+
+        // No providers available — falls to Kiro
+        let (provider, creds) = registry
+            .resolve_provider(Some(uid), "claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Kiro);
+        assert!(creds.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_resolve_provider_disabled_openai_copilot_serves_gpt() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "openai_codex".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::OpenAICodex,
+                access_token: "sk-oai".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        creds_map.insert(
+            "copilot".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Copilot,
+                access_token: "cop-tok".to_string(),
+                base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
+            },
+        );
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority: HashMap::new(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Disable OpenAI
+        registry
+            .set_provider_enabled(ProviderId::OpenAICodex, false)
+            .await;
+
+        // gpt-* should fall through to Copilot
+        let (provider, creds) = registry.resolve_provider(Some(uid), "gpt-4o", None).await;
+        assert_eq!(provider, ProviderId::Copilot);
+        assert_eq!(creds.unwrap().access_token, "cop-tok");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_provider_explicit_prefix_disabled_returns_no_creds() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "anthropic".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Anthropic,
+                access_token: "sk-ant".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        creds_map.insert(
+            "copilot".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Copilot,
+                access_token: "cop-tok".to_string(),
+                base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
+            },
+        );
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority: HashMap::new(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Disable Anthropic
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+
+        // Explicit prefix — returns Anthropic with no creds (filtered out)
+        let (provider, creds) = registry
+            .resolve_provider(Some(uid), "anthropic/claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Anthropic);
+        assert!(creds.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_resolve_provider_disabled_priority_ignored() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "anthropic".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Anthropic,
+                access_token: "sk-ant".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        creds_map.insert(
+            "copilot".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Copilot,
+                access_token: "cop-tok".to_string(),
+                base_url: Some("https://api.githubcopilot.com".to_string()),
+                account_label: "default".to_string(),
+            },
+        );
+        // Copilot has better priority
+        let mut priority = HashMap::new();
+        priority.insert("copilot".to_string(), 0);
+        priority.insert("anthropic".to_string(), 1);
+
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority,
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Disable Copilot (even though it has better priority)
+        registry
+            .set_provider_enabled(ProviderId::Copilot, false)
+            .await;
+
+        // Should use Anthropic since Copilot is disabled
+        let (provider, creds) = registry
+            .resolve_provider(Some(uid), "claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Anthropic);
+        assert_eq!(creds.unwrap().access_token, "sk-ant");
+    }
+
+    // ── Proxy credential-gate tests ─────────────────────────────────
+
+    #[tokio::test]
+    async fn test_proxy_creds_disabled_provider_skipped() {
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+
+        // Unprefixed claude-* with Anthropic disabled — falls to Kiro
+        let (provider, creds) = registry
+            .resolve_provider(None, "claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Kiro);
+        assert!(creds.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_proxy_creds_disabled_explicit_prefix_returns_no_creds() {
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+
+        // Explicit prefix with disabled provider — returns provider with no creds
+        let (provider, creds) = registry
+            .resolve_provider(None, "anthropic/claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Anthropic);
+        assert!(creds.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_proxy_creds_enabled_provider_works() {
+        let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+
+        // OpenAI is still enabled
+        let (provider, creds) = registry.resolve_provider(None, "gpt-4o", None).await;
+        assert_eq!(provider, ProviderId::OpenAICodex);
+        assert!(creds.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_disable_all_non_kiro_falls_to_kiro() {
+        let registry = ProviderRegistry::new();
+        let uid = Uuid::new_v4();
+
+        let mut creds_map = HashMap::new();
+        creds_map.insert(
+            "anthropic".to_string(),
+            ProviderCredentials {
+                provider: ProviderId::Anthropic,
+                access_token: "sk-ant".to_string(),
+                base_url: None,
+                account_label: "default".to_string(),
+            },
+        );
+        registry.cache.insert(
+            uid,
+            CacheEntry {
+                credentials: creds_map,
+                expires_at: HashMap::new(),
+                priority: HashMap::new(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        // Disable all non-Kiro providers
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+        registry
+            .set_provider_enabled(ProviderId::OpenAICodex, false)
+            .await;
+        registry
+            .set_provider_enabled(ProviderId::Copilot, false)
+            .await;
+
+        let (provider, creds) = registry
+            .resolve_provider(Some(uid), "claude-sonnet-4", None)
+            .await;
+        assert_eq!(provider, ProviderId::Kiro);
+        assert!(creds.is_none());
+
+        // Kiro is still enabled
+        assert!(registry.is_provider_enabled(&ProviderId::Kiro).await);
+    }
 }

@@ -1,4 +1,4 @@
-# Harbangan Schema Inventory (as of v23)
+# Harbangan Schema Inventory (as of v25)
 
 ## Migration Version History
 
@@ -27,6 +27,7 @@
 | 22 | Remove Qwen provider data from all tables | migrate_to_v22() |
 | 23 | Add non-negative CHECK constraints on usage_records | migrate_to_v23() |
 | 24 | model_visibility_defaults table + idx_mvd_provider index | migrate_to_v24() |
+| 25 | provider_settings table, seed 4 providers as enabled | migrate_to_v25() |
 
 ## Active Tables (22 total)
 
@@ -284,6 +285,14 @@
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() |
 **Unique:** (provider_id, model_id)
 **Index:** idx_mvd_provider(provider_id)
+
+### provider_settings (v25)
+| Column | Type | Constraints |
+|--------|------|-------------|
+| provider_id | TEXT | PRIMARY KEY |
+| enabled | BOOLEAN | NOT NULL DEFAULT true |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() |
+**Seeded rows:** kiro, anthropic, openai_codex, copilot (all enabled)
 
 ## Dropped Tables
 

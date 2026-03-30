@@ -6,12 +6,12 @@
 - All DDL lives in `backend/src/web_ui/config_db.rs` (~5360 lines total)
 - No external migration files (no `migrations/` directory) -- everything is embedded Rust
 - `run_migrations()` called from `ConfigDb::connect()` on every startup
-- Versioning via `schema_version` table; current version: **24** (model_visibility_defaults)
+- Versioning via `schema_version` table; current version: **25** (provider_settings)
 - v1 inline in run_migrations; v3+ as `migrate_to_vN()` methods; v4+ use transactions
 - Never modify existing migration blocks -- always add new versioned blocks
 - See `schema-inventory.md` for full table/column details
 
-### Table Count: 22 active tables (mcp_clients dropped in v16, model_visibility_defaults added in v24)
+### Table Count: 23 active tables (mcp_clients dropped in v16, model_visibility_defaults added in v24, provider_settings added in v25)
 
 ### Provider ID Evolution
 - v21 dropped all CHECK constraints; validation now in Rust `ProviderId::from_str()`
