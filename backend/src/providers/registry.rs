@@ -379,13 +379,10 @@ impl ProviderRegistry {
         // Cache miss or stale — load from DB
         let Some(db) = db else {
             // Proxy mode with Kiro creds but no DB: check proxy credential store
-            return self.resolve_from_proxy_creds_filtered(model, &disabled);
+            drop(disabled);
+            return self.resolve_from_proxy_creds(model);
         };
-        let (mut user_creds, user_expires, user_priority) = self.load_user_data(uid, db).await;
-        // Filter out disabled providers
-        for pid in disabled.iter() {
-            user_creds.remove(pid.as_str());
-        }
+        let (user_creds, user_expires, user_priority) = self.load_user_data(uid, db).await;
         drop(disabled);
         let result = if is_explicit_prefix {
             // Explicit prefix is binding — only look up the specified provider
