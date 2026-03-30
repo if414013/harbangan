@@ -37,8 +37,9 @@ type RefreshLockMap = DashMap<(Uuid, String), Arc<tokio::sync::Mutex<()>>>;
 pub struct ProviderRegistry {
     cache: Arc<DashMap<Uuid, CacheEntry>>,
     refresh_locks: Arc<RefreshLockMap>,
-    /// Static credentials for proxy mode (populated from env vars at startup).
-    proxy_credentials: Option<HashMap<ProviderId, ProviderCredentials>>,
+    /// Live credentials for proxy mode. Populated from env vars at startup,
+    /// updated at runtime by `ProxyTokenManager` after OAuth relay or refresh.
+    proxy_credentials: Arc<DashMap<ProviderId, ProviderCredentials>>,
 }
 
 impl ProviderRegistry {
@@ -46,20 +47,20 @@ impl ProviderRegistry {
         Self {
             cache: Arc::new(DashMap::new()),
             refresh_locks: Arc::new(DashMap::new()),
-            proxy_credentials: None,
+            proxy_credentials: Arc::new(DashMap::new()),
         }
     }
 
-    /// Create a registry with static proxy credentials (for proxy-only mode).
+    /// Create a registry with proxy credentials (for proxy-only mode).
     pub fn new_with_proxy(proxy_creds: HashMap<ProviderId, ProviderCredentials>) -> Self {
+        let map = DashMap::new();
+        for (k, v) in proxy_creds {
+            map.insert(k, v);
+        }
         Self {
             cache: Arc::new(DashMap::new()),
             refresh_locks: Arc::new(DashMap::new()),
-            proxy_credentials: if proxy_creds.is_empty() {
-                None
-            } else {
-                Some(proxy_creds)
-            },
+            proxy_credentials: Arc::new(map),
         }
     }
 
@@ -72,24 +73,26 @@ impl ProviderRegistry {
 
         let mut creds = HashMap::new();
 
-        if let Some(ref key) = proxy.anthropic_api_key {
+        // Anthropic: use OAuth access token if available
+        if let Some(ref token) = proxy.anthropic_access_token {
             creds.insert(
                 ProviderId::Anthropic,
                 ProviderCredentials {
                     provider: ProviderId::Anthropic,
-                    access_token: key.clone(),
+                    access_token: token.clone(),
                     base_url: None,
                     account_label: "proxy".into(),
                 },
             );
         }
-        if let Some(ref key) = proxy.openai_api_key {
+        // OpenAI: use OAuth access token if available
+        if let Some(ref token) = proxy.openai_access_token {
             creds.insert(
                 ProviderId::OpenAICodex,
                 ProviderCredentials {
                     provider: ProviderId::OpenAICodex,
-                    access_token: key.clone(),
-                    base_url: proxy.openai_base_url.clone(),
+                    access_token: token.clone(),
+                    base_url: None,
                     account_label: "proxy".into(),
                 },
             );
@@ -109,9 +112,25 @@ impl ProviderRegistry {
         Self::new_with_proxy(creds)
     }
 
-    /// Access the static proxy credentials (if any).
-    pub fn proxy_credentials(&self) -> &Option<HashMap<ProviderId, ProviderCredentials>> {
-        &self.proxy_credentials
+    /// Snapshot of proxy credentials as a HashMap. Returns None if empty.
+    pub fn proxy_credentials(&self) -> Option<HashMap<ProviderId, ProviderCredentials>> {
+        if self.proxy_credentials.is_empty() {
+            None
+        } else {
+            let map: HashMap<_, _> = self
+                .proxy_credentials
+                .iter()
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .collect();
+            Some(map)
+        }
+    }
+
+    /// Get a shared reference to the live proxy credentials DashMap.
+    /// Used by `ProxyTokenManager` to update credentials at runtime.
+    #[allow(dead_code)]
+    pub fn proxy_credentials_live(&self) -> Arc<DashMap<ProviderId, ProviderCredentials>> {
+        Arc::clone(&self.proxy_credentials)
     }
 
     /// Parse a prefixed model ID like `"anthropic/claude-opus-4-6"` into (ProviderId, model_id).
@@ -574,11 +593,11 @@ impl ProviderRegistry {
         (provider_id, Some(creds), Some(account_id))
     }
 
-    /// Resolve provider from static proxy credentials (env-var based, no DB).
+    /// Resolve provider from proxy credentials (env-var or relay-based, no DB).
     fn resolve_from_proxy_creds(&self, model: &str) -> (ProviderId, Option<ProviderCredentials>) {
-        let Some(ref proxy_creds) = self.proxy_credentials else {
+        if self.proxy_credentials.is_empty() {
             return (ProviderId::Kiro, None);
-        };
+        }
         // Determine target provider from model name
         let (native, is_explicit_prefix) =
             if let Some((provider, _)) = Self::parse_prefixed_model(model) {
@@ -589,7 +608,7 @@ impl ProviderRegistry {
                 return (ProviderId::Kiro, None);
             };
         // Look up proxy credentials for that provider
-        if let Some(cred) = proxy_creds.get(&native) {
+        if let Some(cred) = self.proxy_credentials.get(&native) {
             (native, Some(cred.clone()))
         } else if is_explicit_prefix {
             // Explicit prefix is binding — return specified provider with no creds
@@ -1528,13 +1547,13 @@ mod tests {
     #[test]
     fn test_new_with_proxy_empty_creds_sets_none() {
         let registry = ProviderRegistry::new_with_proxy(HashMap::new());
-        assert!(registry.proxy_credentials.is_none());
+        assert!(registry.proxy_credentials.is_empty());
     }
 
     #[test]
     fn test_new_with_proxy_non_empty_creds_sets_some() {
         let registry = ProviderRegistry::new_with_proxy(make_proxy_creds());
-        assert!(registry.proxy_credentials.is_some());
+        assert!(!registry.proxy_credentials.is_empty());
     }
 
     #[test]
@@ -1573,23 +1592,24 @@ mod tests {
         use crate::config::ProxyConfig;
         let proxy = ProxyConfig {
             api_key: "test-key-long-enough".to_string(),
-            anthropic_api_key: Some("sk-ant-test".to_string()),
-            openai_api_key: Some("sk-proj-test".to_string()),
-            openai_base_url: Some("https://openrouter.ai/api".to_string()),
+            anthropic_enabled: true,
+            anthropic_access_token: Some("ant-access-tok".to_string()),
+            openai_enabled: true,
+            openai_access_token: Some("oai-access-tok".to_string()),
             copilot_token: Some("cop-tok".to_string()),
             copilot_base_url: Some("https://api.githubcopilot.com".to_string()),
             ..Default::default()
         };
         let registry = ProviderRegistry::from_proxy_config(&proxy);
-        let creds = registry.proxy_credentials().as_ref().unwrap();
+        let creds = registry.proxy_credentials().unwrap();
         assert_eq!(creds.len(), 3);
         assert!(creds.contains_key(&ProviderId::Anthropic));
         assert!(creds.contains_key(&ProviderId::OpenAICodex));
         assert!(creds.contains_key(&ProviderId::Copilot));
-        // Verify base_url propagation
+        assert_eq!(creds[&ProviderId::Anthropic].access_token, "ant-access-tok");
         assert_eq!(
-            creds[&ProviderId::OpenAICodex].base_url.as_deref(),
-            Some("https://openrouter.ai/api")
+            creds[&ProviderId::OpenAICodex].access_token,
+            "oai-access-tok"
         );
     }
 
@@ -1598,11 +1618,12 @@ mod tests {
         use crate::config::ProxyConfig;
         let proxy = ProxyConfig {
             api_key: "test-key-long-enough".to_string(),
-            anthropic_api_key: Some("sk-ant-test".to_string()),
+            anthropic_enabled: true,
+            anthropic_access_token: Some("ant-access-tok".to_string()),
             ..Default::default()
         };
         let registry = ProviderRegistry::from_proxy_config(&proxy);
-        let creds = registry.proxy_credentials().as_ref().unwrap();
+        let creds = registry.proxy_credentials().unwrap();
         assert_eq!(creds.len(), 1);
         assert!(creds.contains_key(&ProviderId::Anthropic));
         assert!(!creds.contains_key(&ProviderId::OpenAICodex));
