@@ -63,6 +63,25 @@ pub(crate) fn validate_model_provider(model: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// Reject requests that use an explicit provider prefix for a disabled provider.
+///
+/// Only applies to prefixed models like `"anthropic/claude-sonnet-4"`. Unprefixed
+/// models are not checked here — they fall through naturally via `load_user_data`
+/// which skips disabled providers.
+pub(crate) async fn validate_provider_enabled(
+    registry: &ProviderRegistry,
+    model: &str,
+) -> Result<(), ApiError> {
+    if let Some((provider, _)) = ProviderRegistry::parse_prefixed_model(model) {
+        if !registry.is_provider_enabled(&provider).await {
+            return Err(ApiError::ProviderDisabled {
+                provider: provider.display_name().to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Check if a model is disabled in the registry cache.
 ///
 /// Builds the prefixed_id from provider + model and checks the cache.
@@ -1040,5 +1059,51 @@ mod tests {
         assert_eq!(routing.provider_id, ProviderId::OpenAICodex);
         assert_eq!(routing.routing_model, "openai_codex/claude-sonnet-4");
         assert_eq!(creds.provider, ProviderId::OpenAICodex);
+    }
+
+    // ── validate_provider_enabled tests ─────────────────────────────
+
+    #[tokio::test]
+    async fn test_validate_provider_enabled_unprefixed_always_passes() {
+        let registry = ProviderRegistry::new();
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+        // Unprefixed model should pass even if provider is disabled
+        assert!(validate_provider_enabled(&registry, "claude-sonnet-4")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_validate_provider_enabled_prefixed_disabled_rejects() {
+        let registry = ProviderRegistry::new();
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+        let result = validate_provider_enabled(&registry, "anthropic/claude-sonnet-4").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, ApiError::ProviderDisabled { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_validate_provider_enabled_prefixed_enabled_passes() {
+        let registry = ProviderRegistry::new();
+        assert!(
+            validate_provider_enabled(&registry, "anthropic/claude-sonnet-4")
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_provider_enabled_kiro_prefix_always_passes() {
+        let registry = ProviderRegistry::new();
+        // Kiro can't be disabled, but even if someone tries, prefix should pass
+        registry.set_provider_enabled(ProviderId::Kiro, false).await;
+        assert!(validate_provider_enabled(&registry, "kiro/some-model")
+            .await
+            .is_ok());
     }
 }

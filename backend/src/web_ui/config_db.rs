@@ -3669,13 +3669,12 @@ impl ConfigDb {
     /// Check if a provider is enabled. Returns false for unknown provider IDs (fail-closed).
     #[allow(dead_code)]
     pub async fn is_provider_enabled(&self, provider_id: &str) -> Result<bool> {
-        let row: Option<(bool,)> = sqlx::query_as(
-            "SELECT enabled FROM provider_settings WHERE provider_id = $1",
-        )
-        .bind(provider_id)
-        .fetch_optional(&self.pool)
-        .await
-        .context("Failed to check provider enabled status")?;
+        let row: Option<(bool,)> =
+            sqlx::query_as("SELECT enabled FROM provider_settings WHERE provider_id = $1")
+                .bind(provider_id)
+                .fetch_optional(&self.pool)
+                .await
+                .context("Failed to check provider enabled status")?;
 
         Ok(row.map(|(enabled,)| enabled).unwrap_or(false))
     }

@@ -342,7 +342,8 @@ impl ProviderRegistry {
     ) -> (ProviderId, Option<ProviderCredentials>) {
         let Some(uid) = user_id else {
             // Proxy mode without Kiro creds: check proxy credential store
-            return self.resolve_from_proxy_creds(model);
+            let disabled = self.disabled_providers.read().await;
+            return self.resolve_from_proxy_creds_filtered(model, &disabled);
         };
 
         // Try explicit prefix first (e.g. "anthropic/claude-opus-4-6")
@@ -355,25 +356,37 @@ impl ProviderRegistry {
                 return (ProviderId::Kiro, None);
             };
 
+        // Filter out disabled providers from credentials
+        let disabled = self.disabled_providers.read().await;
+
         // Cache hit?
         if let Some(entry) = self.cache.get(&uid) {
             if entry.cached_at.elapsed() < CACHE_TTL {
+                let mut filtered_creds = entry.credentials.clone();
+                for pid in disabled.iter() {
+                    filtered_creds.remove(pid.as_str());
+                }
                 if is_explicit_prefix {
                     // Explicit prefix is binding — only look up the specified provider
                     let native_str = native.as_str();
-                    let creds = entry.credentials.get(native_str).cloned();
+                    let creds = filtered_creds.get(native_str).cloned();
                     return (native, creds);
                 }
-                return Self::pick_best_provider(&native, &entry.credentials, &entry.priority);
+                return Self::pick_best_provider(&native, &filtered_creds, &entry.priority);
             }
         }
 
         // Cache miss or stale — load from DB
         let Some(db) = db else {
             // Proxy mode with Kiro creds but no DB: check proxy credential store
-            return self.resolve_from_proxy_creds(model);
+            return self.resolve_from_proxy_creds_filtered(model, &disabled);
         };
-        let (user_creds, user_expires, user_priority) = Self::load_user_data(uid, db).await;
+        let (mut user_creds, user_expires, user_priority) = self.load_user_data(uid, db).await;
+        // Filter out disabled providers
+        for pid in disabled.iter() {
+            user_creds.remove(pid.as_str());
+        }
+        drop(disabled);
         let result = if is_explicit_prefix {
             // Explicit prefix is binding — only look up the specified provider
             let native_str = native.as_str();
@@ -569,6 +582,14 @@ impl ProviderRegistry {
             }
         }
 
+        // Filter out candidates for disabled providers
+        {
+            let disabled = self.disabled_providers.read().await;
+            if !disabled.is_empty() {
+                candidates.retain(|(_, creds, _)| !disabled.contains(&creds.provider));
+            }
+        }
+
         if candidates.is_empty() {
             if is_explicit_prefix {
                 // Explicit prefix is binding — return the specified provider with no creds
@@ -601,6 +622,15 @@ impl ProviderRegistry {
 
     /// Resolve provider from proxy credentials (env-var or relay-based, no DB).
     fn resolve_from_proxy_creds(&self, model: &str) -> (ProviderId, Option<ProviderCredentials>) {
+        self.resolve_from_proxy_creds_filtered(model, &HashSet::new())
+    }
+
+    /// Resolve provider from proxy credentials, filtering out disabled providers.
+    fn resolve_from_proxy_creds_filtered(
+        &self,
+        model: &str,
+        disabled: &HashSet<ProviderId>,
+    ) -> (ProviderId, Option<ProviderCredentials>) {
         if self.proxy_credentials.is_empty() {
             return (ProviderId::Kiro, None);
         }
@@ -613,6 +643,14 @@ impl ProviderRegistry {
             } else {
                 return (ProviderId::Kiro, None);
             };
+        // Skip disabled providers for proxy creds
+        if disabled.contains(&native) {
+            return if is_explicit_prefix {
+                (native, None)
+            } else {
+                (ProviderId::Kiro, None)
+            };
+        }
         // Look up proxy credentials for that provider
         if let Some(cred) = self.proxy_credentials.get(&native) {
             (native, Some(cred.clone()))
@@ -680,7 +718,9 @@ impl ProviderRegistry {
     }
 
     /// Load all provider tokens and priority for a user from the database.
+    /// Skips disabled providers so their credentials are not loaded into the cache.
     async fn load_user_data(
+        &self,
         user_id: Uuid,
         db: &ConfigDb,
     ) -> (
@@ -688,9 +728,13 @@ impl ProviderRegistry {
         HashMap<String, DateTime<Utc>>,
         HashMap<String, i32>,
     ) {
+        let disabled = self.disabled_providers.read().await;
         let mut creds_map = HashMap::new();
         let mut expires_map = HashMap::new();
         for pid in ProviderId::all_visible() {
+            if disabled.contains(pid) {
+                continue;
+            }
             let provider_str = pid.as_str();
             if let Ok(Some((access_token, _refresh_token, expires_at, _email))) =
                 db.get_user_provider_token(user_id, provider_str).await
@@ -718,22 +762,24 @@ impl ProviderRegistry {
         }
 
         // Also load Copilot tokens from user_copilot_tokens (separate table)
-        if let Ok(Some(row)) = db.get_copilot_tokens(user_id).await {
-            if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
-                (row.copilot_token, row.base_url, row.expires_at)
-            {
-                let now = Utc::now();
-                if expires_at > now {
-                    creds_map.insert(
-                        "copilot".to_string(),
-                        ProviderCredentials {
-                            provider: ProviderId::Copilot,
-                            access_token: copilot_token,
-                            base_url: Some(base_url),
-                            account_label: "default".to_string(),
-                        },
-                    );
-                    expires_map.insert("copilot".to_string(), expires_at);
+        if !disabled.contains(&ProviderId::Copilot) {
+            if let Ok(Some(row)) = db.get_copilot_tokens(user_id).await {
+                if let (Some(copilot_token), Some(base_url), Some(expires_at)) =
+                    (row.copilot_token, row.base_url, row.expires_at)
+                {
+                    let now = Utc::now();
+                    if expires_at > now {
+                        creds_map.insert(
+                            "copilot".to_string(),
+                            ProviderCredentials {
+                                provider: ProviderId::Copilot,
+                                access_token: copilot_token,
+                                base_url: Some(base_url),
+                                account_label: "default".to_string(),
+                            },
+                        );
+                        expires_map.insert("copilot".to_string(), expires_at);
+                    }
                 }
             }
         }
