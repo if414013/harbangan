@@ -13,7 +13,6 @@ Notes:
 | `docker-compose.yml` | Full stack (production-like) | `docker compose up` |
 | `docker-compose.dev.yml` | Dev hot-reload | `docker compose -f docker-compose.dev.yml up` |
 | `docker-compose.gateway.yml` | Proxy-only (no DB/SSO) | `docker compose -f docker-compose.gateway.yml up` |
-| `docker-compose.prod.yml` | Pre-built images from ghcr.io | `IMAGE_TAG=v1.0.0 docker compose -f docker-compose.prod.yml up` |
 
 See `docker-dev-setup.md` for detailed notes on the dev Docker infrastructure.
 
@@ -23,13 +22,12 @@ See `docker-dev-setup.md` for detailed notes on the dev Docker infrastructure.
 docker compose config --quiet                                          # Validate full stack
 docker compose -f docker-compose.dev.yml config --quiet                # Validate dev hot-reload
 docker compose -f docker-compose.gateway.yml config --quiet            # Validate proxy-only
-docker compose -f docker-compose.prod.yml config --quiet               # Validate prod
 docker compose build                                                   # Build images
 ```
 
 ## Owned Files
 
-- `docker-compose.yml`, `docker-compose.dev.yml`, `docker-compose.gateway.yml`, `docker-compose.prod.yml`
+- `docker-compose.yml`, `docker-compose.dev.yml`, `docker-compose.gateway.yml`
 - `frontend/Dockerfile`, `backend/Dockerfile`, `backend/Dockerfile.dev`
 - `backend/entrypoint.sh`, `backend/rebuild.sh`
 - `.env.example`
