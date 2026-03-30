@@ -76,6 +76,7 @@ pub struct OAuthTokenEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CopilotTokenEntry {
     /// Short-lived Copilot session token.
+    #[serde(alias = "token")]
     pub session_token: String,
     /// Copilot API base URL.
     pub base_url: String,
