@@ -3,9 +3,11 @@
 /// Caches per-user provider credentials in memory (5-minute TTL) to avoid
 /// repeated DB lookups on every request. Handles transparent token refresh
 /// for OAuth-based provider tokens.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use tokio::sync::RwLock;
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
@@ -40,6 +42,8 @@ pub struct ProviderRegistry {
     /// Live credentials for proxy mode. Populated from env vars at startup,
     /// updated at runtime by `ProxyTokenManager` after OAuth relay or refresh.
     proxy_credentials: Arc<DashMap<ProviderId, ProviderCredentials>>,
+    /// Set of providers disabled by admin. Kiro is never in this set.
+    disabled_providers: Arc<RwLock<HashSet<ProviderId>>>,
 }
 
 impl ProviderRegistry {
@@ -48,6 +52,7 @@ impl ProviderRegistry {
             cache: Arc::new(DashMap::new()),
             refresh_locks: Arc::new(DashMap::new()),
             proxy_credentials: Arc::new(DashMap::new()),
+            disabled_providers: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -61,6 +66,7 @@ impl ProviderRegistry {
             cache: Arc::new(DashMap::new()),
             refresh_locks: Arc::new(DashMap::new()),
             proxy_credentials: Arc::new(map),
+            disabled_providers: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -621,6 +627,56 @@ impl ProviderRegistry {
     /// Invalidate the cache for a user. Call after a provider token is added, removed, or refreshed.
     pub fn invalidate(&self, user_id: Uuid) {
         self.cache.remove(&user_id);
+    }
+
+    /// Check if a provider is enabled. Kiro always returns true.
+    pub async fn is_provider_enabled(&self, provider: &ProviderId) -> bool {
+        if *provider == ProviderId::Kiro {
+            return true;
+        }
+        !self.disabled_providers.read().await.contains(provider)
+    }
+
+    /// Update a provider's enabled/disabled state in the in-memory cache.
+    /// Call this after persisting the change to the database.
+    pub async fn set_provider_enabled(&self, provider: ProviderId, enabled: bool) {
+        if provider == ProviderId::Kiro {
+            return; // Kiro cannot be disabled
+        }
+        let mut set = self.disabled_providers.write().await;
+        if enabled {
+            set.remove(&provider);
+        } else {
+            set.insert(provider);
+        }
+    }
+
+    /// Load disabled providers from the database at startup.
+    pub async fn load_disabled_providers_from_db(&self, db: &ConfigDb) {
+        match db.get_all_provider_settings().await {
+            Ok(rows) => {
+                let mut set = HashSet::new();
+                for (provider_id_str, enabled) in rows {
+                    if !enabled {
+                        if let Ok(pid) = provider_id_str.parse::<ProviderId>() {
+                            if pid != ProviderId::Kiro {
+                                set.insert(pid);
+                            }
+                        }
+                    }
+                }
+                *self.disabled_providers.write().await = set;
+            }
+            Err(e) => {
+                tracing::warn!(error = ?e, "Failed to load provider settings from DB, all providers enabled");
+            }
+        }
+    }
+
+    /// Get a snapshot of currently disabled provider IDs.
+    #[allow(dead_code)]
+    pub async fn disabled_providers(&self) -> HashSet<ProviderId> {
+        self.disabled_providers.read().await.clone()
     }
 
     /// Load all provider tokens and priority for a user from the database.
@@ -1775,5 +1831,75 @@ mod tests {
         let (pid, model_id) = result.unwrap();
         assert_eq!(pid, ProviderId::OpenAICodex);
         assert_eq!(model_id, "gpt-4o");
+    }
+
+    // ── Provider enabled/disabled tests ─────────────────────────────
+
+    #[tokio::test]
+    async fn test_kiro_always_enabled() {
+        let registry = ProviderRegistry::new();
+        registry
+            .set_provider_enabled(ProviderId::Kiro, false)
+            .await;
+        assert!(registry.is_provider_enabled(&ProviderId::Kiro).await);
+    }
+
+    #[tokio::test]
+    async fn test_disable_provider() {
+        let registry = ProviderRegistry::new();
+        assert!(
+            registry
+                .is_provider_enabled(&ProviderId::Anthropic)
+                .await
+        );
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+        assert!(
+            !registry
+                .is_provider_enabled(&ProviderId::Anthropic)
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn test_re_enable_provider() {
+        let registry = ProviderRegistry::new();
+        registry
+            .set_provider_enabled(ProviderId::Copilot, false)
+            .await;
+        assert!(
+            !registry.is_provider_enabled(&ProviderId::Copilot).await
+        );
+        registry
+            .set_provider_enabled(ProviderId::Copilot, true)
+            .await;
+        assert!(
+            registry.is_provider_enabled(&ProviderId::Copilot).await
+        );
+    }
+
+    #[tokio::test]
+    async fn test_disabled_providers_snapshot() {
+        let registry = ProviderRegistry::new();
+        registry
+            .set_provider_enabled(ProviderId::Anthropic, false)
+            .await;
+        registry
+            .set_provider_enabled(ProviderId::OpenAICodex, false)
+            .await;
+        let disabled = registry.disabled_providers().await;
+        assert_eq!(disabled.len(), 2);
+        assert!(disabled.contains(&ProviderId::Anthropic));
+        assert!(disabled.contains(&ProviderId::OpenAICodex));
+        assert!(!disabled.contains(&ProviderId::Kiro));
+    }
+
+    #[tokio::test]
+    async fn test_new_registry_all_enabled() {
+        let registry = ProviderRegistry::new();
+        for pid in ProviderId::all_visible() {
+            assert!(registry.is_provider_enabled(pid).await);
+        }
     }
 }

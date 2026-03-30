@@ -452,6 +452,17 @@ impl ConfigDb {
             self.migrate_to_v24().await?;
         }
 
+        // Re-read max version after v24 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 25 {
+            self.migrate_to_v25().await?;
+        }
+
         Ok(())
     }
 
@@ -3219,6 +3230,51 @@ impl ConfigDb {
         Ok(())
     }
 
+    /// Version 25 migration: provider settings table for admin enable/disable.
+    async fn migrate_to_v25(&self) -> Result<()> {
+        tracing::info!("Running database migration to version 25 (provider settings)...");
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v25 migration transaction")?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS provider_settings (
+                provider_id  TEXT PRIMARY KEY,
+                enabled      BOOLEAN NOT NULL DEFAULT true,
+                updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to create provider_settings table")?;
+
+        // Seed all 4 current providers as enabled
+        sqlx::query(
+            "INSERT INTO provider_settings (provider_id) VALUES
+                ('kiro'), ('anthropic'), ('openai_codex'), ('copilot')
+             ON CONFLICT DO NOTHING",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to seed provider_settings rows")?;
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(25_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 25")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit v25 migration")?;
+
+        tracing::info!("Database migration to version 25 complete");
+        Ok(())
+    }
+
     // ── Model Registry ───────────────────────────────────────────
 
     /// Get all models in the registry.
@@ -3593,6 +3649,64 @@ impl ConfigDb {
             results.push((provider_id, enabled, disabled));
         }
         Ok(results)
+    }
+
+    // ── Provider Settings ────────────────────────────────────────
+
+    /// Get all provider settings (for admin UI).
+    #[allow(dead_code)]
+    pub async fn get_all_provider_settings(&self) -> Result<Vec<(String, bool)>> {
+        let rows: Vec<(String, bool)> = sqlx::query_as(
+            "SELECT provider_id, enabled FROM provider_settings ORDER BY provider_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get all provider settings")?;
+
+        Ok(rows)
+    }
+
+    /// Check if a provider is enabled. Returns false for unknown provider IDs (fail-closed).
+    #[allow(dead_code)]
+    pub async fn is_provider_enabled(&self, provider_id: &str) -> Result<bool> {
+        let row: Option<(bool,)> = sqlx::query_as(
+            "SELECT enabled FROM provider_settings WHERE provider_id = $1",
+        )
+        .bind(provider_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to check provider enabled status")?;
+
+        Ok(row.map(|(enabled,)| enabled).unwrap_or(false))
+    }
+
+    /// Set a provider's enabled state. Returns true if the row was updated.
+    #[allow(dead_code)]
+    pub async fn set_provider_enabled(&self, provider_id: &str, enabled: bool) -> Result<bool> {
+        let result = sqlx::query(
+            "UPDATE provider_settings SET enabled = $2, updated_at = NOW()
+             WHERE provider_id = $1",
+        )
+        .bind(provider_id)
+        .bind(enabled)
+        .execute(&self.pool)
+        .await
+        .context("Failed to update provider enabled status")?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Get only the enabled provider IDs (for model listing filters).
+    #[allow(dead_code)]
+    pub async fn get_enabled_provider_ids(&self) -> Result<Vec<String>> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT provider_id FROM provider_settings WHERE enabled = true ORDER BY provider_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get enabled provider IDs")?;
+
+        Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
     // ── Copilot Tokens ────────────────────────────────────────────

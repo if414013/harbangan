@@ -144,6 +144,11 @@ pub enum ApiError {
     #[allow(dead_code)]
     ModelDisabled { model: String },
 
+    /// Provider is disabled by admin
+    #[error("Provider disabled: {provider}")]
+    #[allow(dead_code)]
+    ProviderDisabled { provider: String },
+
     /// Internal server error
     #[error("Internal error: {0}")]
     Internal(#[from] anyhow::Error),
@@ -300,6 +305,11 @@ impl IntoResponse for ApiError {
                 StatusCode::FORBIDDEN,
                 "model_disabled",
                 format!("Model '{}' is disabled by administrator", model),
+            ),
+            ApiError::ProviderDisabled { ref provider } => (
+                StatusCode::FORBIDDEN,
+                "provider_disabled",
+                format!("Provider '{}' is disabled by administrator", provider),
             ),
             ApiError::Internal(err) => {
                 // Log internal errors
@@ -510,5 +520,22 @@ mod tests {
         let response = err.into_response();
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.headers().get("retry-after").unwrap(), "42");
+    }
+
+    #[test]
+    fn test_provider_disabled_error_message() {
+        let err = ApiError::ProviderDisabled {
+            provider: "anthropic".to_string(),
+        };
+        assert_eq!(err.to_string(), "Provider disabled: anthropic");
+    }
+
+    #[tokio::test]
+    async fn test_provider_disabled_returns_403() {
+        let err = ApiError::ProviderDisabled {
+            provider: "anthropic".to_string(),
+        };
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 }
