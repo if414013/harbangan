@@ -1004,10 +1004,7 @@ mod tests {
                 account_label: "proxy".to_string(),
             },
         );
-        let registry = Arc::new(ProviderRegistry::new_with_proxy(
-            proxy_credentials,
-            std::collections::HashSet::new(),
-        ));
+        let registry = Arc::new(ProviderRegistry::new_with_proxy(proxy_credentials));
         let state = create_test_state(Arc::clone(&registry), Some([7; 32]));
 
         let mut routing =

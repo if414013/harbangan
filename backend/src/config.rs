@@ -20,9 +20,6 @@ pub struct ProxyConfig {
     pub openai_base_url: Option<String>,
     pub copilot_token: Option<String>,
     pub copilot_base_url: Option<String>,
-    pub custom_provider_url: Option<String>,
-    pub custom_provider_key: Option<String>,
-    pub custom_provider_models: Option<String>,
 }
 
 #[derive(Clone)]
@@ -256,15 +253,6 @@ impl Config {
                     .ok()
                     .filter(|s| !s.is_empty()),
                 copilot_base_url: std::env::var("COPILOT_BASE_URL")
-                    .ok()
-                    .filter(|s| !s.is_empty()),
-                custom_provider_url: std::env::var("CUSTOM_PROVIDER_URL")
-                    .ok()
-                    .filter(|s| !s.is_empty()),
-                custom_provider_key: std::env::var("CUSTOM_PROVIDER_KEY")
-                    .ok()
-                    .filter(|s| !s.is_empty()),
-                custom_provider_models: std::env::var("CUSTOM_PROVIDER_MODELS")
                     .ok()
                     .filter(|s| !s.is_empty()),
             });
@@ -559,9 +547,6 @@ mod tests {
         assert!(proxy.openai_base_url.is_none());
         assert!(proxy.copilot_token.is_none());
         assert!(proxy.copilot_base_url.is_none());
-        assert!(proxy.custom_provider_url.is_none());
-        assert!(proxy.custom_provider_key.is_none());
-        assert!(proxy.custom_provider_models.is_none());
     }
 
     #[test]
@@ -577,9 +562,6 @@ mod tests {
             openai_base_url: Some("https://api.openai.com/v1".to_string()),
             copilot_token: Some("cop-tok-test".to_string()),
             copilot_base_url: Some("https://api.githubcopilot.com".to_string()),
-            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
-            custom_provider_key: Some("custom-key-test".to_string()),
-            custom_provider_models: Some("llama3,codellama,deepseek-r1".to_string()),
         };
         assert_eq!(proxy.anthropic_api_key.as_deref(), Some("sk-ant-test-key"));
         assert_eq!(proxy.openai_api_key.as_deref(), Some("sk-proj-test-key"));
@@ -592,18 +574,6 @@ mod tests {
             proxy.copilot_base_url.as_deref(),
             Some("https://api.githubcopilot.com")
         );
-        assert_eq!(
-            proxy.custom_provider_url.as_deref(),
-            Some("http://localhost:11434/v1")
-        );
-        assert_eq!(
-            proxy.custom_provider_key.as_deref(),
-            Some("custom-key-test")
-        );
-        assert_eq!(
-            proxy.custom_provider_models.as_deref(),
-            Some("llama3,codellama,deepseek-r1")
-        );
     }
 
     #[test]
@@ -611,35 +581,24 @@ mod tests {
         let proxy = ProxyConfig {
             api_key: "test-key-long-enough".to_string(),
             anthropic_api_key: Some("sk-ant-clone".to_string()),
-            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
-            custom_provider_models: Some("llama3".to_string()),
             ..Default::default()
         };
         let cloned = proxy.clone();
         assert_eq!(cloned.api_key, "test-key-long-enough");
         assert_eq!(cloned.anthropic_api_key.as_deref(), Some("sk-ant-clone"));
-        assert_eq!(
-            cloned.custom_provider_url.as_deref(),
-            Some("http://localhost:11434/v1")
-        );
-        assert_eq!(cloned.custom_provider_models.as_deref(), Some("llama3"));
     }
 
     #[test]
     fn test_proxy_config_partial_providers() {
-        // Only Anthropic + Custom configured, rest None
+        // Only Anthropic configured, rest None
         let proxy = ProxyConfig {
             api_key: "test-key-long-enough".to_string(),
             anthropic_api_key: Some("sk-ant-partial".to_string()),
-            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
-            custom_provider_models: Some("llama3".to_string()),
             ..Default::default()
         };
         assert!(proxy.anthropic_api_key.is_some());
         assert!(proxy.openai_api_key.is_none());
         assert!(proxy.copilot_token.is_none());
-        assert!(proxy.custom_provider_url.is_some());
-        assert!(proxy.custom_provider_key.is_none());
     }
 
     // ── Google SSO config struct tests ───────────────────────────────

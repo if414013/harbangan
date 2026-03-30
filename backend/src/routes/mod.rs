@@ -224,8 +224,6 @@ mod tests {
             api_key: "test-key-long-enough".to_string(),
             anthropic_api_key: Some("sk-ant-test".to_string()),
             openai_api_key: Some("sk-proj-test".to_string()),
-            custom_provider_url: Some("http://localhost:11434/v1".to_string()),
-            custom_provider_models: Some("llama3,deepseek-r1".to_string()),
             ..Default::default()
         };
         let registry = ProviderRegistry::from_proxy_config(&proxy);
@@ -233,21 +231,6 @@ mod tests {
         let mut state = create_test_state();
         state.provider_registry = Arc::new(registry);
         state
-    }
-
-    #[tokio::test]
-    async fn test_get_models_proxy_custom_models_appear() {
-        let state = create_proxy_test_state();
-        let result = openai::get_models_handler(State(state)).await.unwrap().0;
-        let ids: Vec<&str> = result.data.iter().map(|m| m.id.as_str()).collect();
-
-        // Custom models from env should appear
-        assert!(ids.contains(&"llama3"), "missing llama3");
-        assert!(ids.contains(&"deepseek-r1"), "missing deepseek-r1");
-
-        // Custom models should have "custom" owned_by
-        let llama = result.data.iter().find(|m| m.id == "llama3").unwrap();
-        assert_eq!(llama.owned_by, "custom");
     }
 
     #[tokio::test]
