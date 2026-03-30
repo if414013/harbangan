@@ -915,3 +915,133 @@ async fn test_models_multiple_providers_disabled() {
     assert_eq!(models.len(), 1);
     assert_eq!(models[0]["id"], "openai_codex/gpt-4o");
 }
+
+// ==================================================================================================
+// Provider Toggle — Admin Toggle Endpoint Tests
+// ==================================================================================================
+
+use harbangan::routes::SessionInfo;
+
+/// Build a test app that includes the web UI admin routes for provider toggle.
+fn build_test_app_with_admin(state: AppState) -> Router {
+    let app = build_test_app(state.clone());
+    let web_ui = harbangan::web_ui::web_ui_routes(state);
+    app.merge(web_ui)
+}
+
+/// Pre-populate session cache with an admin session and return (session_id, csrf_token).
+fn setup_admin_session(state: &AppState) -> (String, String) {
+    let session_id = uuid::Uuid::new_v4();
+    let csrf_token = "test-csrf-token-12345";
+    state.session_cache.insert(
+        session_id,
+        SessionInfo {
+            user_id: uuid::Uuid::new_v4(),
+            email: "admin@test.com".to_string(),
+            role: "admin".to_string(),
+            expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+            auth_method: "password".to_string(),
+            totp_enabled: false,
+            must_change_password: false,
+        },
+    );
+    (session_id.to_string(), csrf_token.to_string())
+}
+
+/// Pre-populate session cache with a non-admin session and return (session_id, csrf_token).
+fn setup_user_session(state: &AppState) -> (String, String) {
+    let session_id = uuid::Uuid::new_v4();
+    let csrf_token = "test-csrf-token-12345";
+    state.session_cache.insert(
+        session_id,
+        SessionInfo {
+            user_id: uuid::Uuid::new_v4(),
+            email: "user@test.com".to_string(),
+            role: "user".to_string(),
+            expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+            auth_method: "password".to_string(),
+            totp_enabled: false,
+            must_change_password: false,
+        },
+    );
+    (session_id.to_string(), csrf_token.to_string())
+}
+
+#[tokio::test]
+async fn test_admin_toggle_no_session_rejected() {
+    let state = create_test_app_state();
+    let app = build_test_app_with_admin(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/_ui/api/admin/providers/anthropic")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"enabled":false}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // No session cookie → session middleware rejects
+    assert_ne!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_admin_toggle_non_admin_returns_403() {
+    let state = create_test_app_state();
+    let (session_id, csrf_token) = setup_user_session(&state);
+    let app = build_test_app_with_admin(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/_ui/api/admin/providers/anthropic")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(
+                    "cookie",
+                    format!("kgw_session={}; csrf_token={}", session_id, csrf_token),
+                )
+                .header("x-csrf-token", &csrf_token)
+                .body(Body::from(r#"{"enabled":false}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_admin_toggle_kiro_returns_400() {
+    let state = create_test_app_state();
+    let (session_id, csrf_token) = setup_admin_session(&state);
+    let app = build_test_app_with_admin(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/_ui/api/admin/providers/kiro")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(
+                    "cookie",
+                    format!("kgw_session={}; csrf_token={}", session_id, csrf_token),
+                )
+                .header("x-csrf-token", &csrf_token)
+                .body(Body::from(r#"{"enabled":false}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body = parse_json_body(response.into_body()).await;
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Kiro"));
+}
