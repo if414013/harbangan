@@ -1838,28 +1838,18 @@ mod tests {
     #[tokio::test]
     async fn test_kiro_always_enabled() {
         let registry = ProviderRegistry::new();
-        registry
-            .set_provider_enabled(ProviderId::Kiro, false)
-            .await;
+        registry.set_provider_enabled(ProviderId::Kiro, false).await;
         assert!(registry.is_provider_enabled(&ProviderId::Kiro).await);
     }
 
     #[tokio::test]
     async fn test_disable_provider() {
         let registry = ProviderRegistry::new();
-        assert!(
-            registry
-                .is_provider_enabled(&ProviderId::Anthropic)
-                .await
-        );
+        assert!(registry.is_provider_enabled(&ProviderId::Anthropic).await);
         registry
             .set_provider_enabled(ProviderId::Anthropic, false)
             .await;
-        assert!(
-            !registry
-                .is_provider_enabled(&ProviderId::Anthropic)
-                .await
-        );
+        assert!(!registry.is_provider_enabled(&ProviderId::Anthropic).await);
     }
 
     #[tokio::test]
@@ -1868,15 +1858,11 @@ mod tests {
         registry
             .set_provider_enabled(ProviderId::Copilot, false)
             .await;
-        assert!(
-            !registry.is_provider_enabled(&ProviderId::Copilot).await
-        );
+        assert!(!registry.is_provider_enabled(&ProviderId::Copilot).await);
         registry
             .set_provider_enabled(ProviderId::Copilot, true)
             .await;
-        assert!(
-            registry.is_provider_enabled(&ProviderId::Copilot).await
-        );
+        assert!(registry.is_provider_enabled(&ProviderId::Copilot).await);
     }
 
     #[tokio::test]
