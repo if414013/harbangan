@@ -114,7 +114,7 @@ export default defineConfig({
         'config.spec.ts', 'admin.spec.ts', 'admin-users.spec.ts',
         'guardrails.spec.ts', 'multi-account.spec.ts',
         'user-detail.spec.ts', 'logout-redirect.spec.ts', 'profile-actions.spec.ts',
-        'sso-config-flow.spec.ts',
+        'sso-config-flow.spec.ts', 'provider-toggle.spec.ts',
       ],
       fullyParallel: false,
       use: {
