@@ -7,7 +7,7 @@ nav_order: 6
 # API Reference
 {: .no_toc }
 
-Complete reference for all Kiro Gateway API endpoints. The gateway exposes OpenAI-compatible and Anthropic-compatible APIs that translate requests to the Kiro (AWS CodeWhisperer) backend.
+Complete reference for all Harbangan Gateway API endpoints. The gateway exposes OpenAI-compatible and Anthropic-compatible APIs that translate requests to the Kiro (AWS CodeWhisperer) backend.
 {: .fs-6 .fw-300 }
 
 <details open markdown="block">

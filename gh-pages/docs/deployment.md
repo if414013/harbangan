@@ -415,14 +415,16 @@ docker compose ps
 # harbangan-frontend-1    frontend   Up (healthy)    0.0.0.0:5173->5173/tcp
 ```
 
-### Web UI metrics
+### Web UI monitoring
 
-The Web UI at `/_ui/` provides real-time monitoring:
+The Web UI at `/_ui/` provides usage tracking and system information:
 
-- Active connections and total requests
-- Latency percentiles (p50, p95, p99)
-- Per-model statistics and error breakdown
-- Live log streaming via SSE
+- Token usage statistics by day, model, and provider
+- System info (CPU, memory, uptime)
+- Configuration management and change history
+- User management (admin-only)
+
+For real-time metrics, latency percentiles, and distributed tracing, use the optional Datadog APM integration (see below).
 
 ### Log access
 

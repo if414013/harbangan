@@ -70,13 +70,13 @@ sqlx::query("CREATE TABLE IF NOT EXISTS ...")
 - `users` / `sessions` — user accounts and sessions
 - `api_keys` — per-user API keys (SHA-256 hashed)
 - `user_kiro_tokens` — per-user Kiro credentials
-- `domain_allowlist` — allowed email domains
+- `allowed_domains` — allowed email domains
 - `model_registry` — available AI models
 - `guardrail_profiles` / `guardrail_rules` — content safety rules
 
 ### Database Operations
 ```bash
-docker compose exec db psql -U postgres -d harbangan        # Connect
-docker compose exec db psql -U postgres -d harbangan -c "\dt"  # Check schema
-docker compose exec db psql -U postgres -d harbangan -c "EXPLAIN ANALYZE SELECT ..."
+docker compose exec db psql -U kiro -d kiro_gateway        # Connect
+docker compose exec db psql -U kiro -d kiro_gateway -c "\dt"  # Check schema
+docker compose exec db psql -U kiro -d kiro_gateway -c "EXPLAIN ANALYZE SELECT ..."
 ```

@@ -35,7 +35,7 @@ You are the Backend QA Specialist for Harbangan. You write and execute Rust test
 ## Quality Gates
 
 ```bash
-cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo test --lib                # All unit tests (395+)
+cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo test --lib                # All unit tests (900+)
 cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo test --lib <test_name>     # Single test
 cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo test --lib <module>::      # Module tests
 cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo test --features test-utils # Integration tests

@@ -53,15 +53,13 @@ Proxy-Only Mode supports **multiple providers** via environment variables: Kiro 
 | `BIND_ADDRESS` | `127.0.0.1` | Address to bind the gateway port. Set to `0.0.0.0` to allow external access. |
 | `LOG_LEVEL` | `info` | Log verbosity: `debug`, `info`, `warn`, `error`. |
 | `DEBUG_MODE` | `off` | Debug logging: `off`, `errors`, `all`. |
-| `ANTHROPIC_API_KEY` | _(none)_ | Anthropic API key for direct Anthropic provider access. |
-| `OPENAI_API_KEY` | _(none)_ | OpenAI API key for direct OpenAI provider access. |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI API base URL (override for compatible endpoints). |
+| `ANTHROPIC_ENABLED` | `false` | Set to `true` to enable Anthropic OAuth relay. |
+| `ANTHROPIC_OAUTH_CLIENT_ID` | _(none)_ | Anthropic OAuth client ID for PKCE relay flow. |
+| `OPENAI_ENABLED` | `false` | Set to `true` to enable OpenAI OAuth relay. |
+| `OPENAI_OAUTH_CLIENT_ID` | _(none)_ | OpenAI OAuth client ID for PKCE relay flow. |
 | `COPILOT_ENABLED` | `false` | Set to `true` to enable Copilot device flow. |
 | `COPILOT_TOKEN` | _(none)_ | GitHub Copilot token. |
 | `COPILOT_BASE_URL` | `https://api.githubcopilot.com` | Copilot API base URL. |
-| `CUSTOM_PROVIDER_URL` | _(none)_ | Custom OpenAI-compatible endpoint URL. |
-| `CUSTOM_PROVIDER_KEY` | _(none)_ | Custom provider API key. |
-| `CUSTOM_PROVIDER_MODELS` | _(none)_ | Comma-separated model names for custom provider. |
 
 ### Builder ID vs Identity Center
 
@@ -119,13 +117,7 @@ Set these in your `.env` file before running `docker compose up`. They are read 
 
 #### Google SSO (optional — configured via Admin UI after login)
 
-Google SSO is an optional auth method. You can use password auth exclusively, or configure Google SSO via the Admin UI after initial login. If you prefer to set it via environment variables:
-
-| Variable | Description | Example |
-|:---|:---|:---|
-| `GOOGLE_CLIENT_ID` | Google OAuth 2.0 Client ID for Web UI authentication. | `123456.apps.googleusercontent.com` |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 Client Secret. | `GOCSPX-abc123` |
-| `GOOGLE_CALLBACK_URL` | OAuth redirect URI. Must match the authorized redirect URI in Google Cloud Console. | `http://localhost:9999/_ui/api/auth/google/callback` |
+Google SSO is configured exclusively via the Admin UI after initial login — there are no environment variables for Google OAuth. You can use password auth for the first login by setting the `INITIAL_ADMIN_*` variables above, then configure Google SSO in the Admin UI under Configuration.
 
 #### Provider OAuth
 
@@ -206,7 +198,7 @@ API keys are per-user, created through the Web UI. The gateway SHA-256 hashes th
 
 ### Session Auth (for `/_ui/*` web UI)
 
-Web UI access requires signing in with Google. The first user to sign in gets the Admin role. Admins can manage users and configuration.
+Web UI access requires signing in via Google SSO or username/password + TOTP 2FA. The first user to sign in gets the Admin role. Admins can manage users and configuration.
 
 ---
 
@@ -232,14 +224,29 @@ On first launch (no admin user in the database), the gateway operates in **setup
 
 | Table | Contents |
 |:---|:---|
-| `users` | User accounts (Google identity, role, status) |
+| `users` | User accounts (identity, role, status, auth method) |
 | `api_keys` | Per-user API keys (SHA-256 hashed) |
-| `user_kiro_credentials` | Per-user Kiro refresh tokens |
+| `sessions` | Persistent session data |
+| `user_kiro_tokens` | Per-user Kiro refresh tokens |
+| `user_provider_tokens` | Per-user provider credentials (Anthropic, OpenAI, Copilot) |
+| `user_provider_priority` | Per-user provider priority ordering |
+| `user_copilot_tokens` | Copilot-specific token storage |
+| `admin_provider_pool` | Shared provider accounts (admin pool) |
+| `model_registry` | Admin-configured model entries |
+| `model_visibility_defaults` | Default model visibility settings |
+| `provider_settings` | Provider configuration (OAuth client IDs, etc.) |
 | `config` | Key-value runtime configuration |
 | `config_history` | Audit log of configuration changes |
+| `schema_version` | Database migration tracking |
+| `allowed_domains` | Google SSO domain allowlist |
+| `usage_records` | Token usage tracking per request |
+| `pending_2fa_logins` | Temporary 2FA login tokens (5-min TTL) |
+| `totp_recovery_codes` | TOTP recovery codes (SHA-256 hashed) |
 | `guardrail_profiles` | AWS Bedrock guardrail profiles (credentials encrypted) |
 | `guardrail_rules` | Guardrail rules (CEL expressions, sampling, timeouts) |
 | `guardrail_rule_profiles` | Many-to-many mapping of rules to profiles |
+| `user_provider_keys` | Per-user provider API keys |
+| `model_routes` | Model-to-provider routing rules |
 
 ### Backup and restore
 
@@ -279,15 +286,14 @@ Every configuration change is logged with:
 # PostgreSQL password
 POSTGRES_PASSWORD=change-me-to-something-strong
 
-# Google SSO (optional — or configure via Admin UI)
-GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_CALLBACK_URL=https://gateway.example.com/_ui/api/auth/google/callback
-
 # Initial admin account (optional — for headless/automated setup)
 # INITIAL_ADMIN_EMAIL=admin@example.com
 # INITIAL_ADMIN_PASSWORD=changeme
 # INITIAL_ADMIN_TOTP_SECRET=your-base32-totp-secret-here
+
+# Config encryption key (optional — for encrypting sensitive DB values)
+# Generate with: openssl rand -base64 32
+# CONFIG_ENCRYPTION_KEY=
 ```
 
 ---

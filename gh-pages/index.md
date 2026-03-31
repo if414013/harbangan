@@ -7,10 +7,10 @@ nav_order: 1
 <div class="hero" markdown="0">
   <h1>Harbangan</h1>
   <p class="tagline">
-    A multi-user Rust proxy gateway. Use OpenAI and Anthropic client libraries with Kiro
-    (and optionally GitHub Copilot in Full Deployment). In Proxy-Only Mode,
-    Kiro is the sole backend — a single container, no database required.
-    Per-user auth, content guardrails, MCP tool gateway, and real-time streaming.
+    A multi-user Rust proxy gateway. Use OpenAI and Anthropic client libraries with Kiro,
+    Anthropic, OpenAI Codex, GitHub Copilot, and custom providers. Both Proxy-Only Mode
+    and Full Deployment support all providers — a single container is all you need to get started.
+    Per-user auth, content guardrails, and real-time streaming.
   </p>
   <div class="badges">
     <span class="badge badge--infra">Rust</span>
@@ -19,9 +19,9 @@ nav_order: 1
     <span class="badge badge--api">Anthropic Compatible</span>
     <span class="badge badge--core">Streaming</span>
     <span class="badge badge--security">Multi-User RBAC</span>
-    <span class="badge badge--core">MCP Gateway</span>
     <span class="badge badge--security">Content Guardrails</span>
     <span class="badge badge--provider">Kiro</span>
+    <span class="badge badge--provider">Multi-Provider</span>
   </div>
 </div>
 
@@ -31,16 +31,16 @@ In Batak Toba culture, the *harbangan* is the gate of the traditional house — 
 
 This gateway embodies the same philosophy:
 
-- **Cosmic boundary** — The *harbangan* separates the three realms of Batak cosmology. This gateway sits at the boundary between your client code and provider backends, translating between OpenAI and Anthropic formats on either side. In Proxy-Only Mode, Kiro is the sole backend. In Full Deployment, GitHub Copilot can also be connected.
+- **Cosmic boundary** — The *harbangan* separates the three realms of Batak cosmology. This gateway sits at the boundary between your client code and multiple provider backends (Kiro, Anthropic, OpenAI Codex, Copilot, Custom), translating between OpenAI and Anthropic formats on either side.
 - **Guardian of social order** — The Batak gate enforces *Dalihan Na Tolu*, the three-pillar kinship system that governs who may enter and how. Harbangan enforces multi-user RBAC: Google SSO, per-user API keys, admin/user roles, and domain allowlisting decide what passes through.
-- **Ritual transition** — Crossing a *harbangan* signals a shift in status. Requests crossing this gateway undergo their own transformation: format conversion, content guardrails (CEL rules + AWS Bedrock), and MCP tool injection before reaching the other side.
+- **Ritual transition** — Crossing a *harbangan* signals a shift in status. Requests crossing this gateway undergo their own transformation: format conversion, content guardrails (CEL rules + AWS Bedrock), and provider routing before reaching the other side.
 - **Openness as moral virtue** — In Batak ethics, a gate that is always open signals generosity and communal spirit. This one is open source, and in proxy-only mode, a single container is all you need to open the gate.
 
 > Further reading on Batak Toba philosophy: [Form and Meaning of Batak Toba House](https://repository.petra.ac.id/18044/1/Publikasi1_03007_4499.pdf) · [Dalihan Na Tolu: Vision of Integrity](https://journalppw.com/index.php/jpsp/article/download/12366/8016/14827) · [Batak Cultural Values](https://ojs.unimal.ac.id/mspr/article/download/10948/4863)
 
 ## How It Works
 
-Harbangan sits between your existing AI client code and multiple provider backends. Send requests in OpenAI or Anthropic format -- the gateway translates them on the fly, handles per-user authentication with role-based access control, applies content guardrails, injects MCP tools, and streams responses back in the format your client expects.
+Harbangan sits between your existing AI client code and multiple provider backends. Send requests in OpenAI or Anthropic format -- the gateway translates them on the fly, handles per-user authentication with role-based access control, applies content guardrails, and streams responses back in the format your client expects.
 
 ```mermaid
 flowchart TD
@@ -53,30 +53,37 @@ flowchart TD
         subgraph GW["Backend"]
             MW["Middleware\n(CORS, Auth)"]
             GUARD["Guardrails\n(CEL + Bedrock)"]
-            MCP_INJ["MCP Tools"]
             CONV["Format Converters"]
             STREAM["Stream Parser"]
         end
     end
 
     subgraph Providers["Provider Backends"]
-        KIRO["Kiro API\n(CodeWhisperer)\n[all modes]"]
-        COPILOT["GitHub Copilot\n[Full Deployment only]"]
+        KIRO["Kiro API\n(CodeWhisperer)"]
+        ANTHROPIC["Anthropic API"]
+        OPENAI["OpenAI API"]
+        COPILOT["GitHub Copilot"]
+        CUSTOM["Custom Endpoint"]
     end
 
     subgraph Auth["Authentication"]
-        SSO["Google SSO"]
+        SSO["Google SSO / Password+2FA"]
     end
 
     OAI --> MW
     ANT --> MW
     MW --> GUARD
-    GUARD --> MCP_INJ
-    MCP_INJ --> CONV
+    GUARD --> CONV
     CONV --> KIRO
+    CONV --> ANTHROPIC
+    CONV --> OPENAI
     CONV --> COPILOT
+    CONV --> CUSTOM
     KIRO --> STREAM
+    ANTHROPIC --> STREAM
+    OPENAI --> STREAM
     COPILOT --> STREAM
+    CUSTOM --> STREAM
     STREAM --> OAI
     STREAM --> ANT
     GW -.-> SSO
@@ -95,7 +102,7 @@ flowchart TD
   </div>
   <div class="feature-card" data-cat="provider">
     <h3><span class="fc-icon">&#9670;</span> Multi-Provider</h3>
-    <p>Connect to Kiro (AWS CodeWhisperer) and GitHub Copilot backends with per-user credentials and automatic token refresh. <em>Copilot requires Full Deployment.</em></p>
+    <p>Connect to Kiro (AWS CodeWhisperer), Anthropic, OpenAI Codex, GitHub Copilot, and custom endpoints with per-user credentials and automatic token refresh. All providers work in both deployment modes.</p>
   </div>
   <div class="feature-card" data-cat="core">
     <h3><span class="fc-icon">&sim;</span> Real-time Streaming</h3>
@@ -103,15 +110,11 @@ flowchart TD
   </div>
   <div class="feature-card" data-cat="security">
     <h3><span class="fc-icon">&#9899;</span> Multi-User RBAC</h3>
-    <p>Google SSO for web UI, per-user API keys for programmatic access. Admin and User roles with domain allowlisting.</p>
+    <p>Google SSO or password + TOTP 2FA for web UI, per-user API keys for programmatic access. Admin and User roles with domain allowlisting.</p>
   </div>
   <div class="feature-card" data-cat="core">
     <h3><span class="fc-icon">&#10023;</span> Extended Thinking</h3>
     <p>Extracts reasoning blocks from model responses and maps them to native thinking/reasoning content fields.</p>
-  </div>
-  <div class="feature-card" data-cat="core">
-    <h3><span class="fc-icon">&#8644;</span> MCP Gateway</h3>
-    <p>Connect external MCP tool servers over HTTP, SSE, or STDIO. Tools are automatically discovered and injected into chat requests.</p>
   </div>
   <div class="feature-card" data-cat="security">
     <h3><span class="fc-icon">&#9681;</span> Content Guardrails</h3>
@@ -119,7 +122,7 @@ flowchart TD
   </div>
   <div class="feature-card" data-cat="feature">
     <h3><span class="fc-icon">&#9638;</span> Web Dashboard</h3>
-    <p>Built-in CRT-styled web UI for configuration, user management, API keys, provider setup, and real-time log streaming.</p>
+    <p>Built-in CRT-styled web UI for configuration, user management, API keys, provider setup, and usage tracking.</p>
   </div>
   <div class="feature-card" data-cat="feature">
     <h3><span class="fc-icon">&#9654;</span> Proxy-Only Mode</h3>

@@ -48,7 +48,7 @@ cd /Users/hikennoace/ai-gateway/harbangan/e2e-tests && npm run test:ui   # Brows
 
 ### Test Environment
 - Frontend: `http://localhost:5173` (Vite dev server)
-- Backend API: `http://localhost:8000`
+- Backend API: `http://localhost:9999`
 - Base path: `/_ui`
 
 ### Pages to Test

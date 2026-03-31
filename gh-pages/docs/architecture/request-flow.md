@@ -9,7 +9,7 @@ permalink: /architecture/request-flow/
 # Request Flow
 {: .no_toc }
 
-This page traces the complete lifecycle of a request through Kiro Gateway — from the moment a client sends an HTTP request to the final SSE event delivered back. Both OpenAI and Anthropic request paths are covered, along with streaming vs non-streaming differences and error handling at each stage.
+This page traces the complete lifecycle of a request through Harbangan Gateway — from the moment a client sends an HTTP request to the final SSE event delivered back. Both OpenAI and Anthropic request paths are covered, along with streaming vs non-streaming differences and error handling at each stage.
 
 ## Table of Contents
 {: .no_toc .text-delta }
@@ -315,6 +315,9 @@ The streaming functions (`stream_kiro_to_openai()`, `stream_kiro_to_anthropic()`
 #### Non-Streaming Path
 
 For non-streaming requests, `collect_openai_response()` or `collect_anthropic_response()` consumes the entire event stream and aggregates it into a single JSON response object. The Kiro API does not have a non-streaming mode — the gateway simulates it by collecting the stream.
+
+{: .note }
+> The streaming pipeline described above is specific to the **Kiro provider path**. For **direct providers** (Anthropic, OpenAI Codex, Copilot, Custom), the response is a standard SSE stream parsed by `streaming/sse.rs` (`parse_sse_stream()`). Cross-format translation (e.g., OpenAI SSE chunks to Anthropic stream events) is handled by `streaming/cross_format.rs`. See the [Streaming & Event Parsing](streaming/) page for details on both parsers.
 
 ### Step 12.5: Output Guardrails (Non-Streaming Only)
 

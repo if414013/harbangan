@@ -12,7 +12,7 @@ permalink: /architecture/
 Harbangan is an AI proxy gateway that exposes OpenAI and Anthropic-compatible APIs backed by Kiro (AWS CodeWhisperer). It supports two deployment modes:
 
 - **Proxy-Only Mode** (`docker-compose.gateway.yml`) — A single backend container with no database or web UI. Supports all providers (Kiro, Anthropic, OpenAI Codex, Copilot, Custom) via environment variables. Uses a single `PROXY_API_KEY` for authentication. Best for personal use.
-- **Full Deployment** (`docker-compose.yml`) — Three docker-compose services: PostgreSQL database, Rust backend (plain HTTP), and Vite frontend dev server. Supports multi-user with Google SSO, per-user API keys, and per-user Kiro credential management. Best for teams and development. Production targets Kubernetes.
+- **Full Deployment** (`docker-compose.yml`) — Three docker-compose services: PostgreSQL database, Rust backend (plain HTTP), and nginx frontend server. Supports multi-user with Google SSO, per-user API keys, and per-user Kiro credential management. Best for teams and development. Production targets Kubernetes.
 
 Both modes share the same Rust backend binary — `GATEWAY_MODE=proxy` activates the proxy-only path.
 
@@ -35,13 +35,13 @@ flowchart TB
     subgraph Clients["Client Applications"]
         OAI["OpenAI-compatible Client<br/>(e.g. Cursor, Continue, OpenCode)"]
         ANT["Anthropic-compatible Client<br/>(e.g. Claude Code, Aider)"]
-        BROWSER["Web Browser<br/>(Admin Dashboard)"]
+        BROWSER["Web Browser<br/>(Web UI)"]
     end
 
     subgraph Docker["Docker Compose"]
-        subgraph Vite["Frontend (Vite, :5173)"]
+        subgraph Frontend["Frontend (nginx, :5173)"]
             SPA["React SPA<br/><i>/_ui/*</i>"]
-            PROXY_UI["Dev Proxy<br/><i>/_ui/api/* → backend</i>"]
+            PROXY_UI["Reverse Proxy<br/><i>/_ui/api/* → backend</i>"]
         end
 
         subgraph Gateway["Backend (Axum + Tokio, HTTP :9999)"]
@@ -185,11 +185,11 @@ The Full Deployment runs as three docker-compose services:
 |---------|-------|---------|
 | `db` | PostgreSQL 16 | Persistent storage for config, users, API keys, Kiro credentials |
 | `backend` | Custom (Rust) | Axum API server on port 9999 (plain HTTP) |
-| `frontend` | Custom (Vite) | Dev server serving React SPA, proxies API to backend |
+| `frontend` | Custom (nginx) | nginx serving built React SPA, proxies API to backend |
 
 ```
-frontend (Vite, :5173)
-  ├── /_ui/*           → React SPA (hot reload)
+frontend (nginx, :5173)
+  ├── /_ui/*           → React SPA (static assets)
   └── /_ui/api/*       → proxy → backend:9999
 backend (:9999)        → Rust API server (plain HTTP)
 db                     → PostgreSQL 16

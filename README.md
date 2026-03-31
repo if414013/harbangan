@@ -17,9 +17,9 @@ In Batak Toba culture, the *harbangan* is the gate of the traditional house — 
 
 This gateway embodies the same philosophy:
 
-- **Cosmic boundary** — The *harbangan* separates the three realms of Batak cosmology. This gateway sits at the boundary between your client code and multiple provider backends (Kiro, Copilot), translating between OpenAI and Anthropic formats on either side.
+- **Cosmic boundary** — The *harbangan* separates the three realms of Batak cosmology. This gateway sits at the boundary between your client code and multiple provider backends (Kiro, Anthropic, OpenAI Codex, Copilot, Custom), translating between OpenAI and Anthropic formats on either side.
 - **Guardian of social order** — The Batak gate enforces *Dalihan Na Tolu*, the three-pillar kinship system that governs who may enter and how. Harbangan enforces multi-user RBAC: Google SSO, per-user API keys, admin/user roles, and domain allowlisting decide what passes through.
-- **Ritual transition** — Crossing a *harbangan* signals a shift in status. Requests crossing this gateway undergo their own transformation: format conversion, content guardrails (CEL rules + AWS Bedrock), and MCP tool injection before reaching the other side.
+- **Ritual transition** — Crossing a *harbangan* signals a shift in status. Requests crossing this gateway undergo their own transformation: format conversion, content guardrails (CEL rules + AWS Bedrock), and provider routing before reaching the other side.
 - **Openness as moral virtue** — In Batak ethics, a gate that is always open signals generosity and communal spirit. This one is open source, and in proxy-only mode, a single container is all you need to open the gate.
 
 > Further reading on Batak Toba philosophy: [Form and Meaning of Batak Toba House](https://repository.petra.ac.id/18044/1/Publikasi1_03007_4499.pdf) · [Dalihan Na Tolu: Vision of Integrity](https://journalppw.com/index.php/jpsp/article/download/12366/8016/14827) · [Batak Cultural Values](https://ojs.unimal.ac.id/mspr/article/download/10948/4863)
@@ -57,6 +57,7 @@ Requires per-user OAuth tokens configured in the Web UI. Use the `provider/model
 | Anthropic | `anthropic/` | Claude family (direct API, bypasses Kiro) |
 | OpenAI Codex | `openai_codex/` | `gpt-4`, `o1-*`, `o3-*`, `o4-*`, `chatgpt-*` |
 | GitHub Copilot | `copilot/` | Copilot models |
+| Custom | `custom/` | Any OpenAI-compatible endpoint |
 
 > Direct providers bypass Kiro entirely and require full deployment with PostgreSQL. See [Client Setup](https://if414013.github.io/harbangan/docs/client-setup) for configuration details.
 
@@ -66,10 +67,9 @@ Requires per-user OAuth tokens configured in the Web UI. Use the `provider/model
 - Real-time SSE streaming
 - Extended thinking / reasoning
 - Multi-user with Google SSO + per-user API keys
-- MCP Gateway (external tool servers)
 - Content Guardrails (AWS Bedrock)
-- Web dashboard with real-time metrics
-- Proxy-Only Mode (single container, Kiro-only, no DB or Web UI)
+- Web dashboard with usage tracking
+- Proxy-Only Mode (single container, all providers, no DB or Web UI)
 - Optional Datadog APM
 
 ## Quick Start
@@ -78,7 +78,7 @@ Requires per-user OAuth tokens configured in the Web UI. Use the `provider/model
 
 ```bash
 git clone https://github.com/if414013/harbangan.git && cd harbangan
-cp .env.example .env  # edit with your Google OAuth creds
+cp .env.example .env  # edit with your PostgreSQL password
 docker compose up -d  # start all services
 ```
 
