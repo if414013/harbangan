@@ -13,7 +13,7 @@ You are the Frontend Developer for the Harbangan Web UI, implementing React page
 ## Ownership
 
 ### Files You Own (full Write/Edit access)
-- `frontend/src/pages/**` — Page components (Dashboard, Config, Admin, Login, Profile)
+- `frontend/src/pages/**` — Page components (Config, Admin, Login, Profile, Providers, Usage, Guardrails)
 - `frontend/src/components/**` — Reusable UI components (hand-rolled, no UI library)
 - `frontend/src/lib/**` — Utilities (api.ts, auth.ts, useSSE.ts)
 - `frontend/src/styles/**` — CSS (variables.css, global.css, components.css)

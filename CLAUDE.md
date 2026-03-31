@@ -30,11 +30,11 @@ cd backend && cargo build                        # Debug build
 cd backend && cargo build --release              # Release build
 cd backend && cargo clippy                       # Lint — fix ALL warnings before committing
 cd backend && cargo fmt                          # Format
-cd backend && cargo test --lib                   # Unit tests (820+ tests)
+cd backend && cargo test --lib                   # Unit tests (900+ tests)
 cd backend && cargo test --lib <test_name>       # Single test
 cd backend && cargo test --lib <module>::        # All tests in a module
 cd backend && cargo test --lib -- --nocapture    # Show println! output
-cd backend && cargo test --features test-utils   # Integration tests
+cd backend && cargo test --features test-utils   # Integration tests (24 tests)
 ```
 
 ### Frontend
@@ -81,8 +81,8 @@ All runtime config (region, timeouts, debug mode, etc.) is managed via the Web U
 ### Docker Services (Dev)
 
 ```
-frontend (Vite dev server, :5173)
-  ├── /_ui/*           → React SPA (hot reload)
+frontend (nginx, :5173)
+  ├── /_ui/*           → React SPA (static assets)
   └── /_ui/api/*       → proxy → backend:9999
 backend (:9999)        → Rust API server (plain HTTP)
 db                     → PostgreSQL 16
@@ -98,7 +98,7 @@ Client (OpenAI or Anthropic format)
   → converters/ (OpenAI/Anthropic → Kiro format)
   → auth/ (get per-user Kiro access token, auto-refresh)
   → http_client.rs (POST to Kiro API)
-  → streaming/mod.rs (parse AWS Event Stream)
+  → streaming/mod.rs (parse Kiro stream via SseParser / parse direct provider SSE)
   → thinking_parser.rs (extract reasoning blocks)
   → guardrails/ output check (if enabled, non-streaming only)
   → converters/ (Kiro → OpenAI/Anthropic format)
@@ -123,14 +123,13 @@ On first run (no admin user in DB), gateway blocks `/v1/*` with 503 and only ser
 
 ### AppState
 
-Defined in `backend/src/routes/mod.rs`:
+Defined in `backend/src/routes/state.rs`:
+- `proxy_api_key_hash: Option<[u8; 32]>` — pre-hashed API key for proxy-only mode
 - `config: Arc<RwLock<Config>>` — env vars + DB overlay
 - `auth_manager: Arc<tokio::sync::RwLock<AuthManager>>` — Kiro token management
 - `http_client: Arc<KiroHttpClient>` — connection-pooled HTTP client
 - `model_cache: ModelCache` — cached model list from Kiro API
 - `resolver: ModelResolver` — model name alias resolution
-- `metrics: Arc<MetricsCollector>` — request latency/token tracking
-- `log_buffer: Arc<Mutex<VecDeque<LogEntry>>>` — captured logs for SSE streaming
 - `config_db: Option<Arc<ConfigDb>>` — PostgreSQL persistence
 - `setup_complete: Arc<AtomicBool>` — setup wizard state
 - `session_cache: Arc<DashMap<Uuid, SessionInfo>>` — in-memory session cache
@@ -138,23 +137,30 @@ Defined in `backend/src/routes/mod.rs`:
 - `kiro_token_cache: Arc<DashMap<Uuid, (String, String, Instant)>>` — per-user Kiro tokens (4-min TTL)
 - `oauth_pending: Arc<DashMap<String, OAuthPendingState>>` — PKCE state (10-min TTL, 10k cap)
 - `guardrails_engine: Option<Arc<GuardrailsEngine>>` — Content validation engine (CEL rules + Bedrock API)
-- `login_rate_limiter: Arc<LoginRateLimiter>` — per-IP login attempt rate limiting
+- `provider_registry: Arc<ProviderRegistry>` — resolves provider + credentials per user/model (5-min cache)
+- `providers: ProviderMap` — all provider implementations keyed by `ProviderId`
+- `provider_oauth_pending: Arc<DashMap<String, ProviderOAuthPendingState>>` — PKCE state for provider OAuth relay
+- `token_exchanger: Arc<dyn TokenExchanger>` — OAuth token exchange abstraction (mockable)
+- `login_rate_limiter: Arc<DashMap<String, (u32, Instant)>>` — per-email login attempt rate limiting
+- `rate_tracker: Arc<RateLimitTracker>` — per-account rate-limit tracker for multi-account load balancing
+- `proxy_token_manager: Option<Arc<ProxyTokenManager>>` — proxy-mode token lifecycle
 
 ### Key Modules (backend/src/)
 
 - `converters/` — Bidirectional format translation. One file per direction (e.g. `openai_to_kiro.rs`). Shared logic in `core.rs`.
 - `auth/` — Kiro authentication via refresh tokens in PostgreSQL, auto-refreshes before expiry.
-- `streaming/mod.rs` — Parses Kiro's AWS Event Stream binary format into `KiroEvent` variants.
+- `streaming/mod.rs` — Parses Kiro's AWS Event Stream binary format (pattern matching + brace counting) into `KiroEvent` variants. Also includes `sse.rs` for direct provider SSE parsing and `cross_format.rs` for cross-format streaming.
 - `models/` — Request/response types for OpenAI, Anthropic, and Kiro formats.
-- `web_ui/` — Web UI API handlers. Google SSO (`google_auth.rs`), password auth + TOTP 2FA (`password_auth.rs`), session management (`session.rs`), per-user API keys (`api_keys.rs`), per-user Kiro tokens (`user_kiro.rs`), config persistence (`config_db.rs`).
+- `web_ui/` — Web UI API handlers. Google SSO (`google_auth.rs`), password auth + TOTP 2FA (`password_auth.rs`), session management (`session.rs`), per-user API keys (`api_keys.rs`), per-user Kiro tokens (`user_kiro.rs`), config persistence (`config_db.rs`), usage tracking (`usage.rs`), provider OAuth relay (`provider_oauth.rs`).
 - `middleware/` — CORS, API key auth (SHA-256 + cache/DB lookup), debug logging.
 - `guardrails/` — Content safety via AWS Bedrock guardrails (CEL rule engine + Bedrock API). Input/output validation with configurable rules stored in PostgreSQL.
-- `metrics/` — Request latency and token usage tracking (`MetricsCollector`).
+- `providers/` — Multi-provider system: `Provider` trait, `ProviderRegistry` (credential cache + routing), implementations for Kiro, Anthropic, OpenAI Codex, Copilot, Custom.
 - `resolver.rs` — Maps model aliases to canonical Kiro model IDs. Don't hardcode model IDs.
 - `tokenizer.rs` — Token counting via tiktoken (cl100k_base) with Claude correction factor (1.15x).
 - `truncation.rs` — Detects truncated API responses and triggers recovery retries.
 - `cache.rs` — `ModelCache` with TTL-based model metadata caching.
-- `log_capture.rs` — Tracing capture layer for web UI SSE log streaming.
+- `cost.rs` — Token cost calculation and pricing data across providers.
+- `datadog.rs` — Optional Datadog APM integration via OpenTelemetry (zero-overhead when not configured).
 
 ### API Endpoints
 

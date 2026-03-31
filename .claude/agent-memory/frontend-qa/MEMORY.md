@@ -33,7 +33,7 @@
 - **Theme persistence**: localStorage key `harbangan-theme`.
 - **Project ordering**: api-mutating depends on [api, ui-public, ui-authenticated]; ui-admin depends on [api-mutating]
 
-## Test Files (44 total: 22 API + 22 UI)
+## Test Files (54 total: 30 API + 24 UI)
 - See `e2e-tests/specs/api/` and `e2e-tests/specs/ui/` for full list
 - `theme-toggle.spec.ts` — Light/dark mode visual verification, persistence
 - `provider-oauth.spec.ts` — Provider OAuth on Profile page (28 tests)
