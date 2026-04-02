@@ -668,8 +668,14 @@ All web UI API endpoints are under `/_ui/api/`. See the [Web Dashboard](web-ui.h
 | `POST` | `/_ui/api/admin/users/:id/reset-password` | Reset user password |
 | `GET` | `/_ui/api/admin/usage` | Global usage stats |
 | `GET` | `/_ui/api/admin/usage/users` | Per-user usage breakdown |
+| `PATCH` | `/_ui/api/admin/providers/:provider_id` | Enable/disable a provider (Kiro cannot be disabled) |
 | `*` | `/_ui/api/admin/pool/*` | Provider pool accounts (CRUD) |
 | `*` | `/_ui/api/guardrails/*` | Guardrails profile/rule management + test/validate |
+| `GET` | `/_ui/api/models/visibility-defaults` | List all model visibility defaults |
+| `PUT` | `/_ui/api/models/visibility-defaults/:provider_id` | Set visibility defaults for a provider |
+| `DELETE` | `/_ui/api/models/visibility-defaults/:provider_id` | Clear visibility defaults for a provider |
+| `POST` | `/_ui/api/models/visibility-defaults/:provider_id/apply` | Apply visibility defaults for one provider |
+| `POST` | `/_ui/api/models/visibility-defaults/apply-all` | Apply all visibility defaults |
 
 ---
 

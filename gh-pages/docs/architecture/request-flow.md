@@ -119,10 +119,10 @@ sequenceDiagram
         KiroAPI-->>HTTP: AWS Event Stream response
 
         alt Streaming mode
-            loop For each binary frame
+            loop For each stream chunk
                 HTTP-->>StreamParser: Stream chunk
-                StreamParser->>StreamParser: Parse AWS Event Stream binary
-                StreamParser->>StreamParser: Extract assistantResponseEvent JSON
+                StreamParser->>StreamParser: SseParser: pattern match + brace counting
+                StreamParser->>StreamParser: Extract JSON event objects
                 StreamParser->>ThinkParser: Feed content to thinking FSM
                 ThinkParser-->>StreamParser: ThinkingParseResult
                 StreamParser->>OutConverter: Convert KiroEvent to target format
@@ -299,8 +299,8 @@ The Kiro API always returns responses in AWS Event Stream binary format. The str
 
 ```mermaid
 flowchart TD
-    BYTES["Raw bytes from Kiro API"] --> PARSE["parse_aws_event_stream()<br/><i>Binary frame decoding</i>"]
-    PARSE --> EXTRACT["Extract assistantResponseEvent<br/><i>JSON payload from headers</i>"]
+    BYTES["Raw bytes from Kiro API"] --> PARSE["SseParser<br/><i>Pattern matching + brace counting</i>"]
+    PARSE --> EXTRACT["Extract JSON event objects<br/><i>content, tool_use, usage, stop</i>"]
     EXTRACT --> KIRO_EVENT["Build KiroEvent<br/><i>content / tool_use / usage</i>"]
     KIRO_EVENT --> THINKING["ThinkingParser.feed()<br/><i>Detect &lt;thinking&gt; blocks</i>"]
     THINKING --> |thinking_content| REASON["Emit as reasoning_content<br/><i>(OpenAI) or thinking block (Anthropic)</i>"]

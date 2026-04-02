@@ -165,9 +165,9 @@ The default landing page after login. Each user manages their account and securi
 
 Multi-provider management with three tabs:
 
-- **Status** — Provider health cards showing connection status for each configured provider.
-- **Connections** — Connect and manage AI provider accounts via OAuth relay or device code flows (Kiro, Anthropic, OpenAI, Copilot). Per-user provider priority ordering via `/_ui/api/providers/priority`.
-- **Models** — Model registry management. Enable/disable models, populate from providers, delete entries.
+- **Status** — Provider health cards showing connection status for each configured provider. Admin users can enable or disable individual providers via a toggle on each health card (`PATCH /_ui/api/admin/providers/:provider_id`). The Kiro provider cannot be disabled.
+- **Connections** — Connect and manage AI provider accounts via OAuth relay or device code flows (Kiro, Anthropic, OpenAI Codex, Copilot). Per-user provider priority ordering via `/_ui/api/providers/priority`.
+- **Models** — Model registry management. Enable/disable models, populate from providers, delete entries. Admins can configure visibility defaults per provider to control which models are enabled by default when new models are discovered (save, apply, clear via `/_ui/api/models/visibility-defaults`).
 
 ### Usage (`/_ui/usage`)
 
@@ -472,8 +472,10 @@ These require a valid session and CSRF token.
 | `POST` | `/_ui/api/admin/users/:id/reset-password` | Reset user's password |
 | `GET` | `/_ui/api/admin/usage` | Global usage statistics |
 | `GET` | `/_ui/api/admin/usage/users` | Per-user usage breakdown |
+| `PATCH` | `/_ui/api/admin/providers/:provider_id` | Enable/disable a provider |
 | `*` | `/_ui/api/admin/pool/*` | Provider pool account management |
 | `*` | `/_ui/api/admin/guardrails/*` | Guardrails profile/rule management |
+| `*` | `/_ui/api/models/visibility-defaults/*` | Model visibility defaults (CRUD + apply) |
 
 ---
 

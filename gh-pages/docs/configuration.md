@@ -60,6 +60,7 @@ Proxy-Only Mode supports **multiple providers** via environment variables: Kiro 
 | `COPILOT_ENABLED` | `false` | Set to `true` to enable Copilot device flow. |
 | `COPILOT_TOKEN` | _(none)_ | GitHub Copilot token. |
 | `COPILOT_BASE_URL` | `https://api.githubcopilot.com` | Copilot API base URL. |
+| `COPILOT_PERSIST_GITHUB_TOKEN` | `false` | Persist GitHub access token for background Copilot token refresh. |
 
 ### Builder ID vs Identity Center
 
@@ -121,11 +122,7 @@ Google SSO is configured exclusively via the Admin UI after initial login — th
 
 #### Provider OAuth
 
-| Variable | Description | Example |
-|:---|:---|:---|
-| `GITHUB_COPILOT_CLIENT_ID` | GitHub Copilot OAuth client ID. | _(your app's client ID)_ |
-| `GITHUB_COPILOT_CLIENT_SECRET` | GitHub Copilot OAuth client secret. | _(your app's client secret)_ |
-| `GITHUB_COPILOT_CALLBACK_URL` | GitHub Copilot OAuth callback URL. | `http://localhost:9999/_ui/api/copilot/callback` |
+Provider OAuth client IDs (Anthropic, OpenAI) are configured via the Admin UI under Configuration, not via environment variables. Copilot in Full Deployment mode uses the device code flow initiated from the Web UI — no env vars needed.
 
 #### Security
 

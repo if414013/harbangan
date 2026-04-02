@@ -103,7 +103,7 @@ graph TD
 | `main` | `backend/src/main.rs` | Application entry point. Loads config from environment + PostgreSQL, initializes all subsystems (auth, HTTP client, model cache, metrics, log capture, provider registry), builds the Axum router, and starts the HTTP server (default port 8000, overridden to 9999 by docker-compose). |
 | `lib` | `backend/src/lib.rs` | Library root. Re-exports all public modules for use by integration tests. |
 | `config` | `backend/src/config.rs` | Configuration management. Defines `Config` struct with all runtime settings, `DebugMode` and `FakeReasoningHandling` enums. Loads from environment variables + `.env` file, with PostgreSQL overlay for runtime config changes via the Web UI. |
-| `error` | `backend/src/error.rs` | Error types. Defines `ApiError` enum (`AuthError`, `InvalidModel`, `KiroApiError`, `ConfigError`, `ValidationError`, `Internal`) with `IntoResponse` implementation that maps each variant to an HTTP status code and JSON error body. |
+| `error` | `backend/src/error.rs` | Error types. Defines `ApiError` enum with 21 variants (including `AuthError`, `InvalidModel`, `KiroApiError`, `ValidationError`, `Internal`, `Forbidden`, `GuardrailBlocked`, `GuardrailWarning`, `ProviderApiError`, `ProviderDisabled`, `ModelDisabled`, `AccountLocked`, `RateLimited`, and others) with `IntoResponse` implementation that maps each variant to an HTTP status code and JSON error body. |
 
 ### Request Handling
 
@@ -161,6 +161,7 @@ graph TD
 | `resolver` | `backend/src/resolver.rs` | Model name resolution. `ModelResolver` maps model name aliases (e.g. `claude-sonnet-4.5`) to canonical Kiro model IDs. Checks the model cache first, then falls back to pattern matching. |
 | `cache` | `backend/src/cache.rs` | `ModelCache` — thread-safe cache for the model list fetched from the Kiro API at startup. Provides `get_all_model_ids()` and `update()` methods. Configurable TTL. |
 | `cost` | `backend/src/cost.rs` | Token cost calculation. Provides pricing data and cost estimation for requests across providers. |
+| `proxy_token_manager` | `backend/src/proxy_token_manager.rs` | File-based token persistence and background refresh for proxy-only mode. Manages `/data/tokens.json` with atomic writes. Stores OAuth tokens for Anthropic/OpenAI and Copilot session tokens. Refreshes proactively 300s before expiry, checks every 60s. Shares a `DashMap<ProviderId, ProviderCredentials>` with `ProviderRegistry`. |
 | `datadog` | `backend/src/datadog.rs` | Datadog APM integration via OpenTelemetry. Configures OTLP trace and metric exporters when `DD_AGENT_HOST` is set. Zero-overhead when not configured. |
 | `utils` | `backend/src/utils.rs` | Miscellaneous utility functions shared across modules. |
 
@@ -176,7 +177,7 @@ graph TD
 | `web_ui::user_kiro` | `backend/src/web_ui/user_kiro.rs` | Per-user Kiro credential management. Endpoints for storing and updating each user's Kiro refresh token, client ID, client secret, and region. |
 | `web_ui::users` | `backend/src/web_ui/users.rs` | User administration (admin-only). Endpoints for listing users, changing roles, and removing users. |
 | `web_ui::config_api` | `backend/src/web_ui/config_api.rs` | Config field validation and metadata. `classify_config_change()` determines if a field change can be hot-reloaded or requires restart. `validate_config_field()` validates types and ranges. `get_config_field_descriptions()` provides human-readable descriptions for the config UI. |
-| `web_ui::config_db` | `backend/src/web_ui/config_db.rs` | `ConfigDb` — PostgreSQL-backed configuration persistence using `sqlx`. Auto-creates `config`, `config_history`, and `schema_version` tables. Provides `get/set/get_all`, `load_into_config()` overlay, `save_initial_setup()`, `save_oauth_setup()`, and `get_history()` with automatic pruning (keeps last 1000 entries). All writes are transactional. |
+| `web_ui::config_db` | `backend/src/web_ui/config_db.rs` | `ConfigDb` — PostgreSQL-backed configuration persistence using `sqlx`. Manages 23 tables across 25 migration versions (auto-applied on startup). Provides `get/set/get_all`, `load_into_config()` overlay, `save_initial_setup()`, `save_oauth_setup()`, and `get_history()` with automatic pruning (keeps last 1000 entries). All writes are transactional. |
 | `web_ui::copilot_auth` | `backend/src/web_ui/copilot_auth.rs` | GitHub Copilot OAuth flow. Two-step process: GitHub OAuth for user authorization, then Copilot-specific token exchange via `copilot_internal/v2/token`. Stores Copilot token + base URL in DB and `copilot_token_cache`. |
 | `web_ui::password_auth` | `backend/src/web_ui/password_auth.rs` | Password authentication with mandatory TOTP 2FA. Handles login (`POST /auth/login`), 2FA verification (`POST /auth/login/2fa`), TOTP setup/verify, password change, recovery codes (8 alphanumeric, SHA-256 hashed), and admin user creation/password reset. Includes per-email rate limiting (5 attempts, 15-min lockout). |
 | `web_ui::usage` | `backend/src/web_ui/usage.rs` | Usage tracking endpoints. Per-user usage (`GET /usage`) and admin usage views (`GET /admin/usage`, `GET /admin/usage/users`) with date range filtering and group-by (day/model/provider). |
@@ -184,7 +185,11 @@ graph TD
 | `web_ui::model_registry` | `backend/src/web_ui/model_registry.rs` | Model registry data layer. Manages admin-configured model entries in PostgreSQL. |
 | `web_ui::model_registry_handlers` | `backend/src/web_ui/model_registry_handlers.rs` | Model registry HTTP handlers. CRUD endpoints for model registry entries (`GET/PATCH/DELETE /models/registry`, `POST /models/registry/populate`). |
 | `web_ui::crypto` | `backend/src/web_ui/crypto.rs` | Encryption utilities. AES-256-GCM encryption for sensitive configuration values stored in PostgreSQL. Uses `CONFIG_ENCRYPTION_KEY` environment variable. |
-| `web_ui::provider_oauth` | `backend/src/web_ui/provider_oauth.rs` | Provider OAuth relay for Anthropic (PKCE flow). Defines `TokenExchanger` trait (mockable for tests), `ProviderOAuthPendingState`, and OAuth config per provider. Handles authorization redirect, code exchange, and token storage in `user_provider_tokens`. |
+| `web_ui::provider_oauth` | `backend/src/web_ui/provider_oauth.rs` | Provider OAuth relay for Anthropic (PKCE flow). Defines `TokenExchanger` trait (mockable for tests), `ProviderOAuthPendingState`, and OAuth config per provider. Handles authorization redirect, code exchange, and token storage in `user_provider_tokens`. Also includes `toggle_provider_enabled()` handler for admin provider enable/disable (`PATCH /admin/providers/:provider_id`). |
+| `web_ui::provider_priority` | `backend/src/web_ui/provider_priority.rs` | Per-user provider priority ordering. Endpoints for getting and updating the priority order in which providers are tried for each user. |
+| `web_ui::proxy_relay` | `backend/src/web_ui/proxy_relay.rs` | Proxy relay endpoints for provider OAuth flows in gateway mode. Serves relay scripts and handles relay callbacks for browser-based OAuth. |
+| `web_ui::model_visibility_handlers` | `backend/src/web_ui/model_visibility_handlers.rs` | Admin-only CRUD handlers for model visibility defaults per provider. Allows admins to define which models are visible by default and apply those defaults to the model registry. Routes: `GET/PUT/DELETE /models/visibility-defaults`, `POST .../apply`, `POST .../apply-all`. |
+| `web_ui::static_models` | `backend/src/web_ui/static_models.rs` | Static fallback model lists for Anthropic and OpenAI Codex providers. Used when model registry populate cannot reach a provider API, ensuring a baseline set of known models is always available. |
 
 ### Guardrails
 
@@ -252,11 +257,12 @@ All request handlers receive shared application state via Axum's `State` extract
 - `oauth_pending: Arc<DashMap<String, OAuthPendingState>>` — PKCE state (10-min TTL, 10k cap)
 - `guardrails_engine: Option<Arc<GuardrailsEngine>>` — Content validation engine (None when disabled or no DB)
 - `provider_registry: Arc<ProviderRegistry>` — resolves provider + credentials per user/model (5-min credential cache)
-- `providers: ProviderMap` — all providers (including Kiro), keyed by `ProviderId`
+- `providers: ProviderMap` — all non-Kiro providers, keyed by `ProviderId`
 - `provider_oauth_pending: Arc<DashMap<String, ProviderOAuthPendingState>>` — PKCE state for provider OAuth relay (separate from Google SSO)
 - `token_exchanger: Arc<dyn TokenExchanger>` — OAuth token exchange abstraction (mockable for tests)
 - `login_rate_limiter: Arc<DashMap<String, (u32, Instant)>>` — per-email rate limiting for password login (5 attempts, 15-min lockout)
 - `rate_tracker: Arc<RateLimitTracker>` — per-account rate-limit tracker for multi-account load balancing
+- `proxy_token_manager: Option<Arc<ProxyTokenManager>>` — file-based token manager for proxy mode (None in full deployment mode)
 
 ### Request Guard
 

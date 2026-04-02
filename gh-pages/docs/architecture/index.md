@@ -87,7 +87,7 @@ flowchart TB
             end
 
             subgraph Stream["Streaming Pipeline"]
-                PARSER["AWS Event Stream<br/>Binary Parser"]
+                PARSER["SseParser<br/>Text-Based JSON Extraction"]
                 THINK["ThinkingParser<br/><i>FSM for &lt;thinking&gt; tags</i>"]
                 SSE["SSE Formatter"]
                 TRUNC["Truncation Recovery"]
@@ -223,6 +223,7 @@ classDiagram
         +Arc~dyn TokenExchanger~ token_exchanger
         +Arc~DashMap~ login_rate_limiter
         +Arc~RateLimitTracker~ rate_tracker
+        +Option~Arc~ProxyTokenManager~~ proxy_token_manager
     }
 
     class ModelCache {
@@ -299,6 +300,7 @@ Key design decisions for AppState:
 - `provider_oauth_pending` stores PKCE state for provider OAuth relay flows (Anthropic), separate from Google SSO's `oauth_pending`.
 - `login_rate_limiter` tracks per-email login attempt counts for password auth rate limiting (5 attempts, 15-min lockout).
 - `rate_tracker` tracks per-account rate limits for multi-account load balancing across providers.
+- `proxy_token_manager` manages file-based token persistence for proxy mode (None in full deployment mode).
 
 ---
 

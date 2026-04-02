@@ -45,7 +45,7 @@ A single container running the Rust backend. No database or web UI. **Supports a
 
 | Service | Image | Purpose |
 |:---|:---|:---|
-| `gateway` | `harbangan-backend:latest` (built locally) | Rust API server on configurable port (default 8000) |
+| `gateway` | `ghcr.io/if414013/harbangan-backend:latest` | Rust API server on configurable port (default 8000) |
 
 ### Prerequisites
 
@@ -365,19 +365,33 @@ The gateway uses PostgreSQL for persistent storage of:
 
 ### Database tables
 
-Tables are created automatically on first connection. Key tables include:
+Tables are created automatically on first connection via an incremental migration system (25 versions). Key tables include:
 
 | Table | Purpose |
 |:---|:---|
-| `users` | User accounts (Google SSO identity, role, status) |
+| `users` | User accounts (identity, role, status, auth method) |
 | `api_keys` | Per-user API keys (SHA-256 hashed, with labels) |
-| `user_kiro_credentials` | Per-user Kiro refresh tokens |
-| `user_provider_credentials` | Per-user provider credentials (Copilot) |
+| `sessions` | Persistent user sessions |
+| `user_kiro_tokens` | Per-user Kiro refresh tokens |
+| `user_provider_tokens` | Per-user provider credentials (Anthropic, OpenAI, Copilot) |
 | `user_provider_priority` | Per-user provider priority ordering |
+| `user_copilot_tokens` | Copilot-specific token storage |
+| `user_provider_keys` | Per-user provider API keys |
+| `admin_provider_pool` | Shared provider accounts (admin pool) |
+| `model_registry` | Admin-configured model entries |
+| `model_visibility_defaults` | Default model visibility settings per provider |
+| `model_routes` | Model-to-provider routing rules |
+| `provider_settings` | Provider configuration (enabled/disabled state, OAuth client IDs) |
 | `config` | Key-value configuration store |
 | `config_history` | Audit log of configuration changes |
+| `schema_version` | Database migration tracking |
+| `allowed_domains` | Google SSO domain allowlist |
+| `usage_records` | Token usage tracking per request |
+| `pending_2fa_logins` | Temporary 2FA login tokens (5-min TTL) |
+| `totp_recovery_codes` | TOTP recovery codes (SHA-256 hashed) |
 | `guardrail_profiles` | AWS Bedrock guardrail profiles (credentials encrypted) |
 | `guardrail_rules` | Guardrail rules (CEL expressions, sampling, timeouts) |
+| `guardrail_rule_profiles` | Many-to-many mapping of rules to profiles |
 
 ### Connection string
 
@@ -449,9 +463,12 @@ INFO kiro_gateway::routes: Request to /v1/chat/completions: model=claude-sonnet-
 
 ## Datadog APM (Optional)
 
-Both deployment modes support an optional Datadog Agent sidecar for distributed tracing, metrics, log forwarding, and frontend RUM. The integration is zero-overhead when not configured — when `DD_AGENT_HOST` is unset, no Datadog code runs.
+Harbangan supports Datadog APM for distributed tracing, metrics, log forwarding, and frontend RUM. The integration is zero-overhead when not configured — when `DD_AGENT_HOST` is unset, no Datadog code runs.
 
-### Step 1: Configure Datadog environment variables
+{: .note }
+> Datadog APM is intended for production/Kubernetes deployments where a Datadog Agent is running separately. There is no `--profile datadog` in the Docker Compose files. Set `DD_AGENT_HOST` manually to point at your Datadog Agent.
+
+### Configure Datadog environment variables
 
 Add to your `.env` (Full Deployment) or `.env.proxy` (Proxy-Only):
 
@@ -477,29 +494,9 @@ VITE_DD_ENV=production
 | `VITE_DD_CLIENT_TOKEN` | No | | RUM client token (baked into frontend bundle at build time) |
 | `VITE_DD_APPLICATION_ID` | No | | RUM application ID (baked into frontend bundle at build time) |
 
-### Step 2: Start with the Datadog profile
+### Verify Datadog connectivity
 
-Add `--profile datadog` to your compose command:
-
-```bash
-# Full Deployment
-docker compose --profile datadog up -d
-
-# Proxy-Only
-docker compose -f docker-compose.gateway.yml --profile datadog --env-file .env.proxy up -d
-```
-
-The `datadog-agent` service starts alongside the gateway and receives traces via OTLP on port 4317. `DD_AGENT_HOST` is set automatically by docker-compose.
-
-### Step 3: Verify
-
-```bash
-# Check agent is running
-docker compose ps datadog-agent
-
-# Check agent logs for connectivity
-docker compose logs datadog-agent | grep -i "connected\|error"
-```
+Once your Datadog Agent is running and `DD_AGENT_HOST` is set in the backend's environment, traces appear in your Datadog APM dashboard within ~30 seconds of the first request.
 
 Traces appear in your Datadog APM dashboard within ~30 seconds of the first request.
 
