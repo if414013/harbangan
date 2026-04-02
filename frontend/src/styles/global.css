@@ -6,12 +6,18 @@
   padding: 0;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   background: var(--bg);
   font-family: var(--font-mono);
   color: var(--text);
   line-height: 1.5;
-  min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -28,7 +34,7 @@ body::before {
     rgba(0, 0, 0, 0.04) 4px
   );
   pointer-events: none;
-  z-index: 9999;
+  z-index: 100;
 }
 
 /* Vignette + dot-grid */
