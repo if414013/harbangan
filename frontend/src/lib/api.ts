@@ -310,6 +310,7 @@ export interface ProviderRegistryEntry {
   display_name: string;
   category: "device_code" | "oauth_relay" | "custom";
   supports_pool: boolean;
+  enabled: boolean;
 }
 
 export function getProviderRegistry() {
@@ -403,6 +404,17 @@ export function toggleAdminPoolAccount(id: string, enabled: boolean) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
   });
+}
+
+export function toggleProviderEnabled(providerId: string, enabled: boolean) {
+  return apiFetch<{ provider_id: string; enabled: boolean }>(
+    `/admin/providers/${providerId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    },
+  );
 }
 
 // --- User Provider Accounts API ---

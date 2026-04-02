@@ -18,6 +18,7 @@ import {
   setVisibilityDefaults,
   deleteVisibilityDefaults,
   applyVisibilityDefaults,
+  toggleProviderEnabled,
 } from "../lib/api";
 import type {
   ProvidersStatusResponse,
@@ -215,6 +216,20 @@ export function Providers() {
     setActiveTab("connections");
   }
 
+  async function handleProviderToggle(providerId: string, enabled: boolean) {
+    try {
+      await toggleProviderEnabled(providerId, enabled);
+      setRegistry((prev) =>
+        prev.map((p) => (p.id === providerId ? { ...p, enabled } : p)),
+      );
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Failed to toggle provider",
+        "error",
+      );
+    }
+  }
+
   async function handleSaveDefaults(providerId: string, modelIds: string[]) {
     try {
       await setVisibilityDefaults(providerId, modelIds);
@@ -295,6 +310,8 @@ export function Providers() {
           onNavigate={handleNavigateToConnections}
           allProviders={allProviders}
           registry={registry}
+          isAdmin={isAdmin}
+          onProviderToggle={handleProviderToggle}
         />
       )}
       {activeTab === "connections" && (

@@ -18,6 +18,8 @@ interface StatusTabProps {
   onNavigate: (providerId: string) => void;
   allProviders: string[];
   registry: ProviderRegistryEntry[];
+  isAdmin: boolean;
+  onProviderToggle: (providerId: string, enabled: boolean) => void;
 }
 
 export function StatusTab({
@@ -30,6 +32,8 @@ export function StatusTab({
   onNavigate,
   allProviders,
   registry,
+  isAdmin,
+  onProviderToggle,
 }: StatusTabProps) {
   function isConnected(id: string): boolean {
     if (id === "kiro") return kiroConnected;
@@ -61,10 +65,13 @@ export function StatusTab({
             name={providerDisplayName(p, registry)}
             providerId={p}
             connected={isConnected(p)}
+            enabled={registry.find((r) => r.id === p)?.enabled ?? true}
+            isAdmin={isAdmin}
             modelCount={getModelCount(p)}
             accountCount={getAccountCount(p)}
             rateLimits={getRateLimits(p)}
             onClick={() => onNavigate(p)}
+            onToggle={(enabled) => onProviderToggle(p, enabled)}
           />
         ))}
       </div>
