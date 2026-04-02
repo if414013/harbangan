@@ -231,7 +231,7 @@ On first launch (no admin user in the database), the gateway operates in **setup
 | `admin_provider_pool` | Shared provider accounts (admin pool) |
 | `model_registry` | Admin-configured model entries |
 | `model_visibility_defaults` | Default model visibility settings |
-| `provider_settings` | Provider configuration (OAuth client IDs, etc.) |
+| `provider_settings` | Per-provider enabled/disabled state (admin toggle) |
 | `config` | Key-value runtime configuration |
 | `config_history` | Audit log of configuration changes |
 | `schema_version` | Database migration tracking |

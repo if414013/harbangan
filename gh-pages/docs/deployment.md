@@ -381,7 +381,7 @@ Tables are created automatically on first connection via an incremental migratio
 | `model_registry` | Admin-configured model entries |
 | `model_visibility_defaults` | Default model visibility settings per provider |
 | `model_routes` | Model-to-provider routing rules |
-| `provider_settings` | Provider configuration (enabled/disabled state, OAuth client IDs) |
+| `provider_settings` | Per-provider enabled/disabled state (admin toggle) |
 | `config` | Key-value configuration store |
 | `config_history` | Audit log of configuration changes |
 | `schema_version` | Database migration tracking |
