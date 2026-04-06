@@ -13,7 +13,7 @@
     "test:setup": "npx playwright codegen --ignore-https-errors --save-storage=.auth/session.json https://localhost/_ui/"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
+    "@anthropic-ai/sdk": "^0.80.0",
     "@playwright/test": "^1.52.0",
     "dotenv": "^17.3.1",
     "openai": "^4.80.0",
